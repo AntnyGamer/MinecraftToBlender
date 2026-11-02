@@ -23,7 +23,10 @@ $worldDir = Join-Path $work 'world_source'
 $chunkSize = 16
 $enableGeometrySubsets = $true
 $enableFaceOptimization = $false
-$exportDir = Join-Path (Join-Path $work 'exports') $ExportName
+$finalExportDir = Join-Path (Join-Path $work 'exports') $ExportName
+# Always export into a unique, empty directory. Never let leftover chunk files
+# from a previous run hide missing geometry in a failed or partial export.
+$exportDir = Join-Path (Join-Path $work 'exports') ('.staging_' + $ExportName + '_' + [guid]::NewGuid().ToString('N'))
 $exportFile = "$ExportName.usd"
 if($MinY -gt $MaxY) { throw 'MinY must be less than or equal to MaxY.' }
 if(($Size % 16) -ne 0) { throw 'Size must be a multiple of 16 (Minecraft chunk width).' }
@@ -96,6 +99,23 @@ function Finish-CapturedProcess($capture) {
         $capture.OutFile.Dispose()
         $capture.ErrFile.Dispose()
         $capture.Process.Dispose()
+    }
+}
+function Publish-Export([string]$stage,[string]$destination) {
+    # Move a valid new export into place. If publication fails, restore the
+    # previous result; the current export is never mixed with stale chunk files.
+    $backup = $destination + '.previous_' + [guid]::NewGuid().ToString('N')
+    $hadPrevious = Test-Path -LiteralPath $destination
+    if($hadPrevious) { Move-Item -LiteralPath $destination -Destination $backup -ErrorAction Stop }
+    try {
+        Move-Item -LiteralPath $stage -Destination $destination -ErrorAction Stop
+    } catch {
+        if($hadPrevious) { Move-Item -LiteralPath $backup -Destination $destination -ErrorAction Stop }
+        throw
+    }
+    if($hadPrevious) {
+        try { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction Stop }
+        catch { Write-Warning ("Previous export backup could not be removed: " + $backup) }
     }
 }
 function Abort([string]$reason) {throw $reason}
@@ -529,6 +549,20 @@ try {
             Write-Warning 'No Blender executable detected. Skipping optional lossless Crate conversion; ASCII USD remains intact.'
         }
     }
+    # A successful Java exit code is insufficient if the output is missing
+    # companion files. Refuse to publish an incomplete replacement.
+    if(-not $materialsFound -or -not $materialsUsdFound -or $chunkCount -eq 0) {
+        Abort 'MiEx export is missing material or chunk USD files. The previous export was preserved.'
+    }
+    # Ensure texture definitions are portable before relocating the stage.
+    $matText = [System.IO.File]::ReadAllText($materialsJson)
+    if($matText.Contains($exportDir + '\') -or $matText.Contains(($exportDir -replace '\\', '/'))) {
+        Abort 'Materials reference the temporary export path; refusing to publish a broken import.'
+    }
+    Publish-Export $exportDir $finalExportDir
+    $exportDir = $finalExportDir
+    $main = Join-Path $exportDir $exportFile
+    Write-Host 'Fresh export published; previous chunk layers cannot be reused.' -ForegroundColor Green
     $reportPath = Join-Path $work 'Export_Accuracy_Audit.txt'
     $missing = @()
     $errors = @()
@@ -608,6 +642,9 @@ try {
     }
     # The GUI provides an Open Folder action; do not open Explorer automatically.
 } catch {
+    if($exportDir -ne $finalExportDir -and (Test-Path -LiteralPath $exportDir)) {
+        Remove-Item -LiteralPath $exportDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
     Write-Host ('EXPORT STOPPED: ' + $_.Exception.Message) -ForegroundColor Red
     Write-Host ('At line: ' + $_.InvocationInfo.ScriptLineNumber) -ForegroundColor DarkYellow
     exit 1

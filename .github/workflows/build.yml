@@ -35,7 +35,7 @@ jobs:
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -45,6 +45,22 @@ jobs:
           $capture = Start-CapturedProcess (Join-Path $PSHOME 'powershell.exe') '-NoProfile -Command "exit 7"' $dir (Join-Path $dir 'stdout.log') (Join-Path $dir 'stderr.log')
           $exitCode = Finish-CapturedProcess $capture
           if ($exitCode -ne 7) { throw "Direct process exit code incorrect: $exitCode" }
+          # A completed export replaces old data without mixing stale chunks.
+          $original = Join-Path $dir 'World'
+          $stage = Join-Path $dir '.staging_world'
+          New-Item -ItemType Directory -Force -Path $original, $stage | Out-Null
+          Set-Content -LiteralPath (Join-Path $original 'old.usd') -Value 'old'
+          Set-Content -LiteralPath (Join-Path $stage 'new.usd') -Value 'new'
+          Publish-Export $stage $original
+          if (-not (Test-Path -LiteralPath (Join-Path $original 'new.usd')) -or (Test-Path -LiteralPath (Join-Path $original 'old.usd'))) {
+            throw 'Published export mixed new and old files'
+          }
+          # If publication fails, restore the previously published output.
+          try { Publish-Export (Join-Path $dir 'missing_stage') $original; throw 'Expected promotion failure' }
+          catch { if ($_.Exception.Message -eq 'Expected promotion failure') { throw } }
+          if (-not (Test-Path -LiteralPath (Join-Path $original 'new.usd'))) {
+            throw 'Failed publication lost the previous export'
+          }
       - name: Build_executable
         run: go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
       - uses: actions/upload-artifact@v4

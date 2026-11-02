@@ -148,6 +148,12 @@ func pickerSelect(idx int) {
 	if selected.hasCenter {
 		setText(app.ctrls[idX], fmt.Sprint(selected.x))
 		setText(app.ctrls[idZ], fmt.Sprint(selected.z))
+	} else {
+		// Never carry coordinates from a previously selected world into a
+		// different save that lacks readable player/spawn metadata.
+		setText(app.ctrls[idX], "0")
+		setText(app.ctrls[idZ], "0")
+		guiLog("World center unavailable; X/Z reset to 0. Verify coordinates before exporting.")
 	}
 	if selected.edition == javaEdition {
 		setText(app.ctrls[idMinY], "-64")

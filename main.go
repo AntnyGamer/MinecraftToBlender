@@ -692,8 +692,11 @@ func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 	if err != nil || out.Size() == 0 {
 		return "", fmt.Errorf("Blender did not save a complete .blend. Check %s", logFile)
 	}
-	buf, _ := os.ReadFile(logFile)
-	if !strings.Contains(string(buf), "RESULT: IMPORT COMPLETED AND BLENDER PROJECT SAVED") {
+	confirmed, err := confirmedBlenderImport(logFile)
+	if err != nil {
+		return "", fmt.Errorf("cannot validate Blender import log %s: %w", logFile, err)
+	}
+	if !confirmed {
 		return "", fmt.Errorf("Blender did not confirm a complete import; see %s", logFile)
 	}
 	guiLog("Blender file created: " + target)
@@ -804,6 +807,7 @@ func startExport(both bool) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	app.cancel = cancel
+	app.lastBlend = "" // A new operation must not expose a previous project on failure.
 	resetLog()
 	state("Exporting Minecraft world...")
 	setBusy(true)
@@ -835,6 +839,7 @@ func startImport() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	app.cancel = cancel
+	app.lastBlend = "" // Only the current import may populate Open Project.
 	resetLog()
 	state("Importing existing USD into Blender...")
 	setBusy(true)

@@ -61,6 +61,43 @@ function Ensure-PinnedFile([string]$url,[string]$dest,[string]$expected) {
     Get-WebFile $url $dest
     Test-Hash $dest $expected
 }
+function Start-CapturedProcess([string]$exe,[string]$arguments,[string]$folder,[string]$stdout,[string]$stderr) {
+    # System.Diagnostics.Process exposes a reliable ExitCode on Windows
+    # PowerShell 5.1, unlike Start-Process -PassThru on some Windows builds.
+    # Stream each output pipe asynchronously to disk, without buffering a
+    # potentially huge MiEx log in memory or involving CMD path expansion.
+    $info = New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName = $exe
+    $info.Arguments = $arguments
+    $info.WorkingDirectory = $folder
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $info
+    $outFile = [System.IO.File]::Open($stdout, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+    try {
+        $errFile = [System.IO.File]::Open($stderr, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+        try {
+            if(-not $process.Start()) { throw "Could not start $exe" }
+            $outTask = $process.StandardOutput.BaseStream.CopyToAsync($outFile)
+            $errTask = $process.StandardError.BaseStream.CopyToAsync($errFile)
+            return @{ Process=$process; OutTask=$outTask; ErrTask=$errTask; OutFile=$outFile; ErrFile=$errFile }
+        } catch { $errFile.Dispose(); throw }
+    } catch { $outFile.Dispose(); $process.Dispose(); throw }
+}
+function Finish-CapturedProcess($capture) {
+    try {
+        $capture.Process.WaitForExit()
+        [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($capture.OutTask, $capture.ErrTask))
+        return [int]$capture.Process.ExitCode
+    } finally {
+        $capture.OutFile.Dispose()
+        $capture.ErrFile.Dispose()
+        $capture.Process.Dispose()
+    }
+}
 function Abort([string]$reason) {throw $reason}
 
 try {
@@ -388,10 +425,10 @@ try {
     Write-Host "MiEx stdout log: $log"
     Write-Host "MiEx stderr log: $stderrLog"
     Write-Host 'Java warnings alone do NOT stop the export.' -ForegroundColor DarkCyan
-    # Launch Java directly, without a generated CMD wrapper. CMD expands
-    # percent signs in otherwise valid Windows paths, corrupting arguments.
-    # Redirect Java's two streams separately so warnings remain non-fatal.
-    $proc = Start-Process -FilePath $javaCommand -ArgumentList $javaArgs -WorkingDirectory $miexDir -PassThru -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $stderrLog
+    # Launch Java directly; CMD would expand percent signs in world paths.
+    # The captured streams keep warning messages separate from exit status.
+    $capture = Start-CapturedProcess $javaCommand $javaArgs $miexDir $log $stderrLog
+    $proc = $capture.Process
     $lastSize = -1
     while(-not $proc.HasExited) {
         Start-Sleep -Seconds 5
@@ -404,9 +441,7 @@ try {
             }
         }
     }
-    $proc.WaitForExit()
-    # WaitForExit ensures the process exit status has been populated on PS 5.1.
-    $code = $proc.ExitCode
+    $code = Finish-CapturedProcess $capture
     Write-Host "MiEx Java process exited with code $code"
     if((Test-Path -LiteralPath $stderrLog) -and (Get-Item -LiteralPath $stderrLog).Length -gt 0) {
         Write-Host 'MiEx stderr (last 12 lines, warnings alone are not fatal):' -ForegroundColor Yellow
@@ -472,9 +507,8 @@ try {
             # workspace paths literally, not reinterpret them through CMD.
             $crateArgs = '--background --factory-startup --python "{0}" -- "{1}" "{2}" "{3}"' -f $crateScript, $exportDir, $binaryInfoPath, $exportFile
             Write-Host 'Compacting USD layers to lossless binary Crate format using installed Blender...' -ForegroundColor Cyan
-            $crateProc = Start-Process -FilePath $blenderExe -ArgumentList $crateArgs -WorkingDirectory $work -PassThru -NoNewWindow -RedirectStandardOutput $binaryLog -RedirectStandardError $crateStderrLog
-            $crateProc.WaitForExit()
-            $crateCode = $crateProc.ExitCode
+            $crateCapture = Start-CapturedProcess $blenderExe $crateArgs $work $binaryLog $crateStderrLog
+            $crateCode = Finish-CapturedProcess $crateCapture
             if(Test-Path -LiteralPath $binaryLog) {
                 Get-Content -LiteralPath $binaryLog -Tail 10 | ForEach-Object {Write-Host $_}
             }

@@ -32,15 +32,19 @@ jobs:
         run: |
           $tokens = $null
           $parseErrors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors) | Out-Null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
-          # Prove that direct launch preserves a literal percent sign in the
-          # working directory and that PowerShell reads the child's exit code.
+          # Exercise the actual captured-process helpers, not a separate mock.
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess')) {
+            $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
+            if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
+            . ([ScriptBlock]::Create($definitions[0].Extent.Text))
+          }
           $dir = Join-Path $env:RUNNER_TEMP 'MinecraftToBlender_%literal%'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          $proc = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList '-NoProfile -Command "exit 7"' -WorkingDirectory $dir -PassThru -NoNewWindow -RedirectStandardOutput (Join-Path $dir 'stdout.log') -RedirectStandardError (Join-Path $dir 'stderr.log')
-          $proc.WaitForExit()
-          if ($proc.ExitCode -ne 7) { throw "Direct process exit code incorrect: $($proc.ExitCode)" }
+          $capture = Start-CapturedProcess (Join-Path $PSHOME 'powershell.exe') '-NoProfile -Command "exit 7"' $dir (Join-Path $dir 'stdout.log') (Join-Path $dir 'stderr.log')
+          $exitCode = Finish-CapturedProcess $capture
+          if ($exitCode -ne 7) { throw "Direct process exit code incorrect: $exitCode" }
       - name: Build_executable
         run: go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
       - uses: actions/upload-artifact@v4

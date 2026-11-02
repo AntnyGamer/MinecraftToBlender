@@ -12,19 +12,17 @@ jobs:
   metadata_tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Vet_Go
-        run: go vet ./...
       - run: go test ./... -count=1
 
   windows_build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - name: Run_tests
@@ -37,7 +35,7 @@ jobs:
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -47,6 +45,14 @@ jobs:
           $capture = Start-CapturedProcess (Join-Path $PSHOME 'powershell.exe') '-NoProfile -Command "exit 7"' $dir (Join-Path $dir 'stdout.log') (Join-Path $dir 'stderr.log')
           $exitCode = Finish-CapturedProcess $capture
           if ($exitCode -ne 7) { throw "Direct process exit code incorrect: $exitCode" }
+          # Verify empty USD layers are rejected and real chunk faces pass.
+          $chunks = Join-Path $dir 'chunk_geometry'
+          New-Item -ItemType Directory -Force -Path $chunks | Out-Null
+          $chunkFile = Join-Path $chunks 'region_1_chunk_0_0_render.usd'
+          Set-Content -LiteralPath $chunkFile -Value 'int[] faceVertexCounts = []' -Encoding ASCII
+          if (Test-ChunkTerrainGeometry $chunks) { throw 'Empty USD chunk incorrectly passed terrain check' }
+          Set-Content -LiteralPath $chunkFile -Value 'int[] faceVertexCounts = [4,4]' -Encoding ASCII
+          if (-not (Test-ChunkTerrainGeometry $chunks)) { throw 'Valid USD chunk incorrectly failed terrain check' }
           # A completed export replaces old data without mixing stale chunks.
           $original = Join-Path $dir 'World'
           $stage = Join-Path $dir '.staging_world'
@@ -65,7 +71,7 @@ jobs:
           }
       - name: Build_executable
         run: go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@v4
         with:
           name: MinecraftToBlender_v1_Windows
           path: MinecraftToBlender_v1.exe

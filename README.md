@@ -18,6 +18,18 @@ A Windows app for exporting locally stored **Minecraft Bedrock and Java Edition*
 
 **Requirements:** Java 21+ on PATH, Blender installed, and an internet connection for initial MiEx/resource downloads. The app itself has no third-party Go dependencies. Standard installation locations are searched automatically; custom locations can be selected in the interface.
 
+### Terrain-free export diagnostics
+
+The world picker deliberately defaults Center X and Center Z to **0, 0**.
+If the world's recorded player/spawn location is outside the selected rectangle,
+the app warns before exporting but does not change the coordinates. MiEx may
+export empty USD layer shells if the region contains no saved terrain, or if a
+Bedrock save format is unsupported. The exporter now checks that actual chunk
+mesh faces were written **before** publishing or importing; a failed or empty
+new export preserves the previous completed export. For a diagnostic, choose
+a small region centered at a known Minecraft build/player coordinate and keep
+the game closed while the snapshot is taken.
+
 ## Building
 
 Go 1.23+ is required. On Windows, from the repository root:

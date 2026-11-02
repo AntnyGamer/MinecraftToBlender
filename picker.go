@@ -159,6 +159,9 @@ func pickerSelect(idx int) {
 	// Keep the path available in compact mode and in the activity log.
 	state(fmt.Sprintf("Selected %s world: %s", strings.Title(string(selected.edition)), selected.name))
 	guiLog(fmt.Sprintf("Selected %s world: %s", selected.edition, selected.path))
+	if selected.hasCenter {
+		guiLog(fmt.Sprintf("World's recorded player/spawn location is X=%d Z=%d. Export center stays at X=0 Z=0 until you edit it.", selected.x, selected.z))
+	}
 	pDestroyWindow.Call(picker.hwnd)
 	refreshButtons()
 	pInvalidate.Call(app.main, 0, 1)

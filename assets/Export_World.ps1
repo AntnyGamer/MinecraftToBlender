@@ -118,6 +118,26 @@ function Publish-Export([string]$stage,[string]$destination) {
         catch { Write-Warning ("Previous export backup could not be removed: " + $backup) }
     }
 }
+function Test-ChunkTerrainGeometry([string]$folder) {
+    # MiEx's ASCII chunk layers contain nonempty faceVertexCounts for mesh
+    # geometry. A directory full of empty USD layer shells is not terrain.
+    # Read in bounded pieces: face arrays may occupy very long USD lines.
+    $files = @(Get-ChildItem -LiteralPath $folder -Filter '*.usd' -File -Recurse -ErrorAction Stop)
+    $pattern = 'faceVertexCounts\s*=\s*\[\s*[1-9]'
+    $buffer = New-Object char[] 65536
+    foreach($file in $files) {
+        $reader = [System.IO.File]::OpenText($file.FullName)
+        try {
+            $tail = ''
+            while(($n = $reader.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $chunk = $tail + [string]::new($buffer, 0, $n)
+                if($chunk -match $pattern) { return $true }
+                $tail = $chunk.Substring([Math]::Max(0, $chunk.Length - 64))
+            }
+        } finally { $reader.Dispose() }
+    }
+    return $false
+}
 function Abort([string]$reason) {throw $reason}
 
 try {
@@ -500,6 +520,16 @@ try {
     if($regionPayloadCount -ne $expectedSections) {
         Write-Warning "Region section reference count: $regionPayloadCount; expected: $expectedSections. Verify MiEx applied the chunk-size setting."
     }
+    # The root USD can contain valid render/proxy payload references even if
+    # every referenced chunk is empty. Catch that before replacing a previous
+    # export or launching Blender, which cannot reconstruct missing terrain.
+    if(-not (Test-ChunkTerrainGeometry $chunksDir)) {
+        Abort ("MiEx produced no solid chunk terrain in the selected region X=$minX..$maxX, Z=$minZ..$maxZ, Y=$MinY..$MaxY. " +
+               "The region may miss the world's saved chunks (center X=$CenterX, Z=$CenterZ), or MiEx cannot decode this world's blocks. " +
+               "Try a small region near a known player/build coordinate, and check MiEx stderr for unsupported Bedrock data. " +
+               "Existing completed exports were preserved; no incomplete USD was sent to Blender.")
+    }
+    Write-Host 'Verified: exported chunk USD contains nonempty terrain mesh faces.' -ForegroundColor Green
     # LOSSLESS COMPACT USD: convert text (USDA) layers to indexed Crate
     # (USDC) layers, keeping their .usd filenames and relative payload paths.
     # This is a file-format conversion, NOT face reduction or retopology.

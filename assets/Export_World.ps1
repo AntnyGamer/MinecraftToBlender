@@ -21,7 +21,7 @@ $base = Split-Path -Parent $MyInvocation.MyCommand.Path
 $work = Join-Path $base 'MiEx_Work'
 $worldDir = Join-Path $work 'world_source'
 $chunkSize = 16
-$enableGeometrySubsets = $true
+$enableGeometrySubsets = $false
 $enableFaceOptimization = $false
 $finalExportDir = Join-Path (Join-Path $work 'exports') $ExportName
 # Always export into a unique, empty directory. Never let leftover chunk files
@@ -34,7 +34,7 @@ $minX = $CenterX - [int][math]::Floor($Size/2)
 $minZ = $CenterZ - [int][math]::Floor($Size/2)
 $maxX = $minX + $Size - 1
 $maxZ = $minZ + $Size - 1
-Write-Host ('Minecraft to Blender v1: compatibility-first export; face merging and point instancing disabled.') -ForegroundColor Cyan
+Write-Host ('Minecraft to Blender v1: compatibility-first export; face merging, geometry-subset batching and point instancing disabled.') -ForegroundColor Cyan
 Write-Host ("Region: X=$minX..$maxX Z=$minZ..$maxZ Y=$MinY..$MaxY")
 $miexDir = Join-Path $work 'miex'
 $jar = Join-Path $miexDir 'MiEx.jar'
@@ -523,7 +523,7 @@ try {
     $proc = $capture.Process
     $lastSize = -1
     while(-not $proc.HasExited) {
-        Start-Sleep -Seconds 5
+        [void]$proc.WaitForExit(5000)
         $proc.Refresh()
         if(Test-Path -LiteralPath $log) {
             $length = (Get-Item -LiteralPath $log).Length
@@ -717,7 +717,7 @@ try {
         'Bedrock frame and glow-frame blockstate definitions and pinned vanilla frame-entity model corrected; visual item-frame verification still required.',
         'Entity export requested: item_frame, glow_item_frame, painting, block_display, item_display, armor_stand.',
         'Entity timeline: static single frame (no simulation).',
-        'Face merging disabled because the prior model omitted visible terrain geometry. Verify model visually.',
+        'Face merging and geometry-subset batching disabled to avoid missing terrain. Verify model visually.',
         'IMPORTANT: Check actual frame meshes and item contents in Blender. Blockstate warnings alone cannot prove entity export failed or succeeded.',
         '',
         'IMPORTANT: structurally valid geometry does NOT prove correct models or textures.',

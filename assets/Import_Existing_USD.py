@@ -29,16 +29,17 @@ def stage_report(src, variant):
     for prim in stage.Traverse():
         if prim.IsA(UsdGeom.Mesh):
             stats['meshes'] += 1
-            path = str(prim.GetPath())
-            group = path.split('/')[2] if len(path.split('/')) > 2 else 'other'
+            path_parts = str(prim.GetPath()).split('/')
+            group = path_parts[2] if len(path_parts) > 2 else 'other'
             examples[group] += 1
             faces = UsdGeom.Mesh(prim).GetFaceVertexCountsAttr().Get()
             if faces is not None:
-                stats['faces'] += len(faces)
+                face_count = len(faces)
+                stats['faces'] += face_count
                 # Individual block prototypes are reusable source meshes, not
                 # proof of actual solid terrain in the imported world.
                 if group not in ('individualBlocksBaseMeshes', 'entities', 'prototypes'):
-                    stats['world_mesh_faces'] += len(faces)
+                    stats['world_mesh_faces'] += face_count
                     stats['world_meshes'] += 1
         elif prim.IsA(UsdGeom.PointInstancer):
             stats['instancers'] += 1

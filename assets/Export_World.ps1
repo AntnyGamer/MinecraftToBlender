@@ -101,6 +101,42 @@ function Finish-CapturedProcess($capture) {
         $capture.Process.Dispose()
     }
 }
+function Read-MiExDiagnostics([string]$logPath) {
+    # The getWorld result may include almost a megabyte of player NBT, which
+    # Windows PowerShell 5.1 cannot reliably convert into a PSObject. Read
+    # only the small fields needed here, leaving raw JSON in the MiEx log.
+    $result = @{ WorldPath=''; Reported=$false; Returned=0; Readable=0 }
+    if(-not (Test-Path -LiteralPath $logPath)) { return $result }
+    foreach($line in [System.IO.File]::ReadLines($logPath)) {
+        if(-not $line.StartsWith('[COMMAND] ')) { continue }
+        if(-not $line.Substring(10, [math]::Min($line.Length - 10, 96)).Contains('"status":"success"')) { continue }
+        if($line.Contains('"world"')) {
+            $match = [regex]::Match($line, '"world"\s*:\s*\{\s*"path"\s*:\s*"(?<path>(?:\\.|[^"\\])*)"')
+            if($match.Success) {
+                # Decode the isolated JSON string; do not deserialize player NBT.
+                $smallJson = '{"path":"' + $match.Groups['path'].Value + '"}'
+                $result.WorldPath = [string](($smallJson | ConvertFrom-Json).path)
+            }
+        }
+        if($line.Contains('"chunks"')) {
+            # Chunk entries are MiEx's own flat records; count only the keys
+            # required for diagnosis. The returned heightmaps are large, so
+            # ConvertFrom-Json of the entire response is unnecessary.
+            $result.Reported = $true
+            $result.Returned = [regex]::Matches($line, '"chunkX"\s*:').Count
+            $result.Readable = [regex]::Matches($line, '"layerCount"\s*:\s*[1-9][0-9]*').Count
+        }
+    }
+    return $result
+}
+function Test-UnsupportedBedrockChunk([string]$stdout,[string]$stderr) {
+    foreach($path in @($stdout, $stderr)) {
+        if((Test-Path -LiteralPath $path) -and (Select-String -LiteralPath $path -Pattern 'Chunk section format not supported' -Quiet -ErrorAction SilentlyContinue)) {
+            return $true
+        }
+    }
+    return $false
+}
 function Publish-Export([string]$stage,[string]$destination) {
     # Move a valid new export into place. If publication fails, restore the
     # previous result; the current export is never mixed with stale chunk files.
@@ -493,7 +529,11 @@ try {
             $length = (Get-Item -LiteralPath $log).Length
             if($length -ne $lastSize) {
                 $lastSize = $length
-                Get-Content -LiteralPath $log -Tail 8 -ErrorAction SilentlyContinue | ForEach-Object {Write-Host $_}
+                Get-Content -LiteralPath $log -Tail 8 -ErrorAction SilentlyContinue | ForEach-Object {
+                    if($_.Length -gt 4000 -and $_.StartsWith('[COMMAND] ')) {
+                        Write-Host '[COMMAND] Large diagnostic response saved to miex_console.log.'
+                    } else { Write-Host $_ }
+                }
             }
         }
     }
@@ -503,34 +543,13 @@ try {
         Write-Host 'MiEx stderr (last 12 lines, warnings alone are not fatal):' -ForegroundColor Yellow
         Get-Content -LiteralPath $stderrLog -Tail 12 | ForEach-Object {Write-Host $_}
     }
-    # MiEx reports command results as one JSON object per [COMMAND] line.
-    # A usable layerCount proves the Bedrock reader decoded at least some
-    # saved chunk sections. An empty result leaves the root cause uncertain:
-    # absent chunk data, unsupported subchunk version, or a LevelDB failure.
-    $probeReturned = 0
-    $probeLoaded = 0
-    $probeReported = $false
-    $loadedMiExWorld = ''
-    if(Test-Path -LiteralPath $log) {
-        foreach($line in [System.IO.File]::ReadLines($log)) {
-            if(-not $line.StartsWith('[COMMAND] ')) { continue }
-            if(-not ($line.Contains('"chunks"') -or $line.Contains('"world"'))) { continue }
-            try {
-                $response = $line.Substring(10) | ConvertFrom-Json -ErrorAction Stop
-                if($null -ne $response.world -and $null -ne $response.world.path) {
-                    $loadedMiExWorld = [string]$response.world.path
-                }
-                if($null -eq $response.chunks) { continue }
-                $probeReported = $true
-                $probeReturned = 0
-                $probeLoaded = 0
-                foreach($record in $response.chunks) {
-                    $probeReturned++
-                    if([int]$record.layerCount -gt 0) { $probeLoaded++ }
-                }
-            } catch { Write-Warning 'MiEx diagnostic response could not be parsed.' }
-        }
-    }
+    # Avoid converting enormous getWorld/player-NBT or getChunk JSON into
+    # PowerShell objects; Windows PowerShell 5.1 can reject valid responses.
+    $diagnostics = Read-MiExDiagnostics $log
+    $probeReturned = $diagnostics.Returned
+    $probeLoaded = $diagnostics.Readable
+    $probeReported = $diagnostics.Reported
+    $loadedMiExWorld = $diagnostics.WorldPath
     if($loadedMiExWorld) {
         Write-Host "MiEx selected world: $loadedMiExWorld" -ForegroundColor Cyan
         if(-not [string]::Equals([IO.Path]::GetFullPath($loadedMiExWorld), [IO.Path]::GetFullPath($worldPath), [StringComparison]::OrdinalIgnoreCase)) {
@@ -538,7 +557,7 @@ try {
         }
     } else { Write-Warning 'MiEx did not return its selected-world path. Check the CLI command log.' }
     Write-Host ("MiEx chunk probe: $probeLoaded readable chunk(s), $probeReturned returned, out of $($probeChunks.Count) sampled positions.") -ForegroundColor Cyan
-    $unsupportedChunk = [bool](@(Select-String -LiteralPath @($log, $stderrLog) -Pattern 'Chunk section format not supported' -Quiet -ErrorAction SilentlyContinue) | Where-Object { $_ }).Count -gt 0
+    $unsupportedChunk = Test-UnsupportedBedrockChunk $log $stderrLog
     if($unsupportedChunk) {
         Write-Warning 'MiEx cannot decode one or more Bedrock subchunk formats (see Data version in miex_console.log). This is an upstream chunk-reader compatibility issue, not a Blender import issue.'
     } elseif($probeReported -and $probeLoaded -eq 0) {

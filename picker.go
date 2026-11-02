@@ -145,16 +145,10 @@ func pickerSelect(idx int) {
 	}
 	selected := picker.worlds[idx]
 	app.selectedWorld = &selected
-	if selected.hasCenter {
-		setText(app.ctrls[idX], fmt.Sprint(selected.x))
-		setText(app.ctrls[idZ], fmt.Sprint(selected.z))
-	} else {
-		// Never carry coordinates from a previously selected world into a
-		// different save that lacks readable player/spawn metadata.
-		setText(app.ctrls[idX], "0")
-		setText(app.ctrls[idZ], "0")
-		guiLog("World center unavailable; X/Z reset to 0. Verify coordinates before exporting.")
-	}
+	// Always begin each world at the requested fixed origin. Users can
+	// override either coordinate manually before starting an export.
+	setText(app.ctrls[idX], "0")
+	setText(app.ctrls[idZ], "0")
 	if selected.edition == javaEdition {
 		setText(app.ctrls[idMinY], "-64")
 		setText(app.ctrls[idMaxY], "319")
@@ -162,11 +156,12 @@ func pickerSelect(idx int) {
 	name := safeExportName(selected.name)
 	setText(app.ctrls[idName], name)
 	setText(app.ctrls[idWorld], selected.path)
-	// Keep the actual path accessible from the main form while the world label
-	// and status make the selected edition explicit.
+	// Keep the path available in compact mode and in the activity log.
 	state(fmt.Sprintf("Selected %s world: %s", strings.Title(string(selected.edition)), selected.name))
 	guiLog(fmt.Sprintf("Selected %s world: %s", selected.edition, selected.path))
 	pDestroyWindow.Call(picker.hwnd)
+	refreshButtons()
+	pInvalidate.Call(app.main, 0, 1)
 }
 func safeExportName(s string) string {
 	var b strings.Builder

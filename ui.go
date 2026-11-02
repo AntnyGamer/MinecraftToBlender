@@ -136,6 +136,8 @@ type uiState struct {
 	hoveredButton                                       uintptr
 	progressFrame                                       int
 	progressComplete                                    bool
+	selectedImage, selectedImageToken                   uintptr
+	selectedImagePath                                   string
 	logCallback                                         uintptr
 	rich                                                bool
 	built                                               bool
@@ -248,7 +250,6 @@ const (
 	uiBrand          = 190
 	uiBrandSub       = 191
 	uiNavHeader      = 192
-	uiNavFooter      = 193
 	uiVersion        = 194
 	uiExportStep     = 195
 	uiTitle          = 200
@@ -262,7 +263,6 @@ const (
 	uiZLabel         = 208
 	uiMinLabel       = 209
 	uiMaxLabel       = 210
-	uiSizeHint       = 211
 	uiImportTitle    = 212
 	uiImportInfo     = 213
 	uiUsdLabel       = 214
@@ -292,7 +292,6 @@ func createControls() {
 	uiLabel(uiBrand, "MINECRAFT", 2, theme.sideText, theme.side)
 	uiLabel(uiBrandSub, "TO BLENDER", 3, theme.sideMuted, theme.side)
 	uiLabel(uiNavHeader, "CONVERT", 3, theme.sideMuted, theme.side)
-	uiLabel(uiNavFooter, "QUICK ACCESS", 3, theme.sideMuted, theme.side)
 	uiLabel(uiTitle, "Export a Minecraft world", 0, theme.white, theme.bg)
 	uiLabel(uiSubtitle, "Choose a Java or Bedrock save directly from your Minecraft world library.", 3, theme.muted, theme.bg)
 	uiLabel(uiVersion, "VERSION 1", 3, theme.accent, theme.bg)
@@ -324,7 +323,6 @@ func createControls() {
 	uiField(idZ, "0")
 	uiField(idMinY, "-64")
 	uiField(idMaxY, "319")
-	uiLabel(uiSizeHint, "256 = quick test   /   512 = balanced   /   1152 = large", 3, theme.quiet, theme.card)
 	uiButton(idBoth, "Export to Blender")
 	uiButton(idExport, "USD only")
 
@@ -414,9 +412,14 @@ func layoutUI() {
 	for i, id := range []int{idTabExport, idTabImport, idTabSettings} {
 		move(id, 13, 148+i*53, 179, 46)
 	}
-	move(uiNavFooter, 22, H-170, 173, 18)
-	move(idFolder, 14, H-135, 175, 42)
-	move(idBlendOpen, 14, H-84, 175, 42)
+	// Quick access header is drawn once by paintMain, avoiding a stale label control.
+	if app.lastBlend != "" {
+		move(idFolder, 14, H-135, 175, 42)
+		move(idBlendOpen, 14, H-84, 175, 42)
+	} else {
+		move(idFolder, 14, H-84, 175, 42)
+	}
+	show(idBlendOpen, !app.busy && app.lastBlend != "")
 
 	move(uiTitle, contentX, 23, contentW-5, 37)
 	move(uiSubtitle, contentX, 66, contentW-5, 22)
@@ -425,18 +428,20 @@ func layoutUI() {
 	x := contentX + 22
 	w := contentW - 44
 	top := ui.cardTop
-	move(uiExportStep, x, top+18, w, 18)
+	move(uiExportStep, x, top+12, w, 18)
 	if compact {
 		move(uiExportTitle, x, top+16, w, 30)
 	} else {
-		move(uiExportTitle, x, top+29, w, 30)
+		move(uiExportTitle, x, top+37, w, 29)
 	}
-	move(uiExportInfo, x, top+63, w, 19)
-	move(uiWorldLabel, x, top+91, w, 18)
+	move(uiExportInfo, x, top+69, w, 19)
+	move(uiWorldLabel, x, top+95, w, 18)
 	fw := w - 102
-	// Two edition selectors are real buttons; selected world path stays visible.
-	move(idSelectBedrock, x, top+113, (w-12)/2, 39)
-	move(idSelectJava, x+(w-12)/2+12, top+113, (w-12)/2, 39)
+	// Highlight the selected edition; retain the path field in compact mode.
+	move(idSelectBedrock, x, top+117, (w-12)/2, 37)
+	move(idSelectJava, x+(w-12)/2+12, top+117, (w-12)/2, 37)
+	// The expanded layout shows a thumbnail/name/date card instead of a path.
+	// The original read-only path control remains available in compact mode.
 	move(idWorld, x, top+159, w, 36)
 	show(idWorldBrowse, false)
 	labels := []int{uiNameLabel, uiSizeLabel, uiXLabel, uiZLabel, uiMinLabel, uiMaxLabel}
@@ -467,14 +472,13 @@ func layoutUI() {
 		move(idWorld, x, top+115, w, 31)
 		show(uiExportStep, false)
 		show(uiExportInfo, false)
-		show(uiSizeHint, false)
 	} else {
 		gap := 13
 		cw := (w - 2*gap) / 3
 		for i := range fields {
 			col, row := i%3, i/3
 			xx := x + col*(cw+gap)
-			yy := top + 207 + row*58
+			yy := top + 217 + row*58
 			ww := cw
 			if col == 2 {
 				ww = x + w - xx
@@ -486,10 +490,9 @@ func layoutUI() {
 		if pw < 220 {
 			pw = 220
 		}
-		move(idBoth, x, top+332, pw, 48)
-		move(idExport, x+pw+8, top+332, w-pw-8, 48)
+		move(idBoth, x, top+335, pw, 44)
+		move(idExport, x+pw+8, top+335, w-pw-8, 44)
 		show(uiExportInfo, true)
-		show(uiSizeHint, false)
 	}
 
 	if compact {
@@ -526,9 +529,10 @@ func layoutUI() {
 	a := ui.activityTop
 	move(uiActivityTitle, x, a+11, 122, 26)
 	move(uiActivityHint, x+114, a+16, w-270, 19)
-	move(idFollow, contentR-137, a+10, 115, 32)
-	move(idCancel, contentR-137, a+46, 115, 30)
-	move(idStatus, x, a+46, w-142, 23)
+	move(idFollow, contentR-137, a+9, 115, 31)
+	move(idCancel, contentR-255, a+9, 108, 31)
+	show(idCancel, app.busy)
+	move(idStatus, x, a+46, w, 23)
 	show(idProgress, false)
 	move(idProgress, x, a+76, w, 7)
 	logTop := a + 91
@@ -538,18 +542,14 @@ func layoutUI() {
 	}
 	move(idLog, x+8, logTop, w-16, logH)
 
-	for _, id := range []int{uiExportStep, uiExportTitle, uiExportInfo, uiWorldLabel, idSelectBedrock, idSelectJava, uiNameLabel, uiSizeLabel, uiXLabel, uiZLabel, uiMinLabel, uiMaxLabel, uiSizeHint, idWorld, idWorldBrowse, idName, idSize, idX, idZ, idMinY, idMaxY, idExport, idBoth} {
-		show(id, ui.tab == 0 && !(compact && (id == uiExportStep || id == uiExportInfo || id == uiSizeHint)))
+	for _, id := range []int{uiExportStep, uiExportTitle, uiExportInfo, uiWorldLabel, idSelectBedrock, idSelectJava, uiNameLabel, uiSizeLabel, uiXLabel, uiZLabel, uiMinLabel, uiMaxLabel, idWorld, idWorldBrowse, idName, idSize, idX, idZ, idMinY, idMaxY, idExport, idBoth} {
+		show(id, ui.tab == 0 && !(compact && (id == uiExportStep || id == uiExportInfo)) && (id != idWorld || compact))
 	}
 	for _, id := range []int{uiImportTitle, uiImportInfo, uiUsdLabel, uiBlenderLabel, uiImportHint, idUSD, idUSDBrowse, idBlender, idBlenderBrowse, idImport} {
 		show(id, ui.tab == 1 && (!compact || (id != uiImportHint && id != uiImportInfo)))
 	}
 	for _, id := range []int{uiSettingsTitle, uiSettingsInfo, uiWorkspaceLabel, uiPrefsNote, idWorkspace, idWorkspaceBrowse} {
 		show(id, ui.tab == 2)
-	}
-	if compact {
-		show(uiExportInfo, false)
-		show(uiSizeHint, false)
 	}
 	// In compact mode these actions sit near the bottom of the setup card.
 	pInvalidate.Call(app.main, 0, 1)
@@ -631,7 +631,10 @@ func paintButton(lp uintptr) uintptr {
 	id, r := int(d.ID), d.Rect
 	nav := id == idTabExport || id == idTabImport || id == idTabSettings
 	active := (id == idTabExport && ui.tab == 0) || (id == idTabImport && ui.tab == 1) || (id == idTabSettings && ui.tab == 2)
-	primary := id == idBoth || id == idImport || id == idSelectBedrock || id == idSelectJava
+	primary := id == idBoth || id == idImport
+	selectedEdition := app.selectedWorld != nil &&
+		((id == idSelectBedrock && app.selectedWorld.edition == bedrockEdition) ||
+			(id == idSelectJava && app.selectedWorld.edition == javaEdition))
 	browse := id == idWorldBrowse || id == idUSDBrowse || id == idBlenderBrowse || id == idWorkspaceBrowse
 	sideAction := id == idFolder || id == idBlendOpen
 	disabled := d.State&odStateDisabled != 0
@@ -657,6 +660,14 @@ func paintButton(lp uintptr) uintptr {
 		}
 		if pressed {
 			fill = color(210, 225, 248)
+		}
+	} else if selectedEdition {
+		fill, fg = theme.accentDark, color(29, 78, 179)
+		if hover || focused {
+			fill = color(200, 223, 255)
+		}
+		if pressed {
+			fill = color(182, 211, 251)
 		}
 	} else if primary {
 		fill, fg = theme.accent, color(255, 255, 255)
@@ -758,12 +769,20 @@ func paintMain(h uintptr) {
 	pFillRect.Call(dc, uintptr(unsafe.Pointer(&sideRect)), ui.brushSide)
 	// Compact blue app mark. The rest of the UI uses one neutral palette.
 	paintPill(dc, rect{19, 25, 46, 54}, theme.accent, 9)
+	footerHeader := ui.h - 118
+	if app.lastBlend != "" && !app.busy {
+		footerHeader = ui.h - 170
+	}
+	buttonText(dc, "QUICK ACCESS", rect{22, int32(footerHeader), 190, int32(footerHeader + 20)}, theme.sideMuted, ui.fonts[3], 0)
 	// A calm, lightly elevated main setup surface replaces the old outlined tab box.
 	cx := int32(205 + 27)
 	right := int32(ui.w - 25)
 	card := rect{cx, int32(ui.cardTop), right, int32(ui.cardTop + ui.cardH)}
 	paintPill(dc, rect{card.Left, card.Top + 3, card.Right, card.Bottom + 3}, color(231, 236, 244), 20)
 	paintPill(dc, card, theme.card, 20)
+	if ui.tab == 0 && ui.h >= 644 {
+		paintSelectedWorld(dc, rect{cx + 22, int32(ui.cardTop + 161), right - 22, int32(ui.cardTop + 210)})
+	}
 	activity := rect{cx, int32(ui.activityTop), right, int32(ui.activityTop + ui.activityH)}
 	paintPill(dc, rect{activity.Left, activity.Top + 2, activity.Right, activity.Bottom + 2}, color(231, 236, 244), 20)
 	paintPill(dc, activity, theme.card, 20)
@@ -796,6 +815,87 @@ func paintMain(h uintptr) {
 	}
 	pEndPaint.Call(h, uintptr(unsafe.Pointer(&ps)))
 }
+
+// The main selected-world preview keeps the Minecraft icon and the useful
+// information visible after the world picker closes, without a giant path field.
+func paintSelectedWorld(dc uintptr, area rect) {
+	paintPill(dc, area, theme.input, 11)
+	left := area.Left + 9
+	icon := rect{left, area.Top + 5, left + 39, area.Bottom - 5}
+	paintPill(dc, icon, color(203, 216, 234), 6)
+	item := app.selectedWorld
+	name := "No world selected"
+	info := "Choose a Bedrock or Java save above to begin."
+	if item != nil {
+		name = item.name
+		if name == "" {
+			name = "Unnamed world"
+		}
+		edition := "Bedrock Edition"
+		if item.edition == javaEdition {
+			edition = "Java Edition"
+		}
+		info = edition
+		if !item.played.IsZero() {
+			when := "Last saved"
+			if item.exactDate {
+				when = "Last played"
+			}
+			info += "  ·  " + when + " " + item.played.Format("Jan 2, 2006")
+		} else {
+			info += "  ·  Date unavailable"
+		}
+		loadSelectedImage(item.icon)
+		if ui.selectedImage != 0 {
+			var graphics uintptr
+			if code, _, _ := pGdipCreateGraphics.Call(dc, uintptr(unsafe.Pointer(&graphics))); code == 0 && graphics != 0 {
+				pGdipDrawImage.Call(graphics, ui.selectedImage, uintptr(icon.Left), uintptr(icon.Top), uintptr(icon.Right-icon.Left), uintptr(icon.Bottom-icon.Top))
+				pGdipDeleteGraphics.Call(graphics)
+			}
+		}
+	} else {
+		loadSelectedImage("")
+	}
+	buttonText(dc, name, rect{left + 49, area.Top + 4, area.Right - 11, area.Top + 25}, theme.white, ui.fonts[2], 0)
+	buttonText(dc, info, rect{left + 49, area.Top + 25, area.Right - 11, area.Bottom - 2}, theme.muted, ui.fonts[3], 0)
+}
+
+func releaseSelectedImage() {
+	if ui.selectedImage != 0 {
+		pGdipDisposeImage.Call(ui.selectedImage)
+		ui.selectedImage = 0
+	}
+	if ui.selectedImageToken != 0 {
+		pGdiplusShutdown.Call(ui.selectedImageToken)
+		ui.selectedImageToken = 0
+	}
+	ui.selectedImagePath = ""
+}
+
+func loadSelectedImage(path string) {
+	if path == ui.selectedImagePath {
+		return
+	}
+	if ui.selectedImage != 0 {
+		pGdipDisposeImage.Call(ui.selectedImage)
+		ui.selectedImage = 0
+	}
+	ui.selectedImagePath = path
+	if path == "" {
+		return
+	}
+	if ui.selectedImageToken == 0 {
+		startup := gdipStartupInput{Version: 1}
+		if code, _, _ := pGdiplusStartup.Call(uintptr(unsafe.Pointer(&ui.selectedImageToken)), uintptr(unsafe.Pointer(&startup)), 0); code != 0 {
+			return
+		}
+	}
+	var img uintptr
+	if code, _, _ := pGdipLoadImage.Call(ptr(path), uintptr(unsafe.Pointer(&img))); code == 0 {
+		ui.selectedImage = img
+	}
+}
+
 func setMinimumSize(lp uintptr) {
 	mi := (*minmax)(unsafe.Pointer(lp))
 	mi.MinTrack = point{810, 570}

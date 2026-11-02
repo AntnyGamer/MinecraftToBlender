@@ -50,6 +50,17 @@ function Test-Hash([string]$path,[string]$expected) {
     if($found -ne $expected) {throw "SHA256 mismatch for $path. Actual: $found / expected: $expected"}
     Write-Host "Verified SHA256: $path" -ForegroundColor Green
 }
+function Ensure-PinnedFile([string]$url,[string]$dest,[string]$expected) {
+    # A previously interrupted download or modified cache must not silently
+    # change the models and materials used in later conversions.
+    if(Test-Path -LiteralPath $dest) {
+        $actual = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+        if($actual -eq $expected) { return }
+        Write-Host "Cached resource changed; fetching the pinned original: $dest" -ForegroundColor Yellow
+    }
+    Get-WebFile $url $dest
+    Test-Hash $dest $expected
+}
 function Abort([string]$reason) {throw $reason}
 
 try {
@@ -237,24 +248,25 @@ try {
 
     # Official MiEx example resource pack for Blender EEVEE materials only.
     # It does not contain custom block textures and is not the world's custom pack.
-    $files = @(
-      'miex_config.json',
-      'materials/minecraft/templates/json_base.json',
-      'materials/minecraft/templates/json_emission.json',
-      'materials/minecraft/templates/json_grass_block_side.json',
-      'materials/minecraft/templates/json_grass_block_snow.json'
-    )
-    foreach($f in $files) {
-        $target = Join-Path $miexDir ('resources/BlenderEEVEE/' + $f)
-        if(-not (Test-Path -LiteralPath $target)) {
-            $url = 'https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/extras/example_resource_packs/BlenderEEVEE/' + $f
-            Get-WebFile $url $target
-        }
+    $pinnedPackRevision = '631e9fc2fde8c749bf59d4c3495492e62a83ef6c'
+    $packUrl = 'https://raw.githubusercontent.com/BramStoutProductions/MiEx/' + $pinnedPackRevision + '/extras/example_resource_packs/BlenderEEVEE/'
+    $pinnedTemplates = @{
+      'materials/minecraft/templates/json_base.json' = '33752fcc6b70201c4dc218a93d0e396f50ab8e23cc6807aebd79ae956ad24cb8'
+      'materials/minecraft/templates/json_emission.json' = '72a10f283a9e258d0aa554e41c46bfdece1c741efa568deff19b41b3819f4b05'
+      'materials/minecraft/templates/json_grass_block_side.json' = '2dea1f14004f91e27b73700ac42804daef776fbae9b655cf21abd35be6b56425'
+      'materials/minecraft/templates/json_grass_block_snow.json' = 'adf937c0b3eb073f7ea4fc4e5a78887d83ff48bb9c71fd7d073d3ab179092228'
     }
-    # Reusable MiEx exporter configuration. This changes future world exports,
-    # not the already-generated USD and not any Minecraft source blocks.
+    foreach($f in $pinnedTemplates.Keys) {
+        $target = Join-Path $miexDir ('resources/BlenderEEVEE/' + $f)
+        Ensure-PinnedFile ($packUrl + $f) $target $pinnedTemplates[$f]
+    }
+    # Generate the configurable working copy from an immutable, verified
+    # upstream template each run. This prevents settings from drifting when
+    # the user switches between Java and Bedrock worlds.
+    $packConfigSource = Join-Path $miexDir 'miex_config_upstream.json'
+    Ensure-PinnedFile ($packUrl + 'miex_config.json') $packConfigSource '88e8876c950a59ccf9d7992b4c965893d61561bc85d09f5583b7d8a7136a4372'
     $packConfigPath = Join-Path $miexDir 'resources/BlenderEEVEE/miex_config.json'
-    $packConfig = Get-Content -LiteralPath $packConfigPath -Raw | ConvertFrom-Json
+    $packConfig = Get-Content -LiteralPath $packConfigSource -Raw | ConvertFrom-Json
     $packConfig | Add-Member -MemberType NoteProperty -Name 'useGeometrySubsets' -Value $enableGeometrySubsets -Force
     # The existing MiEx USD already uses point instancers for these block types;
     # Disable individual-block point instancing until the corresponding Blender
@@ -287,9 +299,7 @@ try {
         # Item.Name entries. Correct these narrowly using the official frame model.
         # The item model geometry and textures themselves are not replaced.
         $frameSource = Join-Path $miexDir 'item_frame_upstream.json'
-        if(-not (Test-Path -LiteralPath $frameSource)) {
-            Get-WebFile 'https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/builtin_files/base_resource_pack/builtins/minecraft/entities/item_frame.json' $frameSource
-        }
+        Ensure-PinnedFile 'https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/builtin_files/base_resource_pack/builtins/minecraft/entities/item_frame.json' $frameSource 'd554356c34cf09691bca790c35c1a070532d2bf9e25ca35aa3db7612153bfe4d'
         $frameRaw = [System.IO.File]::ReadAllText($frameSource)
         $frameOldCondition = '(thisBlock.state.Item != null)'
         $frameOldId = '"id": "thisEntity.state.Item.id"'
@@ -378,34 +388,10 @@ try {
     Write-Host "MiEx stdout log: $log"
     Write-Host "MiEx stderr log: $stderrLog"
     Write-Host 'Java warnings alone do NOT stop the export.' -ForegroundColor DarkCyan
-    # Windows PowerShell 5.1 can return a null ExitCode from Start-Process.
-    # Use a one-shot CMD wrapper that writes the actual Java exit code to a file.
-    # Capture stderr separately and do not promote Java warnings to PS errors.
-    $exitStatusFile = Join-Path $work 'miex_exit_code.txt'
-    $batchFile = Join-Path $work 'Invoke_MiEx.cmd'
-    if(Test-Path -LiteralPath $exitStatusFile) { Remove-Item -LiteralPath $exitStatusFile -Force }
-    # If there is an earlier USD from a prior invocation, don't accept it as this run's output.
-    $main = Join-Path $exportDir $exportFile
-    # Don't mistake old sidecars/chunk geometry for this run's result.
-    foreach($old in @($main,
-                      (Join-Path $exportDir ($ExportName + '_materials.json')),
-                      (Join-Path $exportDir ($ExportName + '_materials.usd')),
-                      (Join-Path $exportDir ($ExportName + '_chunks')),
-                      (Join-Path $exportDir ($ExportName + '_entities.usd')),
-                      (Join-Path $exportDir ($ExportName + '_entities.miex')))) {
-        if(Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force }
-    }
-    $batchLines = @(
-        '@echo off',
-        'setlocal',
-        ('cd /d "{0}"' -f $miexDir),
-        ('"{0}" {1} 1>"{2}" 2>"{3}"' -f $javaCommand, $javaArgs, $log, $stderrLog),
-        'set "MIEX_RESULT=%ERRORLEVEL%"',
-        ('>"{0}" echo %MIEX_RESULT%' -f $exitStatusFile),
-        'exit /b %MIEX_RESULT%'
-    )
-    [System.IO.File]::WriteAllLines($batchFile, $batchLines, [System.Text.Encoding]::ASCII)
-    $proc = Start-Process -FilePath $env:ComSpec -ArgumentList ('/D /C ""{0}""' -f $batchFile) -PassThru -NoNewWindow
+    # Launch Java directly, without a generated CMD wrapper. CMD expands
+    # percent signs in otherwise valid Windows paths, corrupting arguments.
+    # Redirect Java's two streams separately so warnings remain non-fatal.
+    $proc = Start-Process -FilePath $javaCommand -ArgumentList $javaArgs -WorkingDirectory $miexDir -PassThru -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $stderrLog
     $lastSize = -1
     while(-not $proc.HasExited) {
         Start-Sleep -Seconds 5
@@ -419,14 +405,8 @@ try {
         }
     }
     $proc.WaitForExit()
-    if(-not (Test-Path -LiteralPath $exitStatusFile)) {
-        Abort "Java finished without writing its exit code. Inspect $log and $stderrLog."
-    }
-    $exitCodeText = (Get-Content -LiteralPath $exitStatusFile -Raw).Trim()
-    $code = 0
-    if(-not [int]::TryParse($exitCodeText, [ref] $code)) {
-        Abort "Invalid Java exit status '$exitCodeText'. Inspect $log and $stderrLog."
-    }
+    # WaitForExit ensures the process exit status has been populated on PS 5.1.
+    $code = $proc.ExitCode
     Write-Host "MiEx Java process exited with code $code"
     if((Test-Path -LiteralPath $stderrLog) -and (Get-Item -LiteralPath $stderrLog).Length -gt 0) {
         Write-Host 'MiEx stderr (last 12 lines, warnings alone are not fatal):' -ForegroundColor Yellow
@@ -487,24 +467,19 @@ try {
         if($blenderExe -and (Test-Path -LiteralPath $blenderExe)) {
             $crateScript = Join-Path $base 'Convert_USD_To_Crate.py'
             if(-not (Test-Path -LiteralPath $crateScript)) { Abort 'Lossless USD converter script is missing.' }
-            $crateCmd = Join-Path $work 'Invoke_USD_Crate.cmd'
-            $crateExit = Join-Path $work 'USD_Crate_Exit_Code.txt'
-            if(Test-Path -LiteralPath $crateExit) { Remove-Item -LiteralPath $crateExit -Force }
-            $crateLines = @(
-                '@echo off',
-                'setlocal',
-                ('"{0}" --background --factory-startup --python "{1}" -- "{2}" "{3}" "{5}" > "{4}" 2>&1' -f $blenderExe, $crateScript, $exportDir, $binaryInfoPath, $binaryLog, $exportFile),
-                'set "CRATE_RESULT=%errorlevel%"',
-                ('>"{0}" echo %CRATE_RESULT%' -f $crateExit),
-                'exit /b %CRATE_RESULT%'
-            )
-            [System.IO.File]::WriteAllLines($crateCmd, $crateLines, [System.Text.Encoding]::ASCII)
+            $crateStderrLog = Join-Path $work 'USD_Crate_Convert_Errors.log'
+            # Run Blender directly as well: the optional compactor must treat
+            # workspace paths literally, not reinterpret them through CMD.
+            $crateArgs = '--background --factory-startup --python "{0}" -- "{1}" "{2}" "{3}"' -f $crateScript, $exportDir, $binaryInfoPath, $exportFile
             Write-Host 'Compacting USD layers to lossless binary Crate format using installed Blender...' -ForegroundColor Cyan
-            $crateProc = Start-Process -FilePath $env:ComSpec -ArgumentList ('/D /C ""{0}""' -f $crateCmd) -Wait -PassThru -NoNewWindow
-            $crateCode = 'unknown'
-            if(Test-Path -LiteralPath $crateExit) { $crateCode = (Get-Content -LiteralPath $crateExit -Raw).Trim() }
+            $crateProc = Start-Process -FilePath $blenderExe -ArgumentList $crateArgs -WorkingDirectory $work -PassThru -NoNewWindow -RedirectStandardOutput $binaryLog -RedirectStandardError $crateStderrLog
+            $crateProc.WaitForExit()
+            $crateCode = $crateProc.ExitCode
             if(Test-Path -LiteralPath $binaryLog) {
                 Get-Content -LiteralPath $binaryLog -Tail 10 | ForEach-Object {Write-Host $_}
+            }
+            if(Test-Path -LiteralPath $crateStderrLog) {
+                Get-Content -LiteralPath $crateStderrLog -Tail 10 | ForEach-Object {Write-Host $_}
             }
             if($crateCode -ne '0') {
                 $binarySummary = "Crate conversion not completed (exit $crateCode). See $binaryLog. Existing USD layers are still valid."

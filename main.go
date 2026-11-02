@@ -910,6 +910,10 @@ func onCompleted(r result) {
 		enabled(idBlendOpen, true)
 		state("Blender project saved — open and inspect the scene")
 	} else {
+		// A USD-only export has no matching new Blender project. Do not leave
+		// Open project pointing to a previous conversion.
+		app.lastBlend = ""
+		enabled(idBlendOpen, false)
 		setText(app.ctrls[idUSD], r.output)
 		state("USD exported — import it in Step 2")
 	}

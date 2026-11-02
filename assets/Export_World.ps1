@@ -118,6 +118,26 @@ function Publish-Export([string]$stage,[string]$destination) {
         catch { Write-Warning ("Previous export backup could not be removed: " + $backup) }
     }
 }
+function Test-ChunkTerrainGeometry([string]$folder) {
+    # MiEx's ASCII chunk layers contain nonempty faceVertexCounts for mesh
+    # geometry. A directory full of empty USD layer shells is not terrain.
+    # Read in bounded pieces: face arrays may occupy very long USD lines.
+    $files = @(Get-ChildItem -LiteralPath $folder -Filter '*.usd' -File -Recurse -ErrorAction Stop)
+    $pattern = 'faceVertexCounts\s*=\s*\[\s*[1-9]'
+    $buffer = New-Object char[] 65536
+    foreach($file in $files) {
+        $reader = [System.IO.File]::OpenText($file.FullName)
+        try {
+            $tail = ''
+            while(($n = $reader.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $chunk = $tail + [string]::new($buffer, 0, $n)
+                if($chunk -match $pattern) { return $true }
+                $tail = $chunk.Substring([Math]::Max(0, $chunk.Length - 64))
+            }
+        } finally { $reader.Dispose() }
+    }
+    return $false
+}
 function Abort([string]$reason) {throw $reason}
 
 try {
@@ -412,10 +432,26 @@ try {
       actAsExcludeRegion=$false;
       onlyIndividualBlocks=$false; excludeRegionsAsAir=$false; defaultValues=$false
     }
+    # Ask MiEx to read a small, distributed sample of chunks before exporting.
+    # This distinguishes an unreadable Bedrock LevelDB/chunk format from a
+    # downstream failure to turn successfully decoded blocks into USD meshes.
+    $probeChunks = @()
+    $minChunkX = [int][math]::Floor($minX / 16.0)
+    $maxChunkX = [int][math]::Floor($maxX / 16.0)
+    $minChunkZ = [int][math]::Floor($minZ / 16.0)
+    $maxChunkZ = [int][math]::Floor($maxZ / 16.0)
+    foreach($fractionZ in @(0.1, 0.3, 0.5, 0.7, 0.9)) {
+        foreach($fractionX in @(0.1, 0.3, 0.5, 0.7, 0.9)) {
+            $probeChunks += @{ chunkX=([int][math]::Floor($minChunkX + ($maxChunkX - $minChunkX) * $fractionX));
+                              chunkZ=([int][math]::Floor($minChunkZ + ($maxChunkZ - $minChunkZ) * $fractionZ)) }
+        }
+    }
     $commands = @(
       @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$false},
       @{command='loadDimension'; dimension='overworld'},
       @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')},
+      @{command='getWorld'},
+      @{command='getChunk'; chunks=$probeChunks; heightmap=$true},
       @{command='applyExportSettings'; settings=@{chunkSize=$chunkSize; exportRegions=@{'Region 1'=$region}; runOptimiser=$enableFaceOptimization; removeCaves=$false; fillInCaves=$false; exportBlockAnimations=$false; entityStartFrame=0; entityEndFrame=1; entityFPS=24; entitySpawnRules=@(); entitySimulate=@(); entityExport=@('minecraft:item_frame','minecraft:glow_item_frame','minecraft:painting','minecraft:block_display','minecraft:item_display','minecraft:armor_stand')}},
       @{command='export';path=(Join-Path $exportDir $exportFile)}
     )
@@ -467,6 +503,47 @@ try {
         Write-Host 'MiEx stderr (last 12 lines, warnings alone are not fatal):' -ForegroundColor Yellow
         Get-Content -LiteralPath $stderrLog -Tail 12 | ForEach-Object {Write-Host $_}
     }
+    # MiEx reports command results as one JSON object per [COMMAND] line.
+    # A usable layerCount proves the Bedrock reader decoded at least some
+    # saved chunk sections. An empty result leaves the root cause uncertain:
+    # absent chunk data, unsupported subchunk version, or a LevelDB failure.
+    $probeReturned = 0
+    $probeLoaded = 0
+    $probeReported = $false
+    $loadedMiExWorld = ''
+    if(Test-Path -LiteralPath $log) {
+        foreach($line in [System.IO.File]::ReadLines($log)) {
+            if(-not $line.StartsWith('[COMMAND] ')) { continue }
+            if(-not ($line.Contains('"chunks"') -or $line.Contains('"world"'))) { continue }
+            try {
+                $response = $line.Substring(10) | ConvertFrom-Json -ErrorAction Stop
+                if($null -ne $response.world -and $null -ne $response.world.path) {
+                    $loadedMiExWorld = [string]$response.world.path
+                }
+                if($null -eq $response.chunks) { continue }
+                $probeReported = $true
+                $probeReturned = 0
+                $probeLoaded = 0
+                foreach($record in $response.chunks) {
+                    $probeReturned++
+                    if([int]$record.layerCount -gt 0) { $probeLoaded++ }
+                }
+            } catch { Write-Warning 'MiEx diagnostic response could not be parsed.' }
+        }
+    }
+    if($loadedMiExWorld) {
+        Write-Host "MiEx selected world: $loadedMiExWorld" -ForegroundColor Cyan
+        if(-not [string]::Equals([IO.Path]::GetFullPath($loadedMiExWorld), [IO.Path]::GetFullPath($worldPath), [StringComparison]::OrdinalIgnoreCase)) {
+            Abort 'MiEx loaded a different world folder than the selected snapshot. Refusing an incorrect export.'
+        }
+    } else { Write-Warning 'MiEx did not return its selected-world path. Check the CLI command log.' }
+    Write-Host ("MiEx chunk probe: $probeLoaded readable chunk(s), $probeReturned returned, out of $($probeChunks.Count) sampled positions.") -ForegroundColor Cyan
+    $unsupportedChunk = [bool](@(Select-String -LiteralPath @($log, $stderrLog) -Pattern 'Chunk section format not supported' -Quiet -ErrorAction SilentlyContinue) | Where-Object { $_ }).Count -gt 0
+    if($unsupportedChunk) {
+        Write-Warning 'MiEx cannot decode one or more Bedrock subchunk formats (see Data version in miex_console.log). This is an upstream chunk-reader compatibility issue, not a Blender import issue.'
+    } elseif($probeReported -and $probeLoaded -eq 0) {
+        Write-Warning 'MiEx could not decode terrain sections in any sampled chunk. Check the world snapshot DB and miex_console.log for read errors.'
+    }
     $main = Join-Path $exportDir $exportFile
     if($code -ne 0 -or -not (Test-Path -LiteralPath $main)) {
         Abort "MiEx did not complete the run (Java exit code: $code). Check $log and $stderrLog. The original world ZIP is unchanged."
@@ -500,6 +577,23 @@ try {
     if($regionPayloadCount -ne $expectedSections) {
         Write-Warning "Region section reference count: $regionPayloadCount; expected: $expectedSections. Verify MiEx applied the chunk-size setting."
     }
+    # The root USD can contain valid render/proxy payload references even if
+    # every referenced chunk is empty. Catch that before replacing a previous
+    # export or launching Blender, which cannot reconstruct missing terrain.
+    if(-not (Test-ChunkTerrainGeometry $chunksDir)) {
+        $diagnosis = if($unsupportedChunk) {
+            'MiEx rejected the saved Bedrock chunk format; inspect miex_console.log for the exact unsupported Data version.'
+        } elseif($probeReported -and $probeLoaded -gt 0) {
+            'MiEx decoded some terrain chunks, but its mesh generation/export produced no terrain faces. Inspect the MiEx log for blockstate/material exceptions.'
+        } elseif($probeReported) {
+            'MiEx could not decode terrain in any sampled location. Check LevelDB open errors, subchunk versions and whether the snapshot contains saved terrain.'
+        } else {
+            'No valid chunk-read diagnostic was returned. The MiEx command sequence or world loading may have failed.'
+        }
+        Abort ("MiEx produced no solid terrain in X=$minX..$maxX, Z=$minZ..$maxZ. $diagnosis " +
+               "Inspect $log and $stderrLog; keep those logs for diagnosis. The previous export was preserved.")
+    }
+    Write-Host 'Verified: exported chunk USD contains nonempty terrain mesh faces.' -ForegroundColor Green
     # LOSSLESS COMPACT USD: convert text (USDA) layers to indexed Crate
     # (USDC) layers, keeping their .usd filenames and relative payload paths.
     # This is a file-format conversion, NOT face reduction or retopology.

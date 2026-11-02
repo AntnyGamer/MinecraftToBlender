@@ -37,7 +37,7 @@ jobs:
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Test-UnsupportedBedrockChunk')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -47,6 +47,22 @@ jobs:
           $capture = Start-CapturedProcess (Join-Path $PSHOME 'powershell.exe') '-NoProfile -Command "exit 7"' $dir (Join-Path $dir 'stdout.log') (Join-Path $dir 'stderr.log')
           $exitCode = Finish-CapturedProcess $capture
           if ($exitCode -ne 7) { throw "Direct process exit code incorrect: $exitCode" }
+          # A real MiEx world response can contain huge player NBT (including
+          # keys differing only by case). Parse its path without loading NBT.
+          $diagnosticLog = Join-Path $dir 'diagnostic.log'
+          $diagnosticErr = Join-Path $dir 'diagnostic.err'
+          $worldResponse = '[COMMAND] {"status":"success","world":{"path":"C:\\MiEx\\world_source","players":[{"Name":"a","name":"b","data":"' + ('x' * 20000) + '"}]}}'
+          $chunkResponse = '[COMMAND] {"status":"success","chunks":[{"chunkX":-1,"layerCount":2,"heightmap":"AAAA"},{"chunkX":0,"layerCount":0},{"chunkX":1,"layerCount":1}]}'
+          [IO.File]::WriteAllLines($diagnosticLog, [string[]]@($worldResponse, $chunkResponse))
+          [IO.File]::WriteAllText($diagnosticErr, '')
+          $diagnostics = Read-MiExDiagnostics $diagnosticLog
+          if ($diagnostics.WorldPath -ne 'C:\MiEx\world_source' -or -not $diagnostics.Reported -or
+              $diagnostics.Returned -ne 3 -or $diagnostics.Readable -ne 2) {
+            throw ('MiEx diagnostic parsing failed: ' + ($diagnostics | Out-String))
+          }
+          if (Test-UnsupportedBedrockChunk $diagnosticLog $diagnosticErr) { throw 'Invented unsupported-chunk warning' }
+          [IO.File]::WriteAllText($diagnosticErr, 'Chunk section format not supported')
+          if (-not (Test-UnsupportedBedrockChunk $diagnosticLog $diagnosticErr)) { throw 'Missed unsupported chunk error' }
           # Verify empty USD layers are rejected and real chunk faces pass.
           $chunks = Join-Path $dir 'chunk_geometry'
           New-Item -ItemType Directory -Force -Path $chunks | Out-Null

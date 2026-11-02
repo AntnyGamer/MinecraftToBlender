@@ -802,6 +802,12 @@ func setMinimumSize(lp uintptr) {
 }
 
 func resetLog() {
+	// Drain messages from the previous completed process before a new run.
+	// Otherwise a delayed UI tick could mix two conversions' logs.
+	for len(app.logCh) > 0 {
+		<-app.logCh
+	}
+	droppedLogLines.Store(0)
 	app.logLines = nil
 	app.logShown = 0
 	app.followLog = true

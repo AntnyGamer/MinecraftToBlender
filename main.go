@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -537,24 +538,52 @@ func usdFiles(src string) error {
 	}
 	return nil
 }
-func locateImporter(src, tools string) string {
-	root := filepath.Dir(src)
-	candidates := []string{filepath.Join(tools, "MiExImport.py")}
-	for i := 0; i < 7; i++ {
-		candidates = append(candidates, filepath.Join(root, "MiExImport.py"))
-		up := filepath.Dir(root)
-		if up == root {
-			break
+
+// Use only the pinned official MiEx importer in the application-managed tools
+// folder. Executing a similarly named Python file next to an imported USD is
+// unsafe: USD archives may come from other people or untrusted directories.
+const officialMiExImporterSHA256 = "68b9736a7eecf061cb052e357b9e5f0ff55ae48792f523dd932f2a6275c7412c"
+const officialMiExImporterURL = "https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/extras/Blender/BlenderAddon/MiExImport.py"
+
+func officialMiExImporter(ctx context.Context, tools string) (string, error) {
+	path := filepath.Join(tools, "MiExImport.py")
+	if existing, err := os.ReadFile(path); err == nil {
+		if fmt.Sprintf("%x", sha256.Sum256(existing)) == officialMiExImporterSHA256 {
+			return path, nil
 		}
-		root = up
+		guiLog("Local MiEx importer differs from the pinned upstream version; downloading a verified replacement.")
 	}
-	for _, candidate := range candidates {
-		if info, e := os.Stat(candidate); e == nil && !info.IsDir() {
-			return candidate
-		}
+	req, err := http.NewRequestWithContext(ctx, "GET", officialMiExImporterURL, nil)
+	if err != nil {
+		return "", err
 	}
-	return ""
+	client := &http.Client{Timeout: 35 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("cannot download official MiEx importer: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("cannot download official MiEx importer: HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 1024*1024 || fmt.Sprintf("%x", sha256.Sum256(data)) != officialMiExImporterSHA256 {
+		return "", errors.New("official MiEx importer does not match the pinned SHA256; refusing to run it")
+	}
+	temp := path + ".new"
+	if err := os.WriteFile(temp, data, 0644); err != nil {
+		return "", err
+	}
+	if ok, _, moveErr := pMoveFileEx.Call(ptr(temp), ptr(path), 0x1|0x8); ok == 0 {
+		_ = os.Remove(temp)
+		return "", fmt.Errorf("cannot install verified MiEx importer: %w", moveErr)
+	}
+	return path, nil
 }
+
 func runProcess(ctx context.Context, name string, args []string, logfile string) error {
 	if err := os.MkdirAll(filepath.Dir(logfile), 0755); err != nil {
 		return err
@@ -578,18 +607,23 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 	appPID := cmd.Process.Pid
 	guiLog("Running: " + filepath.Base(name))
 	var wg sync.WaitGroup
+	readErrors := make(chan error, 1)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		scanner := bufio.NewScanner(r)
-		scanner.Buffer(make([]byte, 65536), 1024*1024)
+		scanner.Buffer(make([]byte, 65536), 8*1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Fprintln(f, line)
 			guiLog(line)
 		}
-		if scanner.Err() != nil {
-			guiLog("Process log read warning: " + scanner.Err().Error())
+		if readErr := scanner.Err(); readErr != nil {
+			// Stop the pipe writer too, so an oversized line cannot leave the
+			// child blocked forever while the parent waits for it to exit.
+			guiLog("Process log read error: " + readErr.Error())
+			_ = r.CloseWithError(readErr)
+			readErrors <- readErr
 		}
 	}()
 	done := make(chan error, 1)
@@ -616,6 +650,11 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	select {
+	case readErr := <-readErrors:
+		return fmt.Errorf("cannot read complete process output: %w", readErr)
+	default:
+	}
 	return err
 }
 func doImport(ctx context.Context, src, blender, tools string) (string, error) {
@@ -628,34 +667,9 @@ func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 	if _, err := os.Stat(blender); err != nil {
 		return "", fmt.Errorf("Blender executable not found: %s", blender)
 	}
-	importer := locateImporter(src, tools)
-	if importer == "" {
-		guiLog("Official MiEx importer was not found locally. Downloading the pinned version...")
-		const importerURL = "https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/extras/Blender/BlenderAddon/MiExImport.py"
-		req, err := http.NewRequestWithContext(ctx, "GET", importerURL, nil)
-		if err != nil {
-			return "", err
-		}
-		client := &http.Client{Timeout: 35 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			return "", fmt.Errorf("cannot download official MiEx importer: %w", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return "", fmt.Errorf("cannot download official MiEx importer: HTTP %d", resp.StatusCode)
-		}
-		data, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
-		if err != nil {
-			return "", err
-		}
-		if !strings.Contains(string(data), "class MiexImport") || !strings.Contains(string(data), "node.image = bpy.data.images.load(imagePath)") {
-			return "", errors.New("MiEx importer download did not match the pinned source")
-		}
-		importer = filepath.Join(tools, "MiExImport.py")
-		if err = os.WriteFile(importer, data, 0644); err != nil {
-			return "", err
-		}
+	importer, err := officialMiExImporter(ctx, tools)
+	if err != nil {
+		return "", err
 	}
 	baseTarget := filepath.Join(filepath.Dir(src), strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+"_REPAIRED")
 	target := baseTarget + ".blend"

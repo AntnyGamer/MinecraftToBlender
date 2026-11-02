@@ -1,0 +1,605 @@
+# Minecraft to Blender v1: full-detail Java/Bedrock world folder to Blender USD.
+# The source save remains untouched; no missing-block substitution is performed by this script.
+# MiEx itself may have limitations and this workflow does not certify pixel-for-pixel parity.
+[CmdletBinding()]
+param(
+    [string]$WorldZip = '',
+    [string]$WorldPath = '',
+    [ValidateSet('bedrock','java')][string]$Edition = 'bedrock',
+    [ValidateRange(16,8192)][int]$Size = 256,
+    [int]$CenterX = 0,
+    [int]$CenterZ = 0,
+    [ValidateRange(-256,2048)][int]$MinY = -64,
+    [ValidateRange(-256,2048)][int]$MaxY = 319,
+    [ValidatePattern('^[a-zA-Z][a-zA-Z0-9_]{0,60}$')][string]$ExportName = 'Bedrock_World',
+    [switch]$CompactUSD
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$base = Split-Path -Parent $MyInvocation.MyCommand.Path
+$work = Join-Path $base 'MiEx_Work'
+$worldDir = Join-Path $work 'world_source'
+$chunkSize = 16
+$enableGeometrySubsets = $true
+$enableFaceOptimization = $false
+$exportDir = Join-Path (Join-Path $work 'exports') $ExportName
+$exportFile = "$ExportName.usd"
+if($MinY -gt $MaxY) { throw 'MinY must be less than or equal to MaxY.' }
+if(($Size % 16) -ne 0) { throw 'Size must be a multiple of 16 (Minecraft chunk width).' }
+$minX = $CenterX - [int][math]::Floor($Size/2)
+$minZ = $CenterZ - [int][math]::Floor($Size/2)
+$maxX = $minX + $Size - 1
+$maxZ = $minZ + $Size - 1
+Write-Host ('Minecraft to Blender v1: compatibility-first export; face merging and point instancing disabled.') -ForegroundColor Cyan
+Write-Host ("Region: X=$minX..$maxX Z=$minZ..$maxZ Y=$MinY..$MaxY")
+$miexDir = Join-Path $work 'miex'
+$jar = Join-Path $miexDir 'MiEx.jar'
+$releaseUrl = 'https://github.com/BramStoutProductions/MiEx/releases/download/v2.0.0.experimental-34/MiEx.jar'
+$releaseSha256 = 'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707'
+
+function Get-WebFile([string]$url,[string]$dest) {
+    $folder = Split-Path -Parent $dest
+    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    Write-Host "Downloading $url"
+    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $dest
+    if(-not (Test-Path -LiteralPath $dest)) { throw "Missing downloaded file: $dest" }
+}
+function Test-Hash([string]$path,[string]$expected) {
+    $found = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if($found -ne $expected) {throw "SHA256 mismatch for $path. Actual: $found / expected: $expected"}
+    Write-Host "Verified SHA256: $path" -ForegroundColor Green
+}
+function Abort([string]$reason) {throw $reason}
+
+try {
+    Write-Host ("$Edition world folder -> MiEx -> Blender USD") -ForegroundColor Cyan
+    if(-not (Get-Command java -ErrorAction SilentlyContinue)) {
+        Abort 'Java is not installed. Install Java 21 (or a compatible JDK), then rerun this script.'
+    }
+    # Check BEFORE creating the working directories. An unsafe workspace
+    # must not create AppTools files in the original Minecraft save.
+    if($WorldPath) {
+        $sourceSafe = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $WorldPath -ErrorAction Stop).Path).TrimEnd('\')
+        $toolSafe = [System.IO.Path]::GetFullPath($base).TrimEnd('\')
+        if($sourceSafe.Equals($toolSafe, [StringComparison]::OrdinalIgnoreCase) -or
+           $sourceSafe.StartsWith(($toolSafe + '\'), [StringComparison]::OrdinalIgnoreCase) -or
+           $toolSafe.StartsWith(($sourceSafe + '\'), [StringComparison]::OrdinalIgnoreCase)) {
+            Abort 'Converter workspace overlaps the selected world folder. Move the workspace outside the Minecraft save.'
+        }
+    }
+    New-Item -ItemType Directory -Force -Path $work,$exportDir,$miexDir | Out-Null
+
+    if(-not $WorldZip -and -not $WorldPath) {
+        Add-Type -AssemblyName System.Windows.Forms
+        $dlg = New-Object System.Windows.Forms.OpenFileDialog
+        $dlg.Title = 'Select a Minecraft Bedrock world ZIP (with level.dat and db folder)'
+        $dlg.Filter = 'ZIP files (*.zip)|*.zip|All files (*.*)|*.*'
+        if($dlg.ShowDialog() -ne 'OK') { Abort 'No world ZIP was selected.' }
+        $WorldZip = $dlg.FileName
+    }
+    if(-not $WorldPath) {
+    $WorldZip = (Resolve-Path -LiteralPath $WorldZip).Path
+    Write-Host "Selected file: $WorldZip"
+    # Confirm the ZIP is a Bedrock world rather than a previously exported model.
+    # GLB export archives are not Minecraft world saves, even if their name contains "Source".
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $hasLevelDat = $false
+    $hasDb = $false
+    $hasGlb = $false
+    try {
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($WorldZip)
+        try {
+            foreach($entry in $archive.Entries) {
+                $name = ($entry.FullName -replace '\\','/').ToLowerInvariant()
+                if($name -match '(^|/)level\.dat$') { $hasLevelDat = $true }
+                if($name -match '(^|/)db/[^/]+\.(ldb|sst|log)$' -or $name -match '(^|/)db/current$') { $hasDb = $true }
+                if($name.EndsWith('.glb')) { $hasGlb = $true }
+            }
+        } finally { $archive.Dispose() }
+    } catch { Abort "Not a readable ZIP file: $WorldZip" }
+    if(-not ($hasLevelDat -and $hasDb)) {
+        if($hasGlb) {
+            Abort 'Selected archive contains GLB model files, not a Bedrock world. Select an original Bedrock world ZIP.'
+        }
+        Abort 'Selected ZIP is not a Bedrock world. Its contents must include level.dat and a db directory.'
+    }
+    # World-specific SHA256 is calculated at runtime; public users can supply any Bedrock save.
+    $actualWorldHash = (Get-FileHash -LiteralPath $WorldZip -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-Host "Bedrock world ZIP SHA256: $actualWorldHash" -ForegroundColor Green
+
+    $marker = Join-Path $worldDir '.verified_world_sha256'
+    $doExtract = $true
+    if((Test-Path -LiteralPath $marker) -and ((Get-Content -LiteralPath $marker -Raw).Trim() -eq $actualWorldHash)) {
+        $cachedLevel = Get-ChildItem -LiteralPath $worldDir -Recurse -Filter 'level.dat' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if($cachedLevel -and (Test-Path -LiteralPath (Join-Path $cachedLevel.DirectoryName 'db'))) {
+            $doExtract = $false
+            Write-Host 'Reusing verified, extracted Bedrock save (no redundant ZIP extraction).' -ForegroundColor Green
+        }
+    }
+    if($doExtract) {
+        if(Test-Path -LiteralPath $worldDir) {Remove-Item -LiteralPath $worldDir -Recurse -Force}
+        New-Item -ItemType Directory -Path $worldDir -Force | Out-Null
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($WorldZip,$worldDir)
+        Set-Content -LiteralPath $marker -Value $actualWorldHash -Encoding ASCII
+    }
+    $level = Get-ChildItem -LiteralPath $worldDir -Recurse -Filter level.dat -File | Select-Object -First 1
+    if(-not $level) {Abort 'No Bedrock level.dat file found after extraction.'}
+    $worldPath = Split-Path -Parent $level.FullName
+    if(-not (Test-Path -LiteralPath (Join-Path $worldPath 'db'))) {Abort 'Bedrock world database folder is missing.'}
+    Write-Host "Verified Bedrock world directory: $worldPath" -ForegroundColor Green
+    } else {
+        # Users select a local world in the GUI. Snapshot the save read-only;
+        # MiEx is never given the original game directory. No ZIP is needed.
+        $source = (Resolve-Path -LiteralPath $WorldPath -ErrorAction Stop).Path
+        if(-not (Test-Path -LiteralPath (Join-Path $source 'level.dat') -PathType Leaf)) {
+            Abort 'Selected world has no level.dat.'
+        }
+        if($Edition -eq 'bedrock' -and -not (Test-Path -LiteralPath (Join-Path $source 'db') -PathType Container)) {
+            Abort 'Selected Bedrock world has no LevelDB db folder.'
+        }
+        if($Edition -eq 'java' -and -not ((Test-Path -LiteralPath (Join-Path $source 'region') -PathType Container) -or (Test-Path -LiteralPath (Join-Path $source 'dimensions') -PathType Container))) {
+            Abort 'Selected Java world has no region/dimensions folder.'
+        }
+        if($source.StartsWith($work, [System.StringComparison]::OrdinalIgnoreCase) -or $work.StartsWith(($source + [IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
+            Abort 'The world save and converter workspace cannot contain one another.'
+        }
+        # Source game worlds can be updated at any time. A fresh snapshot avoids
+        # using stale data from a prior export, even for identically named saves.
+        $stage = Join-Path $work 'world_source_staging'
+        if(Test-Path -LiteralPath $stage) {Remove-Item -LiteralPath $stage -Recurse -Force}
+        New-Item -ItemType Directory -Force -Path $stage | Out-Null
+        Write-Host "Copying a safe, read-only snapshot of the $Edition world..." -ForegroundColor Cyan
+        try {
+            foreach($entry in (Get-ChildItem -LiteralPath $source -Force -ErrorAction Stop)) {
+                Copy-Item -LiteralPath $entry.FullName -Destination $stage -Recurse -Force -ErrorAction Stop
+            }
+            if(-not (Test-Path -LiteralPath (Join-Path $stage 'level.dat'))) {
+                Abort 'World snapshot is incomplete: level.dat missing.'
+            }
+            if($Edition -eq 'bedrock' -and -not (Test-Path -LiteralPath (Join-Path $stage 'db'))) {
+                Abort 'World snapshot is incomplete: LevelDB db folder missing.'
+            }
+            if(Test-Path -LiteralPath $worldDir) {Remove-Item -LiteralPath $worldDir -Recurse -Force}
+            Move-Item -LiteralPath $stage -Destination $worldDir -ErrorAction Stop
+        } catch {
+            if(Test-Path -LiteralPath $stage) {Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue}
+            throw
+        }
+        $worldPath = $worldDir
+        $actualWorldHash = (Get-FileHash -LiteralPath (Join-Path $worldPath 'level.dat') -Algorithm SHA256).Hash.ToLowerInvariant()
+        Write-Host "Snapshot ready; world metadata SHA256: $actualWorldHash" -ForegroundColor Green
+    }
+
+    if(-not (Test-Path -LiteralPath $jar)) {Get-WebFile $releaseUrl $jar}
+    try {Test-Hash $jar $releaseSha256}
+    catch {Remove-Item -LiteralPath $jar -Force -ErrorAction SilentlyContinue;Get-WebFile $releaseUrl $jar;Test-Hash $jar $releaseSha256}
+
+    # Apply the fourth-vertex color-check fix in a NEW JAR, not
+    # the checksummed official original. This must succeed before
+    # export; do not silently fall back to a different implementation.
+    $runJar = $jar
+    if($enableFaceOptimization) {
+        $runJar = Join-Path $miexDir 'MiEx_Optimized.jar'
+        $patcherClass = Join-Path $base 'PatchMiExFaceOptimizer.class'
+        $patcherHelper = Join-Path $base 'PatchMiExFaceOptimizer$ClassView.class'
+        if(-not (Test-Path -LiteralPath $patcherClass) -or -not (Test-Path -LiteralPath $patcherHelper)) {
+            Abort 'Missing Java patcher class files. Extract the entire release ZIP before running.'
+        }
+        $patchMarker = Join-Path $miexDir 'MiEx_Optimized.sha256.txt'
+        # Include the patcher itself in the cache key, not just the resulting JAR.
+        # A new patch implementation must not silently reuse an older patched JAR.
+        $patcherHash = ((Get-FileHash -LiteralPath $patcherClass -Algorithm SHA256).Hash.ToLowerInvariant() + ':' + 
+                        (Get-FileHash -LiteralPath $patcherHelper -Algorithm SHA256).Hash.ToLowerInvariant())
+        $patchFresh = $false
+        if((Test-Path -LiteralPath $runJar) -and (Test-Path -LiteralPath $patchMarker)) {
+            $savedHash = (Get-Content -LiteralPath $patchMarker -Raw).Trim().ToLowerInvariant()
+            $jarHash = (Get-FileHash -LiteralPath $runJar -Algorithm SHA256).Hash.ToLowerInvariant()
+            $patchFresh = ($savedHash -eq ($jarHash + ':' + $patcherHash))
+        }
+        if(-not $patchFresh) {
+            $patchLog = Join-Path $work 'Face_Patch_Log.txt'
+            $javaExe = (Get-Command java.exe -ErrorAction Stop).Source
+            $patchArgs = '-cp "{0}" PatchMiExFaceOptimizer "{1}" "{2}"' -f $base, $jar, $runJar
+            $patchProcessInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $patchProcessInfo.FileName = $javaExe
+            $patchProcessInfo.Arguments = $patchArgs
+            $patchProcessInfo.WorkingDirectory = $base
+            $patchProcessInfo.UseShellExecute = $false
+            $patchProcessInfo.CreateNoWindow = $true
+            $patchProcessInfo.RedirectStandardOutput = $true
+            $patchProcessInfo.RedirectStandardError = $true
+            Write-Host 'Applying face optimizer patch to a separate JAR...' -ForegroundColor Cyan
+            $patchProcess = New-Object System.Diagnostics.Process
+            $patchProcess.StartInfo = $patchProcessInfo
+            try {
+                [void]$patchProcess.Start()
+                $patchStdout = $patchProcess.StandardOutput.ReadToEnd()
+                $patchStderr = $patchProcess.StandardError.ReadToEnd()
+                $patchProcess.WaitForExit()
+                $patchCode = $patchProcess.ExitCode
+                [System.IO.File]::WriteAllText($patchLog, ($patchStdout + [Environment]::NewLine + $patchStderr), [System.Text.Encoding]::UTF8)
+                if($patchStdout) { Write-Host $patchStdout.Trim() }
+                if($patchStderr) { Write-Host $patchStderr.Trim() -ForegroundColor Yellow }
+            } finally { $patchProcess.Dispose() }
+            if($patchCode -ne 0 -or -not (Test-Path -LiteralPath $runJar)) {
+                Abort "Face optimizer patch failed (exit code $patchCode). Original MiEx.jar remains intact. Details: $patchLog"
+            }
+            $optimizedSha = (Get-FileHash -LiteralPath $runJar -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($optimizedSha -eq $releaseSha256) {Abort 'Patched MiEx JAR is unexpectedly identical to the original. Refusing export.'}
+            [System.IO.File]::WriteAllText($patchMarker, ($optimizedSha + ':' + $patcherHash + [Environment]::NewLine), [System.Text.Encoding]::ASCII)
+            Write-Host ('Verified separate optimized JAR: ' + $optimizedSha) -ForegroundColor Green
+        }else {
+            Write-Host 'Reusing previously validated, checksummed patched MiEx JAR.' -ForegroundColor Green
+        }
+    }
+
+    # Official MiEx example resource pack for Blender EEVEE materials only.
+    # It does not contain custom block textures and is not the world's custom pack.
+    $files = @(
+      'miex_config.json',
+      'materials/minecraft/templates/json_base.json',
+      'materials/minecraft/templates/json_emission.json',
+      'materials/minecraft/templates/json_grass_block_side.json',
+      'materials/minecraft/templates/json_grass_block_snow.json'
+    )
+    foreach($f in $files) {
+        $target = Join-Path $miexDir ('resources/BlenderEEVEE/' + $f)
+        if(-not (Test-Path -LiteralPath $target)) {
+            $url = 'https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/extras/example_resource_packs/BlenderEEVEE/' + $f
+            Get-WebFile $url $target
+        }
+    }
+    # Reusable MiEx exporter configuration. This changes future world exports,
+    # not the already-generated USD and not any Minecraft source blocks.
+    $packConfigPath = Join-Path $miexDir 'resources/BlenderEEVEE/miex_config.json'
+    $packConfig = Get-Content -LiteralPath $packConfigPath -Raw | ConvertFrom-Json
+    $packConfig | Add-Member -MemberType NoteProperty -Name 'useGeometrySubsets' -Value $enableGeometrySubsets -Force
+    # The existing MiEx USD already uses point instancers for these block types;
+    # Disable individual-block point instancing until the corresponding Blender
+    # geometry-node output is validated. Previously it imported as scattered points.
+    $packConfig | Add-Member -MemberType NoteProperty -Name 'usePointInstancersForIndividualBlocks' -Value $false -Force
+    $packConfig | Add-Member -MemberType NoteProperty -Name 'runFaceOptimiser' -Value $enableFaceOptimization -Force
+    $packConfig | Add-Member -MemberType NoteProperty -Name 'runRaytracingOptimiser' -Value $false -Force
+    $outConfig = $packConfig | ConvertTo-Json -Depth 20
+    [System.IO.File]::WriteAllText($packConfigPath, $outConfig + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
+    $parsedConfig = Get-Content -LiteralPath $packConfigPath -Raw | ConvertFrom-Json
+    if([bool]$parsedConfig.useGeometrySubsets -ne $enableGeometrySubsets -or [bool]$parsedConfig.usePointInstancersForIndividualBlocks -or [bool]$parsedConfig.runFaceOptimiser -ne $enableFaceOptimization -or [bool]$parsedConfig.runRaytracingOptimiser) {
+        Abort 'MiEx exporter resource-pack configuration did not validate.'
+    }
+    Write-Host 'Applied reusable exporter configuration in BlenderEEVEE/miex_config.json.' -ForegroundColor Green
+    $frameStateFolder = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/blockstates'
+    $frameOverridePath = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities/item_frame.json'
+    if($Edition -eq 'bedrock') {
+        # Bedrock item frames are both stored as blocks AND exported by MiEx as
+        # entities. Their blockstate is intentionally empty: the real vanilla
+        # frame geometry is generated by the separate entity model below.
+        # This prevents the false missing-blockstate error during neighboring
+        # block occlusion checks without inventing a placeholder 3D frame.
+        New-Item -ItemType Directory -Force -Path $frameStateFolder | Out-Null
+        foreach($frameStateName in @('frame', 'glow_frame')) {
+            $frameStatePath = Join-Path $frameStateFolder ($frameStateName + '.json')
+            [System.IO.File]::WriteAllText($frameStatePath, '{"variants":{}}' + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
+        }
+        # MiEx's pinned built-in frame entity incorrectly checks the block context
+        # for a stored item (thisBlock), and uses Java Item.id even for Bedrock
+        # Item.Name entries. Correct these narrowly using the official frame model.
+        # The item model geometry and textures themselves are not replaced.
+        $frameSource = Join-Path $miexDir 'item_frame_upstream.json'
+        if(-not (Test-Path -LiteralPath $frameSource)) {
+            Get-WebFile 'https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/builtin_files/base_resource_pack/builtins/minecraft/entities/item_frame.json' $frameSource
+        }
+        $frameRaw = [System.IO.File]::ReadAllText($frameSource)
+        $frameOldCondition = '(thisBlock.state.Item != null)'
+        $frameOldId = '"id": "thisEntity.state.Item.id"'
+        if(($frameRaw.Split([string[]]@($frameOldCondition), [System.StringSplitOptions]::None).Length - 1) -ne 2 -or
+           ($frameRaw.Split([string[]]@($frameOldId), [System.StringSplitOptions]::None).Length - 1) -ne 1) {
+            Abort 'Pinned MiEx item-frame definition differs from the expected version. Refusing an unverified correction.'
+        }
+        $frameFixed = $frameRaw.Replace($frameOldCondition, '(thisEntity.state.Item != null)')
+        $frameFixed = $frameFixed.Replace($frameOldId, '"id": "thisEntity.state.Item.id != null ? thisEntity.state.Item.id : thisEntity.state.Item.Name"')
+        $frameObj = $frameFixed | ConvertFrom-Json
+        if(($frameObj.entities -notcontains 'minecraft:item_frame') -or
+           ($frameObj.entities -notcontains 'minecraft:glow_item_frame')) {
+            Abort 'Pinned frame model does not declare the expected entity identifiers.'
+        }
+        # Bedrock's integer block entity X/Z refer to the block origin, whereas
+        # the entity frame model expects the horizontal center of that block.
+        $frameObj | Add-Member -MemberType NoteProperty -Name posX -Value 'thisEntity.state.x + 0.5' -Force
+        $frameObj | Add-Member -MemberType NoteProperty -Name posZ -Value 'thisEntity.state.z + 0.5' -Force
+        $frameOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities'
+        New-Item -ItemType Directory -Force -Path $frameOverrideDir | Out-Null
+        $frameOutput = $frameObj | ConvertTo-Json -Depth 80
+        $frameReparsed = $frameOutput | ConvertFrom-Json
+        if($frameReparsed.posX -ne 'thisEntity.state.x + 0.5' -or
+           $frameReparsed.posZ -ne 'thisEntity.state.z + 0.5') {
+            Abort 'Frame entity model override failed validation.'
+        }
+        [System.IO.File]::WriteAllText($frameOverridePath, $frameOutput + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host 'Installed Bedrock frame and glow-frame blockstates and corrected entity item models.' -ForegroundColor Green
+
+    } else {
+        # A Java export must not inherit Bedrock-specific frame overrides
+        # from an earlier export in this workspace.
+        foreach($frameStateName in @('frame', 'glow_frame')) {
+            $frameStatePath = Join-Path $frameStateFolder ($frameStateName + '.json')
+            if(Test-Path -LiteralPath $frameStatePath) {
+                Remove-Item -LiteralPath $frameStatePath -Force
+            }
+        }
+        if(Test-Path -LiteralPath $frameOverridePath) {
+            Remove-Item -LiteralPath $frameOverridePath -Force
+        }
+    }
+
+    $addon = Join-Path $base 'MiExImport.py'
+    if(-not (Test-Path -LiteralPath $addon)) {
+        Get-WebFile 'https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/extras/Blender/BlenderAddon/MiExImport.py' $addon
+    }
+
+    $region = [ordered]@{
+      name='Region 1'; minX=$minX; maxX=$maxX; minZ=$minZ; maxZ=$maxZ;
+      minY=$MinY; maxY=$MaxY; offsetX=0; offsetY=0; offsetZ=0;
+      enableLOD=$false; lodBaseLevel=0; lodYDetail=1; chunkSize=$chunkSize;
+      actAsExcludeRegion=$false;
+      onlyIndividualBlocks=$false; excludeRegionsAsAir=$false; defaultValues=$false
+    }
+    $commands = @(
+      @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$false},
+      @{command='loadDimension'; dimension='overworld'},
+      @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')},
+      @{command='applyExportSettings'; settings=@{chunkSize=$chunkSize; exportRegions=@{'Region 1'=$region}; runOptimiser=$enableFaceOptimization; removeCaves=$false; fillInCaves=$false; exportBlockAnimations=$false; entityStartFrame=0; entityEndFrame=1; entityFPS=24; entitySpawnRules=@(); entitySimulate=@(); entityExport=@('minecraft:item_frame','minecraft:glow_item_frame','minecraft:painting','minecraft:block_display','minecraft:item_display','minecraft:armor_stand')}},
+      @{command='export';path=(Join-Path $exportDir $exportFile)}
+    )
+    $cmdFile = Join-Path $work 'MiEx_export_commands.json'
+    $commands | ConvertTo-Json -Depth 15 | Set-Content -LiteralPath $cmdFile -Encoding UTF8
+    Write-Host 'Enabling vanilla item-frame, glow-frame, painting, display and armor-stand models (single static frame).' -ForegroundColor Cyan
+    $env:MIEX_PORTABLE_EXPORTS='1'
+    $env:MIEX_SKIP_WORLD_RESOURCEPACK_CHECK='1'
+    $log = Join-Path $work 'miex_console.log'
+    Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
+    if($enableFaceOptimization) {
+        Write-Warning 'Check UV tiling, water, foliage, transparent blocks, biome tint and ambient occlusion after importing. Face merging and geometry subsets are not certified visually lossless.'
+    }
+    # IMPORTANT: Java writes harmless warnings to stderr. Windows PowerShell 5.1
+    # can turn those warnings into terminating errors when ErrorActionPreference
+    # is Stop and stderr is merged with stdout using *>&1. Capture both streams
+    # separately instead; success depends on exit code AND the actual USD file.
+    $stderrLog = Join-Path $work 'miex_stderr.log'
+    $javaCommand = (Get-Command java.exe -ErrorAction Stop).Source
+    $ramBytes = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).TotalPhysicalMemory
+    if($ramBytes) {
+        $ramGiB = [math]::Floor([double]$ramBytes / 1GB)
+        $heapGiB = [int][math]::Max(2, [math]::Min(24, [math]::Floor($ramGiB * 0.5)))
+    } else { $heapGiB = 8 }
+    Write-Host "Java heap cap: ${heapGiB}G"
+    $javaArgs = '-Xmx{0}G -jar "{1}" -cli -cliAutoQuit -storeGenTexInExport -skipWorldResourcePackCheck -commandFile "{2}"' -f $heapGiB, $runJar, $cmdFile
+    Write-Host "MiEx stdout log: $log"
+    Write-Host "MiEx stderr log: $stderrLog"
+    Write-Host 'Java warnings alone do NOT stop the export.' -ForegroundColor DarkCyan
+    # Windows PowerShell 5.1 can return a null ExitCode from Start-Process.
+    # Use a one-shot CMD wrapper that writes the actual Java exit code to a file.
+    # Capture stderr separately and do not promote Java warnings to PS errors.
+    $exitStatusFile = Join-Path $work 'miex_exit_code.txt'
+    $batchFile = Join-Path $work 'Invoke_MiEx.cmd'
+    if(Test-Path -LiteralPath $exitStatusFile) { Remove-Item -LiteralPath $exitStatusFile -Force }
+    # If there is an earlier USD from a prior invocation, don't accept it as this run's output.
+    $main = Join-Path $exportDir $exportFile
+    # Don't mistake old sidecars/chunk geometry for this run's result.
+    foreach($old in @($main,
+                      (Join-Path $exportDir ($ExportName + '_materials.json')),
+                      (Join-Path $exportDir ($ExportName + '_materials.usd')),
+                      (Join-Path $exportDir ($ExportName + '_chunks')),
+                      (Join-Path $exportDir ($ExportName + '_entities.usd')),
+                      (Join-Path $exportDir ($ExportName + '_entities.miex')))) {
+        if(Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force }
+    }
+    $batchLines = @(
+        '@echo off',
+        'setlocal',
+        ('cd /d "{0}"' -f $miexDir),
+        ('"{0}" {1} 1>"{2}" 2>"{3}"' -f $javaCommand, $javaArgs, $log, $stderrLog),
+        'set "MIEX_RESULT=%ERRORLEVEL%"',
+        ('>"{0}" echo %MIEX_RESULT%' -f $exitStatusFile),
+        'exit /b %MIEX_RESULT%'
+    )
+    [System.IO.File]::WriteAllLines($batchFile, $batchLines, [System.Text.Encoding]::ASCII)
+    $proc = Start-Process -FilePath $env:ComSpec -ArgumentList ('/D /C ""{0}""' -f $batchFile) -PassThru -NoNewWindow
+    $lastSize = -1
+    while(-not $proc.HasExited) {
+        Start-Sleep -Seconds 5
+        $proc.Refresh()
+        if(Test-Path -LiteralPath $log) {
+            $length = (Get-Item -LiteralPath $log).Length
+            if($length -ne $lastSize) {
+                $lastSize = $length
+                Get-Content -LiteralPath $log -Tail 8 -ErrorAction SilentlyContinue | ForEach-Object {Write-Host $_}
+            }
+        }
+    }
+    $proc.WaitForExit()
+    if(-not (Test-Path -LiteralPath $exitStatusFile)) {
+        Abort "Java finished without writing its exit code. Inspect $log and $stderrLog."
+    }
+    $exitCodeText = (Get-Content -LiteralPath $exitStatusFile -Raw).Trim()
+    $code = 0
+    if(-not [int]::TryParse($exitCodeText, [ref] $code)) {
+        Abort "Invalid Java exit status '$exitCodeText'. Inspect $log and $stderrLog."
+    }
+    Write-Host "MiEx Java process exited with code $code"
+    if((Test-Path -LiteralPath $stderrLog) -and (Get-Item -LiteralPath $stderrLog).Length -gt 0) {
+        Write-Host 'MiEx stderr (last 12 lines, warnings alone are not fatal):' -ForegroundColor Yellow
+        Get-Content -LiteralPath $stderrLog -Tail 12 | ForEach-Object {Write-Host $_}
+    }
+    $main = Join-Path $exportDir $exportFile
+    if($code -ne 0 -or -not (Test-Path -LiteralPath $main)) {
+        Abort "MiEx did not complete the run (Java exit code: $code). Check $log and $stderrLog. The original world ZIP is unchanged."
+    }
+    $materialsJson = Join-Path $exportDir ($ExportName + '_materials.json')
+    $materialsUsd = Join-Path $exportDir ($ExportName + '_materials.usd')
+    $chunksDir = Join-Path $exportDir ($ExportName + '_chunks')
+    $materialsFound = (Test-Path -LiteralPath $materialsJson)
+    $materialsUsdFound = (Test-Path -LiteralPath $materialsUsd)
+    $chunkFiles = @()
+    if(Test-Path -LiteralPath $chunksDir) {
+        $chunkFiles = @(Get-ChildItem -LiteralPath $chunksDir -Filter '*.usd' -Recurse -File -ErrorAction SilentlyContinue)
+    }
+    $chunkCount = $chunkFiles.Count
+    $entityUsdFiles = @(Get-ChildItem -LiteralPath $exportDir -Recurse -Filter '*entit*.usd' -File -ErrorAction SilentlyContinue)
+    $entityUsdCount = $entityUsdFiles.Count
+    if(-not $materialsFound) {
+        Write-Warning 'Blender materials JSON is MISSING. The USD may import but cannot have correct Blender material nodes. Check BlenderEEVEE pack activation.'
+    }
+    if(-not $materialsUsdFound) { Write-Warning 'USD materials sidecar is missing.' }
+    if($chunkCount -eq 0) { Write-Warning 'No chunk USD files were found; the main USD may reference missing geometry.' }
+    # MiEx can return process code 0 and [COMMAND] status=success even when
+    # meshes were skipped. Check that the expected USD isn't a zero-byte file.
+    if((Get-Item -LiteralPath $main).Length -eq 0) { Abort 'USD exists but is empty.' }
+    $usdText = Get-Content -LiteralPath $main -Raw
+    $refPattern = 'payload\s*=\s*@\./' + [regex]::Escape($ExportName + '_chunks') + '/region_1_chunk_\d+_\d+\.usd@'
+    $refMatches = [regex]::Matches($usdText, $refPattern)
+    $regionPayloadCount = $refMatches.Count
+    $expectedSections = [int][math]::Ceiling($Size / (16.0 * $chunkSize))
+    $expectedSections = $expectedSections * $expectedSections
+    if($regionPayloadCount -ne $expectedSections) {
+        Write-Warning "Region section reference count: $regionPayloadCount; expected: $expectedSections. Verify MiEx applied the chunk-size setting."
+    }
+    # LOSSLESS COMPACT USD: convert text (USDA) layers to indexed Crate
+    # (USDC) layers, keeping their .usd filenames and relative payload paths.
+    # This is a file-format conversion, NOT face reduction or retopology.
+    # It uses Blender's existing Python/OpenUSD installation, not an add-on.
+    $binaryInfoPath = Join-Path $work 'USD_Crate_Result.txt'
+    $binaryLog = Join-Path $work 'USD_Crate_Convert.log'
+    $binarySummary = 'Skipped optional USD compaction for faster export. Original USD is preserved.'
+    if($CompactUSD) {
+        $binarySummary = 'Blender executable not detected; original ASCII USD is still valid.'
+        $blenderExe = $null
+        $blenderCmd = Get-Command 'blender.exe' -ErrorAction SilentlyContinue
+        if($blenderCmd) { $blenderExe = $blenderCmd.Source }
+        if(-not $blenderExe) {
+            $blenderRoot = Join-Path ${env:ProgramFiles} 'Blender Foundation'
+            if(Test-Path -LiteralPath $blenderRoot) {
+                $blenderExe = Get-ChildItem -LiteralPath $blenderRoot -Filter 'blender.exe' -File -Recurse -ErrorAction SilentlyContinue |
+                    Sort-Object FullName -Descending | Select-Object -ExpandProperty FullName -First 1
+            }
+        }
+        if($blenderExe -and (Test-Path -LiteralPath $blenderExe)) {
+            $crateScript = Join-Path $base 'Convert_USD_To_Crate.py'
+            if(-not (Test-Path -LiteralPath $crateScript)) { Abort 'Lossless USD converter script is missing.' }
+            $crateCmd = Join-Path $work 'Invoke_USD_Crate.cmd'
+            $crateExit = Join-Path $work 'USD_Crate_Exit_Code.txt'
+            if(Test-Path -LiteralPath $crateExit) { Remove-Item -LiteralPath $crateExit -Force }
+            $crateLines = @(
+                '@echo off',
+                'setlocal',
+                ('"{0}" --background --factory-startup --python "{1}" -- "{2}" "{3}" "{5}" > "{4}" 2>&1' -f $blenderExe, $crateScript, $exportDir, $binaryInfoPath, $binaryLog, $exportFile),
+                'set "CRATE_RESULT=%errorlevel%"',
+                ('>"{0}" echo %CRATE_RESULT%' -f $crateExit),
+                'exit /b %CRATE_RESULT%'
+            )
+            [System.IO.File]::WriteAllLines($crateCmd, $crateLines, [System.Text.Encoding]::ASCII)
+            Write-Host 'Compacting USD layers to lossless binary Crate format using installed Blender...' -ForegroundColor Cyan
+            $crateProc = Start-Process -FilePath $env:ComSpec -ArgumentList ('/D /C ""{0}""' -f $crateCmd) -Wait -PassThru -NoNewWindow
+            $crateCode = 'unknown'
+            if(Test-Path -LiteralPath $crateExit) { $crateCode = (Get-Content -LiteralPath $crateExit -Raw).Trim() }
+            if(Test-Path -LiteralPath $binaryLog) {
+                Get-Content -LiteralPath $binaryLog -Tail 10 | ForEach-Object {Write-Host $_}
+            }
+            if($crateCode -ne '0') {
+                $binarySummary = "Crate conversion not completed (exit $crateCode). See $binaryLog. Existing USD layers are still valid."
+                Write-Warning $binarySummary
+            } elseif(Test-Path -LiteralPath $binaryInfoPath) {
+                $binarySummary = (Get-Content -LiteralPath $binaryInfoPath -Raw).Trim()
+                Write-Host $binarySummary -ForegroundColor Green
+            } else {
+                $binarySummary = 'Crate process exited successfully but no conversion report was produced.'
+                Write-Warning $binarySummary
+            }
+        } else {
+            Write-Warning 'No Blender executable detected. Skipping optional lossless Crate conversion; ASCII USD remains intact.'
+        }
+    }
+    $reportPath = Join-Path $work 'Export_Accuracy_Audit.txt'
+    $missing = @()
+    $errors = @()
+    $exceptions = @()
+    $logSuccess = $false
+    if(Test-Path -LiteralPath $log) {
+        $missing = @(Select-String -LiteralPath $log -Pattern 'Missing blockstate:\s*([^\r\n]+)' -AllMatches | ForEach-Object { $_.Matches | ForEach-Object {$_.Groups[1].Value.Trim()} } | Sort-Object -Unique)
+        $errors = @(Select-String -LiteralPath $log -Pattern '(?i)\[MSG\] Error:|No blockstate file|Missing texture|No texture found|Missing model|No model file|Unknown block|Exception|\[MSG\] Error|\[ERROR\]' | Select-Object -First 35 | ForEach-Object {$_.Line.Trim()})
+        $logSuccess = [bool](Select-String -LiteralPath $log -SimpleMatch '[COMMAND] {"status":"success"}' -Quiet)
+    }
+    if(Test-Path -LiteralPath $stderrLog) {
+        $exceptions = @(Select-String -LiteralPath $stderrLog -Pattern 'Exception|Error:|OutOfMemory|fatal' | Select-Object -First 35 | ForEach-Object {$_.Line.Trim()})
+    }
+    $report = @(
+        'MINECRAFT TO BLENDER v1 - ACCURACY AUDIT',
+        ('Generated UTC: ' + [DateTime]::UtcNow.ToString('u')),
+        ('USD: ' + $main),
+        ('USD size after optional binary compaction: ' + (Get-Item -LiteralPath $main).Length + ' bytes'),
+        ('Java exit code: ' + $code),
+        'Export mode: compatibility-first; face merging and individual block instancing disabled',
+        ('Minecraft-chunks-per-USD-section: ' + $chunkSize + 'x' + $chunkSize),
+        ('USD geometry-subset batching enabled: ' + $enableGeometrySubsets),
+        ('Face merging enabled (MiEx FaceOptimiser): ' + $enableFaceOptimization),
+        'Raytracing geometry removal disabled (preserve all visible model surfaces).',
+        ('MiEx JAR used: ' + $runJar),
+        ('MiEx status success: ' + $logSuccess),
+        ('USD binary Crate compaction: ' + $binarySummary),
+        ('Exported chunk USD files: ' + $chunkCount),
+        ('Main USD terrain payloads: ' + $regionPayloadCount),
+        ('Expected terrain payloads: ' + $expectedSections),
+        ('Entity-named USD sidecar files: ' + $entityUsdCount),
+        ('Blender materials JSON present: ' + $materialsFound),
+        ('USD materials sidecar present: ' + $materialsUsdFound),
+        ('Source ZIP SHA256 or direct world level.dat SHA256: ' + $actualWorldHash),
+        ('Source world edition: ' + $Edition),
+        'Source world compatibility depends on MiEx support for this saved version.',
+        'MiEx Java asset source may differ from Bedrock; vanilla texture parity is NOT verified.',
+        ('Export region X=' + $minX + '..' + $maxX + ', Z=' + $minZ + '..' + $maxZ + ', Y=' + $MinY + '..' + $MaxY + ', LOD disabled'),
+        'Bedrock frame and glow-frame blockstate definitions and pinned vanilla frame-entity model corrected; visual item-frame verification still required.',
+        'Entity export requested: item_frame, glow_item_frame, painting, block_display, item_display, armor_stand.',
+        'Entity timeline: static single frame (no simulation).',
+        'Face merging disabled because the prior model omitted visible terrain geometry. Verify model visually.',
+        'IMPORTANT: Check actual frame meshes and item contents in Blender. Blockstate warnings alone cannot prove entity export failed or succeeded.',
+        '',
+        'IMPORTANT: structurally valid geometry does NOT prove correct models or textures.',
+        ('Missing blockstate names reported: ' + $missing.Count),
+        ('Logged suspicious error lines (sample): ' + $errors.Count),
+        ('Stderr exception/error lines (sample): ' + $exceptions.Count),
+        '',
+        'MISSING BLOCKSTATES:',
+        ($missing -join [Environment]::NewLine),
+        '',
+        'LOGGED ERRORS:',
+        ($errors -join [Environment]::NewLine),
+        '',
+        'STDERR EXCEPTIONS:',
+        ($exceptions -join [Environment]::NewLine),
+        '',
+        'UNRESOLVED LIMITATIONS:',
+        'MiEx Bedrock block-state translation and model generation are not independently verified for all block variants.',
+        'MiEx uses translated assets; exact Bedrock texture parity is not independently proven.',
+        'MiEx Bedrock WorldBedrock.java initializes worldVersion=0 intentionally; this is not an error.',
+        'Frame block entities are requested via entityExport; corrected model output and item contents still require Blender inspection.',
+        'Non-animated USD cannot exactly reproduce every runtime rendering effect; animations and lighting are excluded by user request.'
+    )
+    [System.IO.File]::WriteAllLines($reportPath, $report, [System.Text.Encoding]::UTF8)
+    Write-Host "Export generated: $main" -ForegroundColor Green
+    Write-Host "Accuracy audit: $reportPath" -ForegroundColor Cyan
+    Write-Host "Official MiEx Blender importer: $addon"
+    Write-Host 'To import correctly: install and enable MiExImport.py in Blender, then File > Import > MiEx USD.'
+    if($missing.Count -gt 0 -or $errors.Count -gt 0 -or $exceptions.Count -gt 0 -or -not $logSuccess -or -not $materialsFound -or -not $materialsUsdFound -or $chunkCount -eq 0 -or $regionPayloadCount -ne $expectedSections) {
+        Write-Host 'WARNING: The USD was generated, but MiEx reported unresolved rendering problems. This is NOT an exact Bedrock export.' -ForegroundColor Yellow
+        if($missing.Count -gt 0) { Write-Host ('Missing blockstates: ' + ($missing -join ', ')) -ForegroundColor Yellow }
+        Write-Host "Review $reportPath before importing into Blender."
+    } else {
+        Write-Host 'No obvious logged errors or missing files were found; this still does not certify exact block/state parity.' -ForegroundColor Yellow
+    }
+    # The GUI provides an Open Folder action; do not open Explorer automatically.
+} catch {
+    Write-Host ('EXPORT STOPPED: ' + $_.Exception.Message) -ForegroundColor Red
+    Write-Host ('At line: ' + $_.InvocationInfo.ScriptLineNumber) -ForegroundColor DarkYellow
+    exit 1
+}

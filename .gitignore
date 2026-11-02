@@ -1,0 +1,36 @@
+# Build outputs and release archives
+*.exe
+*.zip
+*.blend
+*.blend1
+*.usd
+*.usda
+*.usdc
+*.miex
+
+# Local runs, world snapshots, downloaded dependencies
+AppTools/
+MiEx_Work/
+world_source/
+world_source_staging/
+*.log
+*.tmp
+*.new
+*.sha256.txt
+
+# Python cache and editor files
+__pycache__/
+*.py[cod]
+.vscode/
+.idea/
+.DS_Store
+
+# Save files are user content; never commit Minecraft world folders
+level.dat
+level.dat_old
+levelname.txt
+world_icon.jpeg
+icon.png
+*.mca
+*.ldb
+*.sst

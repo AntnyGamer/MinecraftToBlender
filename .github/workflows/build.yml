@@ -1,0 +1,36 @@
+name: Test_and_build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./... -count=1
+
+  windows_build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run_tests
+        run: go test ./... -count=1
+      - name: Build_executable
+        run: go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MinecraftToBlender_v1_Windows
+          path: MinecraftToBlender_v1.exe
+          if-no-files-found: error

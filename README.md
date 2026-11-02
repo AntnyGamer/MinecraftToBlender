@@ -12,7 +12,7 @@ A Windows app for exporting locally stored **Minecraft Bedrock and Java Edition*
 2. Download a built Windows executable from the repository's Actions artifacts (when CI has run), or build it from source below.
 3. Run `MinecraftToBlender_v1.exe`.
 4. Choose **Select Bedrock World** or **Select Java World**. If the save is not listed, use **Choose folder** in the picker.
-5. Select a world. Verify the export coordinates, height range and region size.
+5. Select a world. Center X and Center Z default to **0, 0** for every selection; you can change them manually. Verify the height range and region size.
 6. Export to USD, or export and import directly into Blender.
 7. Inspect the Blender scene for missing terrain, materials, item frames, or other details. A successful import is *not* a guarantee of exact visual fidelity.
 

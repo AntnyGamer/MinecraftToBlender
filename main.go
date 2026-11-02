@@ -432,6 +432,8 @@ func setBusy(b bool) {
 	}
 	enabled(idCancel, b)
 	enabled(idBlendOpen, !b && app.lastBlend != "")
+	show(idCancel, b)
+	show(idBlendOpen, !b && app.lastBlend != "")
 	refreshButtons()
 	n := uintptr(0)
 	if b {
@@ -912,12 +914,14 @@ func onCompleted(r result) {
 	app.lastFolder = filepath.Dir(r.output)
 	if strings.HasSuffix(strings.ToLower(r.output), ".blend") {
 		app.lastBlend = r.output
+		layoutUI()
 		enabled(idBlendOpen, true)
 		state("Blender project saved — open and inspect the scene")
 	} else {
 		// A USD-only export has no matching new Blender project. Do not leave
 		// Open project pointing to a previous conversion.
 		app.lastBlend = ""
+		layoutUI()
 		enabled(idBlendOpen, false)
 		setText(app.ctrls[idUSD], r.output)
 		state("USD exported — import it in Step 2")
@@ -1033,6 +1037,7 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 		}
 		// default close behavior
 	case wmDestroy:
+		releaseSelectedImage()
 		pKillTimer.Call(h, 1)
 		pPostQuit.Call(0)
 		return 0

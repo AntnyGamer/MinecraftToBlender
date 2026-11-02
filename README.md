@@ -79,3 +79,22 @@ The metadata-parser tests also run on Linux and macOS using `go test ./...`, but
 ## License and notices
 
 The app's source is available under [MIT](LICENSE). MiEx is a separate project licensed under BSD-3-Clause; see [third-party notices](assets/THIRD_PARTY_NOTICES.txt). Minecraft and Blender belong to their respective owners. This project is not affiliated with Mojang, Microsoft, or Blender Foundation.
+
+## Diagnosing missing Bedrock terrain
+
+If MiEx exports only entities without actual terrain, the app now asks MiEx
+itself to read a small sample of 25 chunk locations from the selected region.
+The console reports **MiEx selected world** and **MiEx chunk probe** before
+any resulting USD is accepted.
+
+- **Wrong selected world:** world loading/snapshot configuration failed.
+- **Zero loaded probe chunks:** look for `Chunk section format not supported`
+  or LevelDB read errors in `AppTools/MiEx_Work/miex_console.log` and
+  `AppTools/MiEx_Work/miex_stderr.log`. Zero samples alone does not prove the
+  entire region is empty.
+- **Some loaded chunks but no terrain USD:** chunk decoding worked in at least
+  part of the region, but the subsequent mesh/material/export stage failed.
+
+The app cannot determine the exact reason from an importer traceback alone.
+The MiEx log or a representative copy of the world is required to confirm
+which stage is failing; the original Minecraft save is never modified.

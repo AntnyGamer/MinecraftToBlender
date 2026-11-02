@@ -523,7 +523,7 @@ try {
     $proc = $capture.Process
     $lastSize = -1
     while(-not $proc.HasExited) {
-        Start-Sleep -Seconds 5
+        [void]$proc.WaitForExit(5000)
         $proc.Refresh()
         if(Test-Path -LiteralPath $log) {
             $length = (Get-Item -LiteralPath $log).Length

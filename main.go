@@ -742,6 +742,12 @@ func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 	if err := usdFiles(src); err != nil {
 		return "", err
 	}
+	return doImportValidated(ctx, src, blender, tools)
+}
+
+// An export is already checked by runExport. Avoid parsing its large material
+// manifest and enumerating its USD chunk directory a second time.
+func doImportValidated(ctx context.Context, src, blender, tools string) (string, error) {
 	if blender == "" {
 		return "", errors.New("Blender was not detected. Select blender.exe in the application.")
 	}
@@ -817,7 +823,7 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 	}
 	guiLog("Exported world: " + usd)
 	if alsoImport {
-		target, e := doImport(ctx, usd, blender, tools)
+		target, e := doImportValidated(ctx, usd, blender, tools)
 		return result{what: "Export + import", output: target, err: e, logFile: file}
 	}
 	return result{what: "Export", output: usd, logFile: file}

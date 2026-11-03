@@ -1,0 +1,87 @@
+{
+  "source": "Mojang/bedrock-samples",
+  "revision": "15701fa9c13923f12662984c32c124327e40e3d3",
+  "folder": "resource_pack/textures/entity/bed",
+  "textures": [
+    {
+      "from": "black.png",
+      "to": "black.png",
+      "git_blob_sha1": "50346bcd4ba3b4a9c0586eeff49fbcfc8e648572"
+    },
+    {
+      "from": "blue.png",
+      "to": "blue.png",
+      "git_blob_sha1": "cadaddba61c1e2360cdbb8cffaf782be0007a5d8"
+    },
+    {
+      "from": "brown.png",
+      "to": "brown.png",
+      "git_blob_sha1": "b45f3b45f7566eafd3c4fe7d84783ec559254caf"
+    },
+    {
+      "from": "cyan.png",
+      "to": "cyan.png",
+      "git_blob_sha1": "ae3df0cd7920d1ebba7bd20a725ccb59037783a4"
+    },
+    {
+      "from": "gray.png",
+      "to": "gray.png",
+      "git_blob_sha1": "73b57d66eb6e34db4337e0ffa9ad66ceda36860c"
+    },
+    {
+      "from": "green.png",
+      "to": "green.png",
+      "git_blob_sha1": "64d602955e37bdbc6046fdd2f9fb32336e836cf2"
+    },
+    {
+      "from": "light_blue.png",
+      "to": "light_blue.png",
+      "git_blob_sha1": "7112b9e53d0c3b0a457b3ec6c6cac9a939323ee7"
+    },
+    {
+      "from": "lime.png",
+      "to": "lime.png",
+      "git_blob_sha1": "ffc62dca5037ceff1376b38f0c57a58e812bbbc6"
+    },
+    {
+      "from": "magenta.png",
+      "to": "magenta.png",
+      "git_blob_sha1": "b532a8131bddc98fd8d1f1503fec2ba3af26415e"
+    },
+    {
+      "from": "orange.png",
+      "to": "orange.png",
+      "git_blob_sha1": "ff70dec3022fb69f7c4025e143288bfdf2bd25f0"
+    },
+    {
+      "from": "pink.png",
+      "to": "pink.png",
+      "git_blob_sha1": "89d47e4bca3cce9a38e3ec345fe7140ed6d8ba34"
+    },
+    {
+      "from": "purple.png",
+      "to": "purple.png",
+      "git_blob_sha1": "f5523b68480cd02abc6a2995ca66e9bb296e2a63"
+    },
+    {
+      "from": "red.png",
+      "to": "red.png",
+      "git_blob_sha1": "f563d0da827432b828b0070849897ef68e18397a"
+    },
+    {
+      "from": "silver.png",
+      "to": "light_gray.png",
+      "git_blob_sha1": "d6f348f7313c30029dcb904174163367be509ff3"
+    },
+    {
+      "from": "white.png",
+      "to": "white.png",
+      "git_blob_sha1": "e58a0702026edfeccdb078843a498566b7006b65"
+    },
+    {
+      "from": "yellow.png",
+      "to": "yellow.png",
+      "git_blob_sha1": "5efabbe9aa5f717505047fe2cc1be8b19629f162"
+    }
+  ]
+}

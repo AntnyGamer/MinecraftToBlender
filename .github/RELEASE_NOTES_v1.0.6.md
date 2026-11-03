@@ -2,7 +2,7 @@
 
 ## Bedrock model and texture fixes
 
-- **Beds:** Read Bedrock-native dye color, bed-half, and direction values when present. When world resource packs are disabled, use verified vanilla Bedrock bed texture assets from Mojang's pinned bedrock-samples revision as a fallback instead of relying on Java-edition bed images. Images are fetched on the user's PC and never bundled in the EXE. Cached verified downloads are reused; a failed download falls back to installed resources rather than blocking the export.
+- **Beds:** Read Bedrock-native dye color, bed-half, and direction values when present. When world resource packs are disabled, use verified vanilla Bedrock bed texture assets from Mojang's pinned bedrock-samples revision as a fallback instead of relying on Java-edition bed images. Images are fetched on the user's PC and never bundled in the EXE. Cached verified downloads are reused; a failed download falls back to installed resources rather than blocking the export. Any verified fallback assets from an earlier export are cleaned up before Java exports or exports using custom world packs, without deleting modified files.
 - **Shulker boxes:** Use Bedrock's numeric `facing_direction` when present, instead of relying solely on potentially mismatched translated direction labels.
 - **Signs and hanging signs:** Restore an older Bedrock sign text representation (`Text`) when `FrontText` is absent, preserving modern Bedrock formats as-is.
 - **Banners and generated entity textures:** Store MiEx-generated images with the USD export so Blender does not depend on out-of-folder generated images that may be deleted or moved.

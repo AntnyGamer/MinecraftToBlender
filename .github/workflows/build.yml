@@ -96,11 +96,25 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $original 'new.usd')) -or (Test-Path -LiteralPath (Join-Path $original 'old.usd'))) {
             throw 'Published export mixed new and old files'
           }
+          # Preserve completed .blend files and Blender's numbered backups
+          # across a replacement without retaining stale USD chunk layers.
+          Set-Content -LiteralPath (Join-Path $original 'Saved.blend') -Value 'blender project'
+          Set-Content -LiteralPath (Join-Path $original 'Saved.blend1') -Value 'blender backup'
+          $nextStage = Join-Path $dir '.next_world'
+          New-Item -ItemType Directory -Force -Path $nextStage | Out-Null
+          Set-Content -LiteralPath (Join-Path $nextStage 'newer.usd') -Value 'newer'
+          Publish-Export $nextStage $original
+          foreach ($name in @('Saved.blend', 'Saved.blend1', 'newer.usd')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $original $name))) { throw "Export lost $name" }
+          }
+          if (Test-Path -LiteralPath (Join-Path $original 'new.usd')) {
+            throw 'Export retained stale USD after replacing the world'
+          }
           # If publication fails, restore the previously published output.
           try { Publish-Export (Join-Path $dir 'missing_stage') $original; throw 'Expected promotion failure' }
           catch { if ($_.Exception.Message -eq 'Expected promotion failure') { throw } }
-          if (-not (Test-Path -LiteralPath (Join-Path $original 'new.usd'))) {
-            throw 'Failed publication lost the previous export'
+          foreach ($name in @('Saved.blend', 'Saved.blend1', 'newer.usd')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $original $name))) { throw "Failed publication lost $name" }
           }
       - name: Validate_Blender_importer
         run: python -c "from pathlib import Path; p = Path('assets/Import_Existing_USD.py'); compile(p.read_bytes(), str(p), 'exec')"

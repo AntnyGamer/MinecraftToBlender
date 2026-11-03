@@ -6,6 +6,7 @@ This release adds opt-in world resource packs and improves model fidelity while 
 
 - Added **Use world resource packs: Off/On** in Settings, **off by default**. With the option on, MiEx can discover and extract resources supplied with a Minecraft world snapshot to improve texture/model fidelity. The original world is never modified.
 - Changed Blender import preference to **Render** when a render variant contains terrain meshes, falling back to Proxy when render terrain is missing. This preserves the intended detailed render variant even if a proxy happens to have more faces.
+- Added an archive safety check for opt-in world resource packs: archives with path-traversal entries are rejected before MiEx extracts them.
 - Updated GitHub Actions checkout, setup-go and upload-artifact to their reviewed, SHA-pinned major versions from Dependabot.
 - Preserved the v1.0.1 relationship-lines display fix, original terrain validation and safe snapshot/export behavior.
 

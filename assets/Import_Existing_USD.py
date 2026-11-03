@@ -289,7 +289,10 @@ def main():
         raise RuntimeError('Blender imported less than half of the terrain faces represented in the USD. No misleading success file saved.')
     frame_actual_scene()
     hide_relationship_lines()
-    audit_imported_textures(target)
+    try:
+        audit_imported_textures(target)
+    except Exception as exc:
+        log('WARNING: Optional texture audit failed; continuing with the intact Blender scene:', repr(exc))
     bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=False)
     if not target.is_file() or target.stat().st_size == 0:
         raise RuntimeError('Blender did not create the output file.')

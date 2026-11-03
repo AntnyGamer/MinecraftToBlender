@@ -83,6 +83,26 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('MiEx material handler is unfamiliar. No unverified patch attempted.')
     contents = contents.replace(original, safe, 1)
+    # Blender's node collection provides name lookup. Avoid a linear scan
+    # for every connection in large material graphs, retaining name truncation
+    # and the original missing-node error.
+    original = '''    def get_Node_By_Name(self, name:str):
+        if(len(name) > 63):
+            name = name[:63]
+        for node in self.mat.node_tree.nodes:
+            if node.name == name:
+                return node
+        raise Exception("Node not found: " + name)'''
+    faster = '''    def get_Node_By_Name(self, name:str):
+        if(len(name) > 63):
+            name = name[:63]
+        node = self.mat.node_tree.nodes.get(name)
+        if node is not None:
+            return node
+        raise Exception("Node not found: " + name)'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx material node lookup changed; cannot apply verified optimization.')
+    contents = contents.replace(original, faster, 1)
     module = types.ModuleType('miex_import_compat')
     module.__file__ = str(src)
     sys.modules[module.__name__] = module

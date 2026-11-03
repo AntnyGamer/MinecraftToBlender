@@ -435,6 +435,34 @@ try {
         Abort 'MiEx exporter resource-pack configuration did not validate.'
     }
     Write-Host 'Applied reusable exporter configuration in BlenderEEVEE/miex_config.json.' -ForegroundColor Green
+    $blockOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/blockstates'
+    $bedrockBlockOverrides = @{
+        'Bedrock_Beds.json' = 'bed.json'
+        'Bedrock_Shulkers.json' = 'shulker_box.json'
+        'Bedrock_Signs.json' = 'sign.json'
+        'Bedrock_Hanging_Signs.json' = 'hanging_sign.json'
+    }
+    if($Edition -eq 'bedrock') {
+        New-Item -ItemType Directory -Force -Path $blockOverrideDir | Out-Null
+        foreach($entry in $bedrockBlockOverrides.GetEnumerator()) {
+            $source = Join-Path $base $entry.Key
+            if(-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+                Abort ("Bedrock model override is missing: " + $source)
+            }
+            $parsed = Get-Content -LiteralPath $source -Raw | ConvertFrom-Json
+            if(-not $parsed.blocks -or -not $parsed.handler) {
+                Abort ("Bedrock model override did not validate: " + $source)
+            }
+            Copy-Item -LiteralPath $source -Destination (Join-Path $blockOverrideDir $entry.Value) -Force -ErrorAction Stop
+        }
+        Write-Host 'Enabled Bedrock-specific beds, shulker orientation, and legacy sign text models.' -ForegroundColor Green
+    } else {
+        # Remove any overrides created for an earlier Bedrock export in this workspace.
+        foreach($name in $bedrockBlockOverrides.Values) {
+            $target = Join-Path $blockOverrideDir $name
+            if(Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction Stop }
+        }
+    }
     $frameStateFolder = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/blockstates'
     $frameOverridePath = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities/item_frame.json'
     if($Edition -eq 'bedrock') {

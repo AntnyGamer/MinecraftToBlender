@@ -24,6 +24,7 @@ $worldDir = Join-Path $work 'world_source'
 $chunkSize = 16
 $enableGeometrySubsets = $false
 $enableFaceOptimization = $false
+$fillWorldBorders = $true
 $finalExportDir = Join-Path (Join-Path $work 'exports') $ExportName
 # Always export into a unique, empty directory. Never let leftover chunk files
 # from a previous run hide missing geometry in a failed or partial export.
@@ -409,10 +410,11 @@ try {
     $packConfig | Add-Member -MemberType NoteProperty -Name 'usePointInstancersForIndividualBlocks' -Value $false -Force
     $packConfig | Add-Member -MemberType NoteProperty -Name 'runFaceOptimiser' -Value $enableFaceOptimization -Force
     $packConfig | Add-Member -MemberType NoteProperty -Name 'runRaytracingOptimiser' -Value $false -Force
+    $packConfig | Add-Member -MemberType NoteProperty -Name 'fillWorldBorders' -Value $fillWorldBorders -Force
     $outConfig = $packConfig | ConvertTo-Json -Depth 20
     [System.IO.File]::WriteAllText($packConfigPath, $outConfig + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
     $parsedConfig = Get-Content -LiteralPath $packConfigPath -Raw | ConvertFrom-Json
-    if([bool]$parsedConfig.useGeometrySubsets -ne $enableGeometrySubsets -or [bool]$parsedConfig.usePointInstancersForIndividualBlocks -or [bool]$parsedConfig.runFaceOptimiser -ne $enableFaceOptimization -or [bool]$parsedConfig.runRaytracingOptimiser) {
+    if([bool]$parsedConfig.useGeometrySubsets -ne $enableGeometrySubsets -or [bool]$parsedConfig.usePointInstancersForIndividualBlocks -or [bool]$parsedConfig.runFaceOptimiser -ne $enableFaceOptimization -or [bool]$parsedConfig.runRaytracingOptimiser -or [bool]$parsedConfig.fillWorldBorders -ne $fillWorldBorders) {
         Abort 'MiEx exporter resource-pack configuration did not validate.'
     }
     Write-Host 'Applied reusable exporter configuration in BlenderEEVEE/miex_config.json.' -ForegroundColor Green
@@ -734,6 +736,7 @@ try {
         ('USD geometry-subset batching enabled: ' + $enableGeometrySubsets),
         ('Face merging enabled (MiEx FaceOptimiser): ' + $enableFaceOptimization),
         'Raytracing geometry removal disabled (preserve all visible model surfaces).',
+        ('Fill export-region boundary faces: ' + $fillWorldBorders),
         ('MiEx JAR used: ' + $runJar),
         ('MiEx status success: ' + $logSuccess),
         ('USD binary Crate compaction: ' + $binarySummary),

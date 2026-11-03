@@ -68,7 +68,7 @@ jobs:
           Remove-ManagedBedrockBedTextures (Join-Path $env:RUNNER_TEMP 'asset_cleanup') $testManifest
           if (-not (Test-Path -LiteralPath $testBedFile)) { throw 'Cleanup deleted a user-created texture' }
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -91,6 +91,31 @@ jobs:
               $diagnostics.Returned -ne 3 -or $diagnostics.Readable -ne 2) {
             throw ('MiEx diagnostic parsing failed: ' + ($diagnostics | Out-String))
           }
+
+          # The final accuracy report must preserve the same log classifications
+          # while reading an enormous MiEx log only once.
+          $auditLog = Join-Path $dir 'audit_cases.log'
+          $auditLines = [System.Collections.Generic.List[string]]::new()
+          $auditLines.Add('[COMMAND] {"status":"success"}')
+          $auditLines.Add('Missing blockstate: minecraft:bed')
+          $auditLines.Add('Missing blockstate: minecraft:bed')
+          $auditLines.Add('Missing blockstate: minecraft:banner')
+          $auditLines.Add('Before: No model file found')
+          $auditLines.Add('  [MSG] Error: invalid texture   ')
+          for ($i=0; $i -lt 40; $i++) { $auditLines.Add(('Missing texture sample {0}' -f $i)) }
+          [IO.File]::WriteAllLines($auditLog, $auditLines)
+          $accuracy = Read-MiExAuditLog $auditLog
+          if (-not $accuracy.Success -or @($accuracy.Missing).Count -ne 2 -or
+              (@($accuracy.Missing) -notcontains 'minecraft:bed') -or
+              (@($accuracy.Missing) -notcontains 'minecraft:banner') -or
+              @($accuracy.Errors).Count -ne 35 -or
+              $accuracy.Errors[0] -ne 'Before: No model file found' -or
+              $accuracy.Errors[1] -ne '[MSG] Error: invalid texture') {
+            throw ('Streaming audit changed missing-blockstate or error classifications: ' + ($accuracy | Out-String))
+          }
+          $emptyAccuracy = Read-MiExAuditLog (Join-Path $dir 'nonexistent_audit.log')
+          if ($emptyAccuracy.Success -or @($emptyAccuracy.Missing).Count -ne 0 -or
+              @($emptyAccuracy.Errors).Count -ne 0) { throw 'Missing MiEx log no longer yields empty audit' }
           if (Test-UnsupportedBedrockChunk $diagnosticLog $diagnosticErr) { throw 'Invented unsupported-chunk warning' }
           [IO.File]::WriteAllText($diagnosticErr, 'Chunk section format not supported')
           if (-not (Test-UnsupportedBedrockChunk $diagnosticLog $diagnosticErr)) { throw 'Missed unsupported chunk error' }

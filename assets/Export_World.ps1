@@ -435,13 +435,16 @@ try {
         Abort 'MiEx exporter resource-pack configuration did not validate.'
     }
     Write-Host 'Applied reusable exporter configuration in BlenderEEVEE/miex_config.json.' -ForegroundColor Green
+    $bedrockAssetHelper = Join-Path $base 'Bedrock_Assets.ps1'
+    if(-not (Test-Path -LiteralPath $bedrockAssetHelper -PathType Leaf)) {
+        Abort 'Bedrock asset helper is missing.'
+    }
+    . $bedrockAssetHelper
+    $bedTextureManifest = Join-Path $base 'Bedrock_Bed_Textures.json'
     if($Edition -eq 'bedrock' -and -not $UseWorldResourcePacks) {
-        $bedrockAssetHelper = Join-Path $base 'Bedrock_Assets.ps1'
-        if(-not (Test-Path -LiteralPath $bedrockAssetHelper -PathType Leaf)) {
-            Abort 'Bedrock asset helper is missing.'
-        }
-        . $bedrockAssetHelper
-        Ensure-BedrockBedTextures $miexDir (Join-Path $base 'Bedrock_Bed_Textures.json')
+        Ensure-BedrockBedTextures $miexDir $bedTextureManifest
+    } else {
+        Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest
     }
     $blockOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/blockstates'
     $bedrockBlockOverrides = @{

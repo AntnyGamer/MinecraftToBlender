@@ -22,6 +22,9 @@
 - Resolve shader nodes by Blender's named collection lookup instead of repeatedly iterating each material graph's entire node list. Keep the same node-name clipping and missing-node behavior.
 - Avoid constructing unused subpaths during USD grouping and unused suffixes while checking Blender prototype names.
 - Add tests for material lookup, USD geometry grouping, material JSON validation, and large chunk directories.
+- Scan MiEx's large final export log once instead of separately reading it for missing blockstates, error lines, and success confirmation. Preserve all unique missing blockstates and the first 35 reported errors.
+- Append log chunks directly to the standard Windows EDIT control when RichEdit is unavailable and auto-follow is enabled, instead of retrieving and rewriting the full accumulated log every update. Keep the original behavior near the EDIT text-length limit or while follow is paused.
+- Windows regressions exercise streaming audit classifications and incremental standard EDIT appends without altering the saved log file.
 
 Bedrock-only model overrides are cleaned up when exporting a Java world in the same workspace. The existing source worlds, Blender auto-open setting, source resource-pack choice, geometry optimizations, and export-region borders are unchanged.
 

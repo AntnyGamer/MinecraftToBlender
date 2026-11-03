@@ -97,9 +97,17 @@ jobs:
           New-Item -ItemType Directory -Force -Path $chunks | Out-Null
           $chunkFile = Join-Path $chunks 'region_1_chunk_0_0_render.usd'
           Set-Content -LiteralPath $chunkFile -Value 'int[] faceVertexCounts = []' -Encoding ASCII
+          $chunkList = @(Get-ChildItem -LiteralPath $chunks -Filter '*.usd' -File -Recurse -ErrorAction Stop)
           if (Test-ChunkTerrainGeometry $chunks) { throw 'Empty USD chunk incorrectly passed terrain check' }
+          if (Test-ChunkTerrainGeometry $chunks $chunkList) { throw 'Reused USD file list incorrectly passed empty terrain' }
           Set-Content -LiteralPath $chunkFile -Value 'int[] faceVertexCounts = [4,4]' -Encoding ASCII
           if (-not (Test-ChunkTerrainGeometry $chunks)) { throw 'Valid USD chunk incorrectly failed terrain check' }
+          if (-not (Test-ChunkTerrainGeometry $chunks $chunkList)) { throw 'Reused USD file list missed valid terrain' }
+          # A pre-enumerated list avoids a second directory walk entirely.
+          $unusedPath = Join-Path $dir 'missing_chunk_folder'
+          if (-not (Test-ChunkTerrainGeometry $unusedPath $chunkList)) {
+            throw 'Pre-enumerated USD validation unexpectedly scanned its folder'
+          }
           # World resource-pack archives must not write files outside the pack directory.
           $packWorld = Join-Path $dir 'pack_world'
           $packFolder = Join-Path $packWorld 'resource_packs'

@@ -143,6 +143,7 @@ const (
 	idSelectBedrock    = 134
 	idSelectJava       = 135
 	idWorldPacks       = 136
+	idAutoOpenBlender = 137
 )
 
 type wndClass struct {
@@ -230,6 +231,7 @@ type appState struct {
 	logShown      int
 	followLog     bool
 	useWorldPacks bool
+	autoOpenBlender bool
 }
 
 var app = appState{ctrls: map[int]uintptr{}, logCh: make(chan string, 4096), doneCh: make(chan result, 8)}
@@ -295,6 +297,38 @@ func defaultWorkspace() string {
 	}
 	return filepath.Join(base, "MinecraftToBlender")
 }
+func autoOpenPreferencePath() string {
+	return filepath.Join(defaultWorkspace(), "preferences.json")
+}
+
+func loadAutoOpenBlender() bool {
+	data, err := os.ReadFile(autoOpenPreferencePath())
+	if err != nil {
+		return true
+	}
+	var saved struct {
+		AutoOpenBlender *bool `json:"autoOpenBlender"`
+	}
+	if json.Unmarshal(data, &saved) != nil || saved.AutoOpenBlender == nil {
+		return true
+	}
+	return *saved.AutoOpenBlender
+}
+
+func saveAutoOpenBlender(value bool) error {
+	path := autoOpenPreferencePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(struct {
+		AutoOpenBlender bool `json:"autoOpenBlender"`
+	}{value})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0644)
+}
+
 func detectBlender() string {
 	if path, e := exec.LookPath("blender.exe"); e == nil {
 		return path
@@ -430,7 +464,7 @@ func setBusy(b bool) {
 		ui.progressFrame = 0
 	}
 	pInvalidate.Call(app.main, 0, 0)
-	for _, id := range []int{idSelectBedrock, idSelectJava, idWorldBrowse, idWorld, idName, idSize, idX, idZ, idMinY, idMaxY, idExport, idBoth, idUSD, idUSDBrowse, idBlender, idBlenderBrowse, idImport, idWorkspace, idWorkspaceBrowse, idWorldPacks} {
+	for _, id := range []int{idSelectBedrock, idSelectJava, idWorldBrowse, idWorld, idName, idSize, idX, idZ, idMinY, idMaxY, idExport, idBoth, idUSD, idUSDBrowse, idBlender, idBlenderBrowse, idImport, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
 		enabled(id, !b)
 	}
 	enabled(idCancel, b)
@@ -926,6 +960,21 @@ func openFolder(path string) {
 		_ = cmd.Process.Release()
 	}
 }
+func openBlenderProject(blender, path string) error {
+	if blender == "" {
+		return errors.New("Select blender.exe in the Import USD tab")
+	}
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("Blender project unavailable: %w", err)
+	}
+	cmd := exec.Command(blender, path)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	_ = cmd.Process.Release()
+	return nil
+}
+
 func onCompleted(r result) {
 	setBusy(false)
 	app.cancel = nil
@@ -945,6 +994,15 @@ func onCompleted(r result) {
 		layoutUI()
 		enabled(idBlendOpen, true)
 		state("Blender project saved — open and inspect the scene")
+		if app.autoOpenBlender {
+			if err := openBlenderProject(getText(idBlender), r.output); err != nil {
+				state("Blender project saved — automatic open failed")
+				appendLog("WARNING: Could not automatically open Blender: " + err.Error())
+			} else {
+				state("Blender project saved and opened")
+				appendLog("Opened in Blender: " + r.output)
+			}
+		}
 	} else {
 		// A USD-only export has no matching new Blender project. Do not leave
 		// Open project pointing to a previous conversion.
@@ -1031,6 +1089,15 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 				setText(app.ctrls[idWorldPacks], "Use world resource packs: Off")
 			}
 			refreshButtons()
+		case idAutoOpenBlender:
+			next := !app.autoOpenBlender
+			if err := saveAutoOpenBlender(next); err != nil {
+				alert("Cannot save preference", err.Error(), mbError)
+			} else {
+				app.autoOpenBlender = next
+				setText(app.ctrls[idAutoOpenBlender], autoOpenBlenderLabel())
+				refreshButtons()
+			}
 		case idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse:
 			browseButton(id)
 		case idExport:
@@ -1049,16 +1116,8 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 			openFolder(app.lastFolder)
 		case idBlendOpen:
 			if app.lastBlend != "" {
-				exe := getText(idBlender)
-				if exe == "" {
-					alert("Blender missing", "Choose Blender.exe before opening the project.", mbWarn)
-				} else {
-					cmd := exec.Command(exe, app.lastBlend)
-					if e := cmd.Start(); e != nil {
-						alert("Could not open Blender", e.Error(), mbError)
-					} else {
-						cmd.Process.Release()
-					}
+				if err := openBlenderProject(getText(idBlender), app.lastBlend); err != nil {
+					alert("Could not open Blender", err.Error(), mbError)
 				}
 			}
 		}
@@ -1096,6 +1155,7 @@ func appIcons(module uintptr) (uintptr, uintptr) {
 }
 
 func main() {
+	app.autoOpenBlender = loadAutoOpenBlender()
 	runtime.LockOSThread()
 	mainWindow()
 }

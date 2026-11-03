@@ -12,7 +12,8 @@ param(
     [ValidateRange(-256,2048)][int]$MinY = -64,
     [ValidateRange(-256,2048)][int]$MaxY = 319,
     [ValidatePattern('^[a-zA-Z][a-zA-Z0-9_]{0,60}$')][string]$ExportName = 'Bedrock_World',
-    [switch]$CompactUSD
+    [switch]$CompactUSD,
+    [switch]$UseWorldResourcePacks
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -482,10 +483,19 @@ try {
                               chunkZ=([int][math]::Floor($minChunkZ + ($maxChunkZ - $minChunkZ) * $fractionZ)) }
         }
     }
-    $commands = @(
-      @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$false},
+    $commands = @()
+    if($UseWorldResourcePacks) {
+        # A unique working pack avoids stale textures from a different export
+        # and keeps any USD-relative texture references valid after export.
+        $worldPackName = 'MinecraftToBlender_World_' + [guid]::NewGuid().ToString('N')
+        $commands += @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')}
+        $commands += @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$true; worldResourcePackName=$worldPackName}
+        Write-Host 'Using world-supplied resource packs where available.' -ForegroundColor Cyan
+    } else {
+        $commands += @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$false}
+    }
+    $commands += @(
       @{command='loadDimension'; dimension='overworld'},
-      @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')},
       @{command='getWorld'},
       @{command='getChunk'; chunks=$probeChunks; heightmap=$true},
       @{command='applyExportSettings'; settings=@{chunkSize=$chunkSize; exportRegions=@{'Region 1'=$region}; runOptimiser=$enableFaceOptimization; removeCaves=$false; fillInCaves=$false; exportBlockAnimations=$false; entityStartFrame=0; entityEndFrame=1; entityFPS=24; entitySpawnRules=@(); entitySimulate=@(); entityExport=@('minecraft:item_frame','minecraft:glow_item_frame','minecraft:painting','minecraft:block_display','minecraft:item_display','minecraft:armor_stand')}},
@@ -495,7 +505,7 @@ try {
     $commands | ConvertTo-Json -Depth 15 | Set-Content -LiteralPath $cmdFile -Encoding UTF8
     Write-Host 'Enabling vanilla item-frame, glow-frame, painting, display and armor-stand models (single static frame).' -ForegroundColor Cyan
     $env:MIEX_PORTABLE_EXPORTS='1'
-    $env:MIEX_SKIP_WORLD_RESOURCEPACK_CHECK='1'
+    $env:MIEX_SKIP_WORLD_RESOURCEPACK_CHECK = if($UseWorldResourcePacks) { '0' } else { '1' }
     $log = Join-Path $work 'miex_console.log'
     Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
     if($enableFaceOptimization) {

@@ -29,7 +29,7 @@ def stage_report(src, variant):
     for prim in stage.Traverse():
         if prim.IsA(UsdGeom.Mesh):
             stats['meshes'] += 1
-            path_parts = str(prim.GetPath()).split('/')
+            path_parts = str(prim.GetPath()).split('/', 3)
             group = path_parts[2] if len(path_parts) > 2 else 'other'
             examples[group] += 1
             faces = UsdGeom.Mesh(prim).GetFaceVertexCountsAttr().Get()
@@ -94,7 +94,7 @@ def load_patched_importer(src):
 def scene_report():
     def is_prototype(o):
         while o:
-            name = o.name.split('.')[0].lower()
+            name = o.name.partition('.')[0].lower()
             if name in ('prototypes', 'individualblocksbasemeshes'):
                 return True
             o = o.parent

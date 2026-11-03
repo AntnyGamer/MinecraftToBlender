@@ -173,11 +173,14 @@ function Publish-Export([string]$stage,[string]$destination) {
         catch { Write-Warning ("Previous export backup could not be removed: " + $backup) }
     }
 }
-function Test-ChunkTerrainGeometry([string]$folder) {
+function Test-ChunkTerrainGeometry([string]$folder, [System.IO.FileInfo[]]$files = $null) {
     # MiEx's ASCII chunk layers contain nonempty faceVertexCounts for mesh
     # geometry. A directory full of empty USD layer shells is not terrain.
-    # Read in bounded pieces: face arrays may occupy very long USD lines.
-    $files = @(Get-ChildItem -LiteralPath $folder -Filter '*.usd' -File -Recurse -ErrorAction Stop)
+    # Reuse the export's existing chunk-file list instead of walking it twice.
+    # A direct call can still enumerate the folder for independent validation.
+    if($null -eq $files) {
+        $files = @(Get-ChildItem -LiteralPath $folder -Filter '*.usd' -File -Recurse -ErrorAction Stop)
+    }
     $pattern = 'faceVertexCounts\s*=\s*\[\s*[1-9]'
     $buffer = New-Object char[] 65536
     foreach($file in $files) {
@@ -667,7 +670,7 @@ try {
     $materialsUsdFound = (Test-Path -LiteralPath $materialsUsd)
     $chunkFiles = @()
     if(Test-Path -LiteralPath $chunksDir) {
-        $chunkFiles = @(Get-ChildItem -LiteralPath $chunksDir -Filter '*.usd' -Recurse -File -ErrorAction SilentlyContinue)
+        $chunkFiles = @(Get-ChildItem -LiteralPath $chunksDir -Filter '*.usd' -Recurse -File -ErrorAction Stop)
     }
     $chunkCount = $chunkFiles.Count
     $entityUsdFiles = @(Get-ChildItem -LiteralPath $exportDir -Recurse -Filter '*entit*.usd' -File -ErrorAction SilentlyContinue)
@@ -692,7 +695,7 @@ try {
     # The root USD can contain valid render/proxy payload references even if
     # every referenced chunk is empty. Catch that before replacing a previous
     # export or launching Blender, which cannot reconstruct missing terrain.
-    if(-not (Test-ChunkTerrainGeometry $chunksDir)) {
+    if(-not (Test-ChunkTerrainGeometry $chunksDir $chunkFiles)) {
         $diagnosis = if($unsupportedChunk) {
             'MiEx rejected the saved Bedrock chunk format; inspect miex_console.log for the exact unsupported Data version.'
         } elseif($probeReported -and $probeLoaded -gt 0) {

@@ -6,4 +6,6 @@
 - Display the same new logo in the main app sidebar instead of the old blue placeholder; retain the placeholder only if Windows cannot draw the icon.
 - Keep the SVG branding source out of bundled conversion helpers, avoiding unnecessary extraction on each workspace setup.
 
+- Skip the redundant proxy-variant USD geometry scan when render terrain is already valid. If render contains no usable geometry, try proxy instead of aborting early.
+
 **Note:** World export and USD-to-Blender fidelity still depend on the selected world and MiEx. Verify the resulting scene visually.

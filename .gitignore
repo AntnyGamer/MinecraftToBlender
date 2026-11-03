@@ -34,3 +34,8 @@ icon.png
 *.mca
 *.ldb
 *.sst
+
+# Generated Windows application icon and Go resource objects
+winres/app.ico
+winres/icon_256.png
+rsrc_windows_*.syso

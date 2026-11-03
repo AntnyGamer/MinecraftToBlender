@@ -1,5 +1,7 @@
 # MinecraftToBlender
 
+<p align="center"><img src="assets/logo.svg" alt="MinecraftToBlender logo" width="112" height="112"></p>
+
 **Version:** v1  
 **Platform:** Windows 10/11 (64-bit)  
 **Languages:** Go (Win32 interface), PowerShell, Python, Java patch utility
@@ -33,20 +35,24 @@ the game closed while the snapshot is taken.
 
 ## Building
 
-Go 1.23+ is required. On Windows, from the repository root:
+Go 1.23+ and Python 3 are required to produce a branded Windows executable. On Windows, from the repository root:
 
 ```powershell
 go test ./...
+python tools/generate_icons.py
+go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --out rsrc --arch amd64
 go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
 ```
 
 The same Windows binary can be cross-compiled on other systems:
 
 ```sh
+python3 tools/generate_icons.py
+go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --out rsrc --arch amd64
 GOOS=windows GOARCH=amd64 go build -ldflags='-H=windowsgui -s -w' -o MinecraftToBlender_v1.exe .
 ```
 
-The metadata-parser tests also run on Linux and macOS using `go test ./...`, but the Windows GUI itself requires Windows. The GitHub Actions workflow runs tests and produces a Windows EXE artifact.
+The metadata-parser tests also run on Linux and macOS using `go test ./...`, but the Windows GUI itself requires Windows. The GitHub Actions workflow generates and embeds the icon before building the Windows EXE artifact. The vector source of truth is `assets/logo.svg`; `tools/generate_icons.py` produces a single multiresolution `winres/app.ico` (16, 24, 32, 48, 64, 128, and 256 px) using Python's standard library. The pinned `go-winres` is a build-only tool, not an application dependency. Explorer, the taskbar, Alt+Tab, the main window, and the world picker all use the embedded icon. Generated icon and `.syso` files are intentionally not checked in.
 
 ## How it works
 

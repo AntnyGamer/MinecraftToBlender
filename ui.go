@@ -1047,7 +1047,8 @@ func mainWindow() {
 	module, _, _ := pGetModule.Call(0)
 	name := w("MinecraftToBlenderDesktopV1")
 	cursor, _, _ := pLoadCursor.Call(0, 32512)
-	cl := wndClass{Size: uint32(unsafe.Sizeof(wndClass{})), WndProc: syscall.NewCallback(wndProc), Instance: module, Cursor: cursor, Background: colorWindow + 1, ClassName: name}
+	largeIcon, smallIcon := appIcons(module)
+	cl := wndClass{Size: uint32(unsafe.Sizeof(wndClass{})), WndProc: syscall.NewCallback(wndProc), Instance: module, Icon: largeIcon, IconSm: smallIcon, Cursor: cursor, Background: colorWindow + 1, ClassName: name}
 	if a, _, _ := pRegisterClass.Call(uintptr(unsafe.Pointer(&cl))); a == 0 {
 		panic("RegisterClassEx failed")
 	}

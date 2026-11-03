@@ -104,6 +104,11 @@ jobs:
           }
       - name: Validate_Blender_importer
         run: python -c "from pathlib import Path; p = Path('assets/Import_Existing_USD.py'); compile(p.read_bytes(), str(p), 'exec')"
+      - name: Embed_application_icon
+        run: |
+          python tools/generate_icons.py
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --out rsrc --arch amd64
+          if (!(Test-Path rsrc_windows_amd64.syso)) { throw 'Windows icon resource was not produced' }
       - name: Build_executable
         run: go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

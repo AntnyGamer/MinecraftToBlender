@@ -116,6 +116,47 @@ def scene_report():
     return {'meshes': len(meshes), 'faces': faces, 'terrain_faces': terrain_faces, 'clouds': len(clouds), 'points': points}
 
 
+def audit_imported_textures(target):
+    """Report missing external source images without modifying the scene."""
+    image_nodes = sum(
+        node.type == 'TEX_IMAGE'
+        for material in bpy.data.materials if material.use_nodes
+        for node in material.node_tree.nodes
+    )
+    missing = []
+    relative = 0
+    checked = 0
+    for image in bpy.data.images:
+        if image.source != 'FILE' or image.packed_file:
+            continue
+        path = Path(bpy.path.abspath(image.filepath))
+        if not Path(image.filepath).is_absolute():
+            relative += 1
+            continue
+        checked += 1
+        if not path.is_file():
+            missing.append(f'{image.name}: {path}')
+    fallback = '_MiEx_Unreadable_Texture' in bpy.data.images
+    summary = (
+        f'Image texture nodes: {image_nodes}; checked external images: {checked}; '
+        f'missing: {len(missing)}; relative (not checked): {relative}; '
+        f'unreadable-image fallback: {fallback}'
+    )
+    log('TEXTURE AUDIT:', summary)
+    if missing:
+        for sample in missing[:25]:
+            log('MISSING TEXTURE:', sample)
+    if fallback:
+        log('WARNING: MiEx could not load at least one texture; see MIEX_TEXTURE_LOAD_FAILURE lines.')
+    audit_path = target.with_name(target.stem + '_texture_audit.txt')
+    try:
+        audit_path.write_text(summary + '\n' + '\n'.join(missing) + '\n', encoding='utf-8')
+        log('Texture audit saved:', audit_path)
+    except OSError as exc:
+        log('WARNING: Could not write optional texture audit:', repr(exc))
+
+
+
 def clear_objects():
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
@@ -248,6 +289,7 @@ def main():
         raise RuntimeError('Blender imported less than half of the terrain faces represented in the USD. No misleading success file saved.')
     frame_actual_scene()
     hide_relationship_lines()
+    audit_imported_textures(target)
     bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=False)
     if not target.is_file() or target.stat().st_size == 0:
         raise RuntimeError('Blender did not create the output file.')

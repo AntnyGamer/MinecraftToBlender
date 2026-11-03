@@ -12,8 +12,8 @@ jobs:
   metadata_tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -24,8 +24,8 @@ jobs:
   windows_build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
@@ -39,7 +39,7 @@ jobs:
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Test-UnsupportedBedrockChunk')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -73,6 +73,19 @@ jobs:
           if (Test-ChunkTerrainGeometry $chunks) { throw 'Empty USD chunk incorrectly passed terrain check' }
           Set-Content -LiteralPath $chunkFile -Value 'int[] faceVertexCounts = [4,4]' -Encoding ASCII
           if (-not (Test-ChunkTerrainGeometry $chunks)) { throw 'Valid USD chunk incorrectly failed terrain check' }
+          # World resource-pack archives must not write files outside the pack directory.
+          $packWorld = Join-Path $dir 'pack_world'
+          $packFolder = Join-Path $packWorld 'resource_packs'
+          New-Item -ItemType Directory -Force -Path $packFolder | Out-Null
+          Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+          $safeArchive = [IO.Compression.ZipFile]::Open((Join-Path $packFolder 'safe.zip'), [IO.Compression.ZipArchiveMode]::Create)
+          try { [void]$safeArchive.CreateEntry('textures/stone.png') } finally { $safeArchive.Dispose() }
+          Assert-SafeResourcePackArchives $packWorld
+          $badArchive = [IO.Compression.ZipFile]::Open((Join-Path $packFolder 'bad.zip'), [IO.Compression.ZipArchiveMode]::Create)
+          try { [void]$badArchive.CreateEntry('../outside.png') } finally { $badArchive.Dispose() }
+          $blocked = $false
+          try { Assert-SafeResourcePackArchives $packWorld } catch { $blocked = $_.Exception.Message -like '*Unsafe resource-pack archive entry*' }
+          if (-not $blocked) { throw 'Unsafe resource-pack ZIP entry was not rejected' }
           # A completed export replaces old data without mixing stale chunks.
           $original = Join-Path $dir 'World'
           $stage = Join-Path $dir '.staging_world'
@@ -93,7 +106,7 @@ jobs:
         run: python -c "from pathlib import Path; p = Path('assets/Import_Existing_USD.py'); compile(p.read_bytes(), str(p), 'exec')"
       - name: Build_executable
         run: go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: MinecraftToBlender_v1_Windows
           path: MinecraftToBlender_v1.exe
@@ -107,19 +120,19 @@ jobs:
       actions: read
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Publish_v1_release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.1 >/dev/null 2>&1; then
-            echo "Release v1.0.1 already exists; leaving it unchanged."
+          if gh release view v1.0.2 >/dev/null 2>&1; then
+            echo "Release v1.0.2 already exists; leaving it unchanged."
             exit 0
           fi
           mkdir -p release
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
           test -s release/MinecraftToBlender_v1.exe
           (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
-          gh release create v1.0.1 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.1" \
-            --notes-file .github/RELEASE_NOTES_v1.0.1.md
+          gh release create v1.0.2 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.2" \
+            --notes-file .github/RELEASE_NOTES_v1.0.2.md

@@ -222,7 +222,7 @@ def main():
     # accepted prototype meshes plus point positions as a completed world.
     render = stage_report(src, 'render')
     proxy = stage_report(src, 'proxy')
-    import_variant = 'render' if render['world_mesh_faces'] >= proxy['world_mesh_faces'] else 'proxy'
+    import_variant = 'render' if render['world_mesh_faces'] > 0 else 'proxy'
     stats = render if import_variant == 'render' else proxy
     if stats['world_mesh_faces'] == 0:
         raise RuntimeError(

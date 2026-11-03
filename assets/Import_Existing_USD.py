@@ -199,6 +199,14 @@ def frame_actual_scene():
     # IMPORTANT: Never set hide_viewport or hide_set False on hidden meshes here.
 
 
+def hide_relationship_lines():
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            for space in area.spaces:
+                if space.type == 'VIEW_3D':
+                    space.overlay.show_relationship_lines = False
+
+
 def main():
     arguments = sys.argv[sys.argv.index('--') + 1:]
     if len(arguments) != 3:
@@ -239,6 +247,7 @@ def main():
     if scene['terrain_faces'] < stats['world_mesh_faces'] * 0.5:
         raise RuntimeError('Blender imported less than half of the terrain faces represented in the USD. No misleading success file saved.')
     frame_actual_scene()
+    hide_relationship_lines()
     bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=False)
     if not target.is_file() or target.stat().st_size == 0:
         raise RuntimeError('Blender did not create the output file.')

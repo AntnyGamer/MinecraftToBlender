@@ -494,8 +494,11 @@ try {
     } else {
         $commands += @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$false}
     }
+    $commands += @{command='loadDimension'; dimension='overworld'}
+    if(-not $UseWorldResourcePacks) {
+        $commands += @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')}
+    }
     $commands += @(
-      @{command='loadDimension'; dimension='overworld'},
       @{command='getWorld'},
       @{command='getChunk'; chunks=$probeChunks; heightmap=$true},
       @{command='applyExportSettings'; settings=@{chunkSize=$chunkSize; exportRegions=@{'Region 1'=$region}; runOptimiser=$enableFaceOptimization; removeCaves=$false; fillInCaves=$false; exportBlockAnimations=$false; entityStartFrame=0; entityEndFrame=1; entityFPS=24; entitySpawnRules=@(); entitySimulate=@(); entityExport=@('minecraft:item_frame','minecraft:glow_item_frame','minecraft:painting','minecraft:block_display','minecraft:item_display','minecraft:armor_stand')}},

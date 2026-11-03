@@ -216,8 +216,7 @@ def main():
     log('Target:', target)
     if not src.is_file() or not importer.is_file():
         raise RuntimeError('Main USD or existing MiExImport.py not found.')
-    # Scan the render and proxy variants separately. The previous app silently
-    # accepted prototype meshes plus point positions as a completed world.
+    # Prefer render terrain; check proxy only when the render variant is empty.
     render = stage_report(src, 'render')
     if render['world_mesh_faces']:
         import_variant, stats = 'render', render
@@ -228,7 +227,7 @@ def main():
     if stats['world_mesh_faces'] == 0:
         raise RuntimeError(
             'The USD has NO solid chunk terrain meshes in either render or proxy mode. '
-            'It contains only reusable block prototypes/point instances and entities. '
+            'The stage may be empty or contain only block prototypes, instances, or entities. '
             'An importer cannot recreate terrain surfaces missing from the export. '
             'Export a small region near the actual build coordinates with the revised '
             'compatibility-first exporter (no face merging or point instancing). '

@@ -39,7 +39,7 @@ jobs:
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Test-UnsupportedBedrockChunk')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -73,6 +73,19 @@ jobs:
           if (Test-ChunkTerrainGeometry $chunks) { throw 'Empty USD chunk incorrectly passed terrain check' }
           Set-Content -LiteralPath $chunkFile -Value 'int[] faceVertexCounts = [4,4]' -Encoding ASCII
           if (-not (Test-ChunkTerrainGeometry $chunks)) { throw 'Valid USD chunk incorrectly failed terrain check' }
+          # World resource-pack archives must not write files outside the pack directory.
+          $packWorld = Join-Path $dir 'pack_world'
+          $packFolder = Join-Path $packWorld 'resource_packs'
+          New-Item -ItemType Directory -Force -Path $packFolder | Out-Null
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $safeArchive = [IO.Compression.ZipFile]::Open((Join-Path $packFolder 'safe.zip'), [IO.Compression.ZipArchiveMode]::Create)
+          try { [void]$safeArchive.CreateEntry('textures/stone.png') } finally { $safeArchive.Dispose() }
+          Assert-SafeResourcePackArchives $packWorld
+          $badArchive = [IO.Compression.ZipFile]::Open((Join-Path $packFolder 'bad.zip'), [IO.Compression.ZipArchiveMode]::Create)
+          try { [void]$badArchive.CreateEntry('../outside.png') } finally { $badArchive.Dispose() }
+          $blocked = $false
+          try { Assert-SafeResourcePackArchives $packWorld } catch { $blocked = $_.Exception.Message -like '*Unsafe resource-pack archive entry*' }
+          if (-not $blocked) { throw 'Unsafe resource-pack ZIP entry was not rejected' }
           # A completed export replaces old data without mixing stale chunks.
           $original = Join-Path $dir 'World'
           $stage = Join-Path $dir '.staging_world'

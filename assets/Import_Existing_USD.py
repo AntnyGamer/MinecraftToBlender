@@ -92,10 +92,6 @@ def load_patched_importer(src):
 
 
 def scene_report():
-    counts = Counter(o.type for o in bpy.context.scene.objects)
-    meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
-    clouds = [o for o in bpy.context.scene.objects if o.type == 'POINTCLOUD']
-    faces = sum(len(o.data.polygons) for o in meshes)
     def is_prototype(o):
         while o:
             name = o.name.split('.')[0].lower()
@@ -103,17 +99,31 @@ def scene_report():
                 return True
             o = o.parent
         return False
-    terrain_faces = sum(len(o.data.polygons) for o in meshes if not is_prototype(o))
-    verts = sum(len(o.data.vertices) for o in meshes)
-    points = sum(len(o.data.points) for o in clouds)
-    geonodes = sum(sum(mod.type == 'NODES' for mod in o.modifiers) for o in clouds)
+
+    counts = Counter()
+    mesh_count = faces = terrain_faces = verts = cloud_count = points = geonodes = 0
+    # Avoid materializing and revisiting every scene object several times.
+    for o in bpy.context.scene.objects:
+        counts[o.type] += 1
+        if o.type == 'MESH':
+            mesh_count += 1
+            mesh_faces = len(o.data.polygons)
+            faces += mesh_faces
+            verts += len(o.data.vertices)
+            if not is_prototype(o):
+                terrain_faces += mesh_faces
+        elif o.type == 'POINTCLOUD':
+            cloud_count += 1
+            points += len(o.data.points)
+            geonodes += sum(mod.type == 'NODES' for mod in o.modifiers)
+
     log('BLENDER scene object types:', dict(counts))
-    log('BLENDER mesh objects:', len(meshes), 'vertices:', verts, 'faces:', faces)
+    log('BLENDER mesh objects:', mesh_count, 'vertices:', verts, 'faces:', faces)
     log('BLENDER mesh faces outside prototype branches:', terrain_faces)
-    log('BLENDER point-cloud objects:', len(clouds), 'point positions:', points)
+    log('BLENDER point-cloud objects:', cloud_count, 'point positions:', points)
     log('BLENDER geometry-node modifiers on point clouds:', geonodes)
     log('BLENDER placeholder missing-texture image:', '_MiEx_Unreadable_Texture' in bpy.data.images)
-    return {'meshes': len(meshes), 'faces': faces, 'terrain_faces': terrain_faces, 'clouds': len(clouds), 'points': points}
+    return {'meshes': mesh_count, 'faces': faces, 'terrain_faces': terrain_faces, 'clouds': cloud_count, 'points': points}
 
 
 def audit_imported_textures(target):

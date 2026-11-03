@@ -425,6 +425,11 @@ func appendLog(s string) {
 	if strings.TrimSpace(s) == "" {
 		return
 	}
+	// Only the first 4000 bytes are shown; don't lowercase huge MiEx JSON
+	// responses solely to detect short, human-readable progress messages.
+	if len(s) > 4000 {
+		s = s[:4000] + "..."
+	}
 	// Log-based stages are real milestones, not guessed completion percentages.
 	if app.busy {
 		lower := strings.ToLower(s)
@@ -454,9 +459,6 @@ func appendLog(s string) {
 		case strings.Contains(lower, "output .blend saved"):
 			state("Blender project saved. Checking final output...")
 		}
-	}
-	if len(s) > 4000 {
-		s = s[:4000] + "..."
 	}
 	app.logLines = append(app.logLines, s)
 	if len(app.logLines) > 10000 {

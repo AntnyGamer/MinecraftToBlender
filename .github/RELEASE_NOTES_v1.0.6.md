@@ -8,6 +8,14 @@
 - **Banners and generated entity textures:** Store MiEx-generated images with the USD export so Blender does not depend on out-of-folder generated images that may be deleted or moved.
 - **Texture diagnostics:** Generate a `<project>_texture_audit.txt` alongside each imported .blend, listing missing external image files and unreadable-image placeholders without silently altering materials.
 
+## Processing efficiency (no mesh simplification)
+
+- Buffer EXE child-process log writes during verbose Minecraft conversions, preserving every output line in the saved log.
+- Bound the EXE's UI status checks to the already-displayed log excerpt instead of lowercasing multi-megabyte MiEx responses.
+- Count Blender scene meshes, faces, vertices, and point clouds in one traversal, without temporary mesh/cloud object lists.
+- Reuse up to 512 sets of local bounding-box corners for repeated geometry instances while framing the scene. Mesh data, material nodes, and viewport bounds are not intentionally altered.
+- Add Windows full-output logging tests and Python regression tests for scene counts and viewport framing.
+
 Bedrock-only model overrides are cleaned up when exporting a Java world in the same workspace. The existing source worlds, Blender auto-open setting, source resource-pack choice, geometry optimizations, and export-region borders are unchanged.
 
 **Verification required:** This release is prepared in a PR, not published. A Windows CI build and a real Bedrock-world export with known beds, signs, banners, and shulker boxes are required before claiming the reported visual problems are fully solved.

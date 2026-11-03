@@ -20,6 +20,8 @@ jobs:
       - name: Vet_Go
         run: go vet ./...
       - run: go test ./... -count=1
+      - name: Validate_Bedrock_resources
+        run: python tools/verify_bedrock_assets.py
 
   windows_build:
     runs-on: windows-latest
@@ -38,6 +40,17 @@ jobs:
           $parseErrors = $null
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
+          $bedrockErrors = $null
+          $bedrockTokens = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Bedrock_Assets.ps1'), [ref]$bedrockTokens, [ref]$bedrockErrors)
+          if ($bedrockErrors.Count -gt 0) { $bedrockErrors | ForEach-Object { Write-Error $_ }; exit 1 }
+          . (Resolve-Path 'assets/Bedrock_Assets.ps1')
+          $sample = Join-Path $env:RUNNER_TEMP 'verified_git_blob_sample.txt'
+          [IO.File]::WriteAllBytes($sample, [Text.Encoding]::UTF8.GetBytes("hello world`n"))
+          if (-not (Test-GitBlobSha1 $sample '3b18e512dba79e4c8300dd08aeb37f8e728b8dad')) {
+            throw 'Git blob SHA1 verifier incorrectly rejected known bytes'
+          }
+          if (Test-GitBlobSha1 $sample ('0' * 40)) { throw 'Git blob verifier accepted a mismatched hash' }
           # Exercise the actual captured-process helpers, not a separate mock.
           foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
@@ -140,18 +153,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Publish_v1_0_5_release
+      - name: Publish_v1_0_6_release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.5 >/dev/null 2>&1; then
-            echo "Release v1.0.5 already exists; leaving it unchanged."
+          if gh release view v1.0.6 >/dev/null 2>&1; then
+            echo "Release v1.0.6 already exists; leaving it unchanged."
             exit 0
           fi
           mkdir -p release
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
           test -s release/MinecraftToBlender_v1.exe
           (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
-          gh release create v1.0.5 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.5" \
-            --notes-file .github/RELEASE_NOTES_v1.0.5.md
+          gh release create v1.0.6 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.6" \
+            --notes-file .github/RELEASE_NOTES_v1.0.6.md

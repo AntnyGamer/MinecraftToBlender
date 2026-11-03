@@ -16,6 +16,12 @@
 - When exporting directly into Blender, reuse the freshly validated USD so the large materials JSON and chunk directory are not parsed twice. Manual USD imports still run complete validation.
 - Reuse up to 512 sets of local bounding-box corners for repeated geometry instances while framing the scene. Mesh data, material nodes, and viewport bounds are not intentionally altered.
 - Add Windows full-output logging tests and Python regression tests for scene counts and viewport framing.
+- Reuse the USD chunk list already collected during export when checking real terrain faces, avoiding a second recursive folder walk.
+- Validate large folders of USD layers in 128-entry batches instead of loading and sorting the entire directory when one valid layer is sufficient.
+- Check materials JSON for validity without allocating per-material copies, while preserving detailed errors for corrupt files.
+- Resolve shader nodes by Blender's named collection lookup instead of repeatedly iterating each material graph's entire node list. Keep the same node-name clipping and missing-node behavior.
+- Avoid constructing unused subpaths during USD grouping and unused suffixes while checking Blender prototype names.
+- Add tests for material lookup, USD geometry grouping, material JSON validation, and large chunk directories.
 
 Bedrock-only model overrides are cleaned up when exporting a Java world in the same workspace. The existing source worlds, Blender auto-open setting, source resource-pack choice, geometry optimizations, and export-region borders are unchanged.
 

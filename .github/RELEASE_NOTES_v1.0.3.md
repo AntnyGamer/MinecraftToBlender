@@ -2,7 +2,7 @@
 
 - Add a clean, minimalist Minecraft-to-Blender application logo to the Windows executable, the main window, the world picker, and the GitHub README. A multiresolution icon remains sharp at common Windows display sizes.
 - Fix the Windows Explorer process handle not being released after opening the output folder.
-- Allow the last available numbered Blender output (`_REPAIRED_100.blend`) instead of reporting a filename collision prematurely.
+- Name Blender projects after the selected world (or chosen Export Name), such as `Night_Blades_Survival.blend` and `Night_Blades_Survival_2.blend` for subsequent imports. Existing projects remain intact.
 - Match the Windows title-bar dark appearance to the app's existing dark interface.
 - Keep the SVG branding source out of bundled conversion helpers, avoiding unnecessary extraction on each workspace setup.
 

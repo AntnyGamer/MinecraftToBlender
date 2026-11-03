@@ -89,6 +89,8 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $original 'new.usd'))) {
             throw 'Failed publication lost the previous export'
           }
+      - name: Validate_Blender_importer
+        run: python -m py_compile assets/Import_Existing_USD.py
       - name: Build_executable
         run: go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -110,14 +112,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.0 >/dev/null 2>&1; then
-            echo "Release v1.0.0 already exists; leaving it unchanged."
+          if gh release view v1.0.1 >/dev/null 2>&1; then
+            echo "Release v1.0.1 already exists; leaving it unchanged."
             exit 0
           fi
           mkdir -p release
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
           test -s release/MinecraftToBlender_v1.exe
           (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
-          gh release create v1.0.0 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0" \
-            --notes-file .github/RELEASE_NOTES_v1.md
+          gh release create v1.0.1 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.1" \
+            --notes-file .github/RELEASE_NOTES_v1.0.1.md

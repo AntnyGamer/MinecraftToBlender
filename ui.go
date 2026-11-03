@@ -1075,7 +1075,7 @@ func mainWindow() {
 	}
 	app.main = h
 	// Keep the native title bar dark on supported Windows 10/11 builds.
-	dark := int32(0)
+	dark := int32(1)
 	pDwmSetAttribute.Call(h, 20, uintptr(unsafe.Pointer(&dark)), 4)
 	createControls()
 	pSetTimer.Call(h, 1, 120, 0)

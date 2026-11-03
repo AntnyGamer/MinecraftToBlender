@@ -63,7 +63,7 @@ def render(size, rect, faces):
 
 
 def main():
-    root = ET.parse(ROOT / "assets" / "logo.svg").getroot()
+    root = ET.parse(ROOT / "branding" / "logo.svg").getroot()
     box = root.find(SVG + "rect")
     rect = (*(float(box.attrib[k]) for k in ("x", "y", "width", "height", "rx")), rgb(box))
     faces = []
@@ -80,7 +80,6 @@ def main():
         entries.append(struct.pack("<4B2H2I", size % 256, size % 256, 0, 0, 1, 32, len(data), offset))
         offset += len(data)
     (out / "app.ico").write_bytes(struct.pack("<3H", 0, 1, len(images)) + b"".join(entries) + b"".join(data for _, data in images))
-    (out / "icon_256.png").write_bytes(images[-1][1])
 
 
 if __name__ == "__main__":

@@ -678,14 +678,14 @@ func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 	}
 	baseTarget := filepath.Join(filepath.Dir(src), strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+"_REPAIRED")
 	target := baseTarget + ".blend"
-	for i := 2; i <= 100; i++ {
+	for i := 2; ; i++ {
 		if _, e := os.Stat(target); os.IsNotExist(e) {
 			break
 		}
-		target = fmt.Sprintf("%s_%d.blend", baseTarget, i)
-		if i == 100 {
+		if i > 100 {
 			return "", errors.New("too many existing repaired .blend files; move older outputs before importing again")
 		}
+		target = fmt.Sprintf("%s_%d.blend", baseTarget, i)
 	}
 	guiLog("Checking terrain and importing Minecraft geometry into Blender...")
 	logFile := filepath.Join(filepath.Dir(src), "Minecraft_Blender_Import.log")
@@ -909,8 +909,11 @@ func openFolder(path string) {
 		}
 		path = parent
 	}
-	if err := exec.Command("explorer.exe", path).Start(); err != nil {
+	cmd := exec.Command("explorer.exe", path)
+	if err := cmd.Start(); err != nil {
 		alert("Cannot open output folder", err.Error(), mbError)
+	} else {
+		_ = cmd.Process.Release()
 	}
 }
 func onCompleted(r result) {

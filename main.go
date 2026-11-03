@@ -141,6 +141,7 @@ const (
 	idFollow           = 133
 	idSelectBedrock    = 134
 	idSelectJava       = 135
+	idWorldPacks       = 136
 )
 
 type wndClass struct {
@@ -227,6 +228,7 @@ type appState struct {
 	selectedWorld *localWorld
 	logShown      int
 	followLog     bool
+	useWorldPacks bool
 }
 
 var app = appState{ctrls: map[int]uintptr{}, logCh: make(chan string, 4096), doneCh: make(chan result, 8)}
@@ -718,7 +720,7 @@ func pathsOverlap(a, b string) bool {
 	return aa == bb || strings.HasPrefix(aa, bb+string(filepath.Separator)) || strings.HasPrefix(bb, aa+string(filepath.Separator))
 }
 
-func runExport(ctx context.Context, worldPath string, edition worldEdition, workspace, exportName, blender string, size, x, z, minY, maxY int, alsoImport bool) result {
+func runExport(ctx context.Context, worldPath string, edition worldEdition, workspace, exportName, blender string, size, x, z, minY, maxY int, useWorldPacks, alsoImport bool) result {
 	if pathsOverlap(worldPath, toolsDir(workspace)) {
 		return result{what: "Export", err: errors.New("the converter workspace conflicts with the selected Minecraft save. Choose a workspace outside the world folder")}
 	}
@@ -731,6 +733,9 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 	}
 	guiLog("Preparing MiEx export...")
 	args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(tools, "Export_World.ps1"), "-WorldPath", worldPath, "-Edition", string(edition), "-Size", strconv.Itoa(size), "-CenterX", strconv.Itoa(x), "-CenterZ", strconv.Itoa(z), "-MinY", strconv.Itoa(minY), "-MaxY", strconv.Itoa(maxY), "-ExportName", exportName}
+	if useWorldPacks {
+		args = append(args, "-UseWorldResourcePacks")
+	}
 	file := filepath.Join(workspace, "Minecraft_Blender_Export.log")
 	err = runProcess(ctx, "powershell.exe", args, file)
 	if err != nil {
@@ -823,8 +828,9 @@ func startExport(both bool) {
 	setBusy(true)
 	app.lastFolder = filepath.Join(toolsDir(workspace), "MiEx_Work", "exports", name)
 	guiLog(fmt.Sprintf("Exporting %d x %d blocks around X=%d Z=%d", size, size, x, z))
+	useWorldPacks := app.useWorldPacks
 	go func() {
-		app.doneCh <- runExport(ctx, world.path, world.edition, workspace, name, blender, size, x, z, minY, maxY, both)
+		app.doneCh <- runExport(ctx, world.path, world.edition, workspace, name, blender, size, x, z, minY, maxY, useWorldPacks, both)
 	}()
 }
 func startImport() {
@@ -1003,6 +1009,14 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 			switchTab(id)
 		case idFollow:
 			resumeFollowing()
+		case idWorldPacks:
+			app.useWorldPacks = !app.useWorldPacks
+			if app.useWorldPacks {
+				setText(app.ctrls[idWorldPacks], "Use world resource packs: On")
+			} else {
+				setText(app.ctrls[idWorldPacks], "Use world resource packs: Off")
+			}
+			refreshButtons()
 		case idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse:
 			browseButton(id)
 		case idExport:

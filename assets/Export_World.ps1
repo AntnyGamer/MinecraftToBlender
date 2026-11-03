@@ -548,6 +548,7 @@ try {
     $commands | ConvertTo-Json -Depth 15 | Set-Content -LiteralPath $cmdFile -Encoding UTF8
     Write-Host 'Enabling vanilla item-frame, glow-frame, painting, display and armor-stand models (single static frame).' -ForegroundColor Cyan
     $env:MIEX_PORTABLE_EXPORTS='1'
+    $env:MIEX_STORE_GEN_TEX_IN_EXPORT='1'
     $env:MIEX_SKIP_WORLD_RESOURCEPACK_CHECK = if($UseWorldResourcePacks) { '0' } else { '1' }
     $log = Join-Path $work 'miex_console.log'
     Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
@@ -754,6 +755,7 @@ try {
         ('Face merging enabled (MiEx FaceOptimiser): ' + $enableFaceOptimization),
         'Raytracing geometry removal disabled (preserve all visible model surfaces).',
         ('Fill export-region boundary faces: ' + $fillWorldBorders),
+        'Generated textures (banners, layered entity materials) stored with the export.',
         ('MiEx JAR used: ' + $runJar),
         ('MiEx status success: ' + $logSuccess),
         ('USD binary Crate compaction: ' + $binarySummary),

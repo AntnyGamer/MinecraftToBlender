@@ -1070,16 +1070,16 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 }
 // appIcons selects the closest embedded Windows icon for each system size.
 func appIcons(module uintptr) (uintptr, uintptr) {
-  resource := w("APP")
-  load := func(width, height uintptr) uintptr {
-    icon, _, _ := pLoadImage.Call(module, uintptr(unsafe.Pointer(resource)), 1, width, height, 0x8000)
-    return icon
-  }
-  largeW, _, _ := pGetSysMetrics.Call(11) // SM_CXICON
-  largeH, _, _ := pGetSysMetrics.Call(12) // SM_CYICON
-  smallW, _, _ := pGetSysMetrics.Call(49) // SM_CXSMICON
-  smallH, _, _ := pGetSysMetrics.Call(50) // SM_CYSMICON
-  return load(largeW, largeH), load(smallW, smallH)
+	resource := w("APP")
+	load := func(width, height uintptr) uintptr {
+		icon, _, _ := pLoadImage.Call(module, uintptr(unsafe.Pointer(resource)), 1, width, height, 0x8000)
+		return icon
+	}
+	largeW, _, _ := pGetSysMetrics.Call(11) // SM_CXICON
+	largeH, _, _ := pGetSysMetrics.Call(12) // SM_CYICON
+	smallW, _, _ := pGetSysMetrics.Call(49) // SM_CXSMICON
+	smallH, _, _ := pGetSysMetrics.Call(50) // SM_CYSMICON
+	return load(largeW, largeH), load(smallW, smallH)
 }
 
 func main() {

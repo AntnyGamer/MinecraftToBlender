@@ -74,7 +74,7 @@ class Mesh:
 def imported_functions(bpy, messages):
     module = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
     functions = [node for node in module.body if isinstance(node, ast.FunctionDef)
-                 and node.name in ("scene_report", "frame_actual_scene")]
+                 and node.name in ("scene_report", "frame_actual_scene", "stage_report")]
     assert len(functions) == 2
     namespace = {
         "Counter": Counter, "Vector": Vec, "bpy": bpy,
@@ -124,7 +124,61 @@ def test_repeated_instance_bounds():
     assert any("Evaluated mesh elements:" in x and 3 in x and 2 in x for x in messages)
 
 
+def test_usd_stage_mesh_grouping():
+    class FakePrim:
+        def __init__(self, name, kind, count):
+            self.name, self.kind, self.count = name, kind, count
+
+        def IsA(self, cls):
+            return self.kind == cls.__name__
+
+        def GetPath(self):
+            return self.name
+
+    class Mesh:
+        def __init__(self, prim):
+            self.prim = prim
+
+        def GetFaceVertexCountsAttr(self):
+            return NS(Get=lambda: [4] * self.prim.count)
+
+    class PointInstancer:
+        def __init__(self, prim):
+            self.prim = prim
+
+        def GetProtoIndicesAttr(self):
+            return NS(Get=lambda: [0] * self.prim.count)
+
+    prims = [
+        FakePrim("/Root/individualBlocksBaseMeshes/very/deep/prototype", "Mesh", 10),
+        FakePrim("/Root/entities/frame", "Mesh", 3),
+        FakePrim("/Root/chunks/region_1/terrain/mesh", "Mesh", 7),
+        FakePrim("/Root/prototypes/leaf", "Mesh", 2),
+        FakePrim("/Root/chunks/region_2/terrain/mesh", "Mesh", 4),
+        FakePrim("/Root/chunks/instances", "PointInstancer", 3),
+    ]
+    variants = []
+    stage = NS(Traverse=lambda: iter(prims), GetUsedLayers=lambda: [1, 2])
+    api = NS(Stage=NS(
+        LoadAll=1,
+        SetGlobalVariantFallbacks=lambda value: variants.append(value),
+        Open=lambda _source, _mode: stage,
+    ))
+    messages = []
+    functions = imported_functions(NS(), messages)
+    functions["Usd"] = api
+    functions["UsdGeom"] = NS(Mesh=Mesh, PointInstancer=PointInstancer)
+    report = functions["stage_report"]("World.usd", "render")
+    assert report["meshes"] == 5
+    assert report["faces"] == 26
+    assert report["world_mesh_faces"] == 11
+    assert report["world_meshes"] == 2
+    assert report["instancers"] == 1 and report["instances"] == 3
+    assert variants == [{"MiEx_LOD": ["render"]}]
+
+
 if __name__ == "__main__":
     test_scene_report()
     test_repeated_instance_bounds()
-    print("Blender model-report and repeated-instance framing checks passed.")
+    test_usd_stage_mesh_grouping()
+    print("Blender scene, USD grouping and repeated-instance framing checks passed.")

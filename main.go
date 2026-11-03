@@ -568,24 +568,32 @@ func usdFiles(src string) error {
 	if err != nil || !chunkInfo.IsDir() {
 		return fmt.Errorf("missing chunk folder: %s", chunkDir)
 	}
-	entries, err := os.ReadDir(chunkDir)
+	chunkFolder, err := os.Open(chunkDir)
 	if err != nil {
 		return err
 	}
-	foundChunk := false
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".usd") {
-			continue
+	defer chunkFolder.Close()
+	// Read directory entries in bounded batches. Large exports can contain
+	// thousands of USD layers; loading and sorting every name is unnecessary
+	// when validation only needs one non-empty layer.
+	for {
+		entries, readErr := chunkFolder.ReadDir(128)
+		if readErr != nil && readErr != io.EOF {
+			return readErr
 		}
-		if chunk, infoErr := entry.Info(); infoErr == nil && chunk.Size() > 0 {
-			foundChunk = true
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".usd") {
+				continue
+			}
+			if chunk, infoErr := entry.Info(); infoErr == nil && chunk.Size() > 0 {
+				return nil
+			}
+		}
+		if readErr == io.EOF {
 			break
 		}
 	}
-	if !foundChunk {
-		return errors.New("chunk folder contains no non-empty USD layer files")
-	}
-	return nil
+	return errors.New("chunk folder contains no non-empty USD layer files")
 }
 
 // Use only the pinned official MiEx importer in the application-managed tools

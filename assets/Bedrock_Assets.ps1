@@ -22,6 +22,7 @@ function Ensure-BedrockBedTextures([string]$miexDir,[string]$manifestPath) {
         throw 'Pinned Mojang Bedrock bed-texture manifest is malformed.'
     }
     $targetDir = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
+    $networkUnavailable = $false
     New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
     foreach($entry in $manifest.textures) {
         if($entry.from -notmatch '^[a-z_]+\.png$' -or $entry.to -notmatch '^[a-z_]+\.png$' -or
@@ -30,20 +31,39 @@ function Ensure-BedrockBedTextures([string]$miexDir,[string]$manifestPath) {
         }
         $target = Join-Path $targetDir $entry.to
         if(Test-GitBlobSha1 $target $entry.git_blob_sha1) { continue }
+        if($networkUnavailable) { continue }
         $temp = $target + '.new'
         $url = 'https://raw.githubusercontent.com/' + $manifest.source + '/' + $manifest.revision + '/' + $manifest.folder + '/' + $entry.from
         try {
-            Get-WebFile $url $temp
+            Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $temp -TimeoutSec 15 -ErrorAction Stop
             if(-not (Test-GitBlobSha1 $temp $entry.git_blob_sha1)) {
                 throw ('Pinned Mojang texture verification failed: ' + $entry.from)
             }
             Move-Item -LiteralPath $temp -Destination $target -Force -ErrorAction Stop
         } catch {
-            Write-Warning ('Bedrock bed texture ' + $entry.to + ' unavailable; retaining existing fallback textures. ' + $_.Exception.Message)
+            $networkUnavailable = $true
+            Write-Warning ('Bedrock bed texture download failed; using available cached resources instead. ' + $_.Exception.Message)
         } finally {
             if(Test-Path -LiteralPath $temp) {
                 Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
             }
+        }
+    }
+}
+
+function Remove-ManagedBedrockBedTextures([string]$miexDir,[string]$manifestPath) {
+    # Don't let an earlier Bedrock export's fallback textures override Java or
+    # a later world supplied resource pack. Never remove non-matching files.
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $targetDir = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
+    if(-not (Test-Path -LiteralPath $targetDir -PathType Container)) { return }
+    foreach($entry in $manifest.textures) {
+        if($entry.to -notmatch '^[a-z_]+\.png$' -or $entry.git_blob_sha1 -notmatch '^[0-9a-f]{40}$') {
+            throw 'Unexpected filename or hash in the Bedrock texture manifest.'
+        }
+        $target = Join-Path $targetDir $entry.to
+        if(Test-GitBlobSha1 $target $entry.git_blob_sha1) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction Stop
         }
     }
 }

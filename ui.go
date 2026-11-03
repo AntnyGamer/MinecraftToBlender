@@ -357,7 +357,7 @@ func createControls() {
 	uiLabel(uiPacksHint, "Off by default. Uses packs supplied with the world when available.", 3, theme.quiet, theme.card)
 	uiButton(idAutoOpenBlender, autoOpenBlenderLabel())
 	uiLabel(uiAutoOpenHint, "Open the saved .blend after a successful import.", 3, theme.quiet, theme.card)
-	uiLabel(uiPrefsNote, "Requires Java 21+ and Blender. Worlds are copied to a workspace snapshot; original saves are never modified.", 3, theme.muted, theme.card)
+	uiLabel(uiPrefsNote, "Java 21+ and Blender required. Original world saves stay unchanged.", 3, theme.muted, theme.card)
 
 	uiLabel(uiActivityTitle, "Activity", 2, theme.white, theme.card)
 	uiLabel(uiActivityHint, "Detailed conversion log", 3, theme.muted, theme.card)
@@ -544,6 +544,7 @@ func layoutUI() {
 		move(uiPacksHint, x, top+194, w, 18)
 		move(idAutoOpenBlender, x, top+224, w, 37)
 		move(uiAutoOpenHint, x, top+263, w, 18)
+		move(uiPrefsNote, x, top+287, w, 29)
 	} else {
 		move(uiSettingsTitle, x, top+34, w, 30)
 		move(uiSettingsInfo, x, top+69, w, 20)
@@ -580,7 +581,7 @@ func layoutUI() {
 		show(id, ui.tab == 1 && (!compact || (id != uiImportHint && id != uiImportInfo)))
 	}
 	for _, id := range []int{uiSettingsTitle, uiSettingsInfo, uiWorkspaceLabel, uiPrefsNote, uiPacksHint, uiAutoOpenHint, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
-		show(id, ui.tab == 2 && (id != uiPrefsNote || !compact))
+		show(id, ui.tab == 2)
 	}
 	// In compact mode these actions sit near the bottom of the setup card.
 	pInvalidate.Call(app.main, 0, 1)

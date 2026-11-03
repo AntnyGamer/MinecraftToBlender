@@ -1043,15 +1043,25 @@ func updateLog() {
 	chunk := chunkBuilder.String()
 	app.logShown = len(app.logLines)
 	if !ui.rich {
-		// Standard Edit fallback. Restore visible line when a user has scrolled up.
+		// Standard EDIT can append new log text without retrieving and rewriting
+		// everything displayed so far. Respect its 16 MiB EM_LIMITTEXT cap:
+		// above that threshold, retain the original WM_SETTEXT behavior.
 		oldFirst := send(h, 0x00CE, 0, 0) // EM_GETFIRSTVISIBLELINE
-		setText(h, getText(idLog)+chunk)
-		if app.followLog {
-			send(h, 0x00B1, ^uintptr(0), ^uintptr(0))
-			send(h, 0x00B7, 0, 0)
+		currentLength := send(h, 0x000E, 0, 0) // WM_GETTEXTLENGTH
+		if app.followLog && currentLength+uintptr(len(chunk)) < 16*1024*1024 {
+			send(h, 0x00B1, ^uintptr(0), ^uintptr(0)) // EM_SETSEL
+			send(h, emReplaceSel, 0, ptr(chunk))
+			send(h, 0x00B7, 0, 0) // EM_SCROLLCARET
 		} else {
-			now := send(h, 0x00CE, 0, 0)
-			send(h, 0x00B6, uintptr(int32(oldFirst)-int32(now)), 0) // EM_LINESCROLL
+			// This path also preserves scroll position while follow is paused.
+			setText(h, getText(idLog)+chunk)
+			if app.followLog {
+				send(h, 0x00B1, ^uintptr(0), ^uintptr(0))
+				send(h, 0x00B7, 0, 0)
+			} else {
+				now := send(h, 0x00CE, 0, 0)
+				send(h, 0x00B6, uintptr(int32(oldFirst)-int32(now)), 0) // EM_LINESCROLL
+			}
 		}
 		return
 	}

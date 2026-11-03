@@ -968,6 +968,15 @@ func openFolder(path string) {
 		_ = cmd.Process.Release()
 	}
 }
+const createNoWindow = 0x08000000 // Windows CREATE_NO_WINDOW
+
+func blenderProjectCommand(blender, path string) *exec.Cmd {
+	cmd := exec.Command(blender, path)
+	// Blender's console must stay hidden without hiding its main GUI window.
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+	return cmd
+}
+
 func openBlenderProject(blender, path string) error {
 	if blender == "" {
 		return errors.New("Select blender.exe in the Import USD tab")
@@ -975,7 +984,7 @@ func openBlenderProject(blender, path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("Blender project unavailable: %w", err)
 	}
-	cmd := exec.Command(blender, path)
+	cmd := blenderProjectCommand(blender, path)
 	if err := cmd.Start(); err != nil {
 		return err
 	}

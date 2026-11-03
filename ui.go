@@ -20,6 +20,7 @@ var (
 	pRoundRect       = gdi.NewProc("RoundRect")
 	pFillRect        = user32.NewProc("FillRect")
 	pDrawText        = user32.NewProc("DrawTextW")
+	pDrawIconEx      = user32.NewProc("DrawIconEx")
 	pSetTextColor    = gdi.NewProc("SetTextColor")
 	pSetBkColor      = gdi.NewProc("SetBkColor")
 	pSetBkMode       = gdi.NewProc("SetBkMode")
@@ -129,6 +130,7 @@ type uiState struct {
 	footerY                                             int
 	fonts                                               [6]uintptr
 	brushBg, brushCard, brushInput, brushSide, brushLog uintptr
+	brandIcon                                           uintptr
 	labels                                              map[uintptr]textStyle
 	oldLogProc                                          uintptr
 	oldButtonProc                                       uintptr
@@ -777,8 +779,12 @@ func paintMain(h uintptr) {
 	pFillRect.Call(dc, uintptr(unsafe.Pointer(&r)), ui.brushBg)
 	sideRect := rect{0, 0, 205, int32(ui.h)}
 	pFillRect.Call(dc, uintptr(unsafe.Pointer(&sideRect)), ui.brushSide)
-	// Compact blue app mark. The rest of the UI uses one neutral palette.
-	paintPill(dc, rect{19, 25, 46, 54}, theme.accent, 9)
+	// Reuse the EXE logo in the sidebar; retain the original marker if Windows cannot draw it.
+	if ui.brandIcon == 0 {
+		paintPill(dc, rect{19, 25, 46, 54}, theme.accent, 9)
+	} else if ok, _, _ := pDrawIconEx.Call(dc, 19, 25, ui.brandIcon, 29, 29, 0, 0, 3); ok == 0 {
+		paintPill(dc, rect{19, 25, 46, 54}, theme.accent, 9)
+	}
 	footerHeader := ui.h - 118
 	if app.lastBlend != "" && !app.busy {
 		footerHeader = ui.h - 170
@@ -1048,6 +1054,7 @@ func mainWindow() {
 	name := w("MinecraftToBlenderDesktopV1")
 	cursor, _, _ := pLoadCursor.Call(0, 32512)
 	largeIcon, smallIcon := appIcons(module)
+	ui.brandIcon = largeIcon
 	cl := wndClass{Size: uint32(unsafe.Sizeof(wndClass{})), WndProc: syscall.NewCallback(wndProc), Instance: module, Icon: largeIcon, IconSm: smallIcon, Cursor: cursor, Background: colorWindow + 1, ClassName: name}
 	if a, _, _ := pRegisterClass.Call(uintptr(unsafe.Pointer(&cl))); a == 0 {
 		panic("RegisterClassEx failed")
@@ -1074,8 +1081,8 @@ func mainWindow() {
 		panic(fmt.Sprintf("CreateWindowEx failed: %v", e))
 	}
 	app.main = h
-	// Keep the native title bar dark on supported Windows 10/11 builds.
-	dark := int32(1)
+	// Match the app's light interface on supported Windows 10/11 builds.
+	dark := int32(0)
 	pDwmSetAttribute.Call(h, 20, uintptr(unsafe.Pointer(&dark)), 4)
 	createControls()
 	pSetTimer.Call(h, 1, 120, 0)

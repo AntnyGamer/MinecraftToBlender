@@ -58,6 +58,7 @@ var (
 	pKillTimer      = user32.NewProc("KillTimer")
 	pMessageBox     = user32.NewProc("MessageBoxW")
 	pLoadCursor     = user32.NewProc("LoadCursorW")
+	pLoadImage      = user32.NewProc("LoadImageW")
 	pGetModule      = kernel32.NewProc("GetModuleHandleW")
 	pGetOpenFile    = comdlg32.NewProc("GetOpenFileNameW")
 	pBrowseFolder   = shell32.NewProc("SHBrowseForFolderW")
@@ -661,6 +662,23 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 	}
 	return err
 }
+// blenderOutputPath keeps existing Blender projects intact when importing again.
+func blenderOutputPath(src string) (string, error) {
+	base := strings.TrimSuffix(src, filepath.Ext(src))
+	for i := 1; i <= 100; i++ {
+		path := base + ".blend"
+		if i > 1 {
+			path = fmt.Sprintf("%s_%d.blend", base, i)
+		}
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return path, nil
+		} else if err != nil {
+			return "", fmt.Errorf("cannot inspect Blender output %s: %w", path, err)
+		}
+	}
+	return "", errors.New("all 100 Blender output names are in use; move or rename older files")
+}
+
 func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 	if err := usdFiles(src); err != nil {
 		return "", err
@@ -675,16 +693,9 @@ func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	baseTarget := filepath.Join(filepath.Dir(src), strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))+"_REPAIRED")
-	target := baseTarget + ".blend"
-	for i := 2; i <= 100; i++ {
-		if _, e := os.Stat(target); os.IsNotExist(e) {
-			break
-		}
-		target = fmt.Sprintf("%s_%d.blend", baseTarget, i)
-		if i == 100 {
-			return "", errors.New("too many existing repaired .blend files; move older outputs before importing again")
-		}
+	target, err := blenderOutputPath(src)
+	if err != nil {
+		return "", err
 	}
 	guiLog("Checking terrain and importing Minecraft geometry into Blender...")
 	logFile := filepath.Join(filepath.Dir(src), "Minecraft_Blender_Import.log")
@@ -908,8 +919,11 @@ func openFolder(path string) {
 		}
 		path = parent
 	}
-	if err := exec.Command("explorer.exe", path).Start(); err != nil {
+	cmd := exec.Command("explorer.exe", path)
+	if err := cmd.Start(); err != nil {
 		alert("Cannot open output folder", err.Error(), mbError)
+	} else {
+		_ = cmd.Process.Release()
 	}
 }
 func onCompleted(r result) {
@@ -1067,6 +1081,20 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 	r, _, _ := pDefWndProc.Call(h, uintptr(m), wp, lp)
 	return r
 }
+// appIcons selects the closest embedded Windows icon for each system size.
+func appIcons(module uintptr) (uintptr, uintptr) {
+	resource := w("APP")
+	load := func(width, height uintptr) uintptr {
+		icon, _, _ := pLoadImage.Call(module, uintptr(unsafe.Pointer(resource)), 1, width, height, 0x8000)
+		return icon
+	}
+	largeW, _, _ := pGetSysMetrics.Call(11) // SM_CXICON
+	largeH, _, _ := pGetSysMetrics.Call(12) // SM_CYICON
+	smallW, _, _ := pGetSysMetrics.Call(49) // SM_CXSMICON
+	smallH, _, _ := pGetSysMetrics.Call(50) // SM_CYSMICON
+	return load(largeW, largeH), load(smallW, smallH)
+}
+
 func main() {
 	runtime.LockOSThread()
 	mainWindow()

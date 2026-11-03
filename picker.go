@@ -309,7 +309,8 @@ func showPickerWindow() {
 	if !pickerRegistered {
 		pickerCallback = syscall.NewCallback(pickerProc)
 		cursor, _, _ := pLoadCursor.Call(0, 32512)
-		wc := wndClass{Size: uint32(unsafe.Sizeof(wndClass{})), WndProc: pickerCallback, Instance: inst, Cursor: cursor, ClassName: cname}
+		largeIcon, smallIcon := appIcons(inst)
+		wc := wndClass{Size: uint32(unsafe.Sizeof(wndClass{})), WndProc: pickerCallback, Instance: inst, Icon: largeIcon, IconSm: smallIcon, Cursor: cursor, ClassName: cname}
 		if registered, _, _ := pRegisterClass.Call(uintptr(unsafe.Pointer(&wc))); registered == 0 {
 			alert("World picker unavailable", "Windows could not register the world selection window.", mbError)
 			return

@@ -52,8 +52,6 @@ def stage_report(src, variant):
     log('USD point instancers:', stats['instancers'], 'instanced positions:', stats['instances'])
     log('USD mesh path groups:', examples.most_common(15))
     log('USD solid world mesh faces outside prototypes/entities:', stats['world_mesh_faces'])
-    if not stats['meshes'] and not stats['instances']:
-        raise RuntimeError('The USD has no mesh geometry. The export itself needs investigation.')
     return stats
 
 
@@ -218,16 +216,18 @@ def main():
     log('Target:', target)
     if not src.is_file() or not importer.is_file():
         raise RuntimeError('Main USD or existing MiExImport.py not found.')
-    # Scan the render and proxy variants separately. The previous app silently
-    # accepted prototype meshes plus point positions as a completed world.
+    # Prefer render terrain; check proxy only when the render variant is empty.
     render = stage_report(src, 'render')
-    proxy = stage_report(src, 'proxy')
-    import_variant = 'render' if render['world_mesh_faces'] > 0 else 'proxy'
-    stats = render if import_variant == 'render' else proxy
+    if render['world_mesh_faces']:
+        import_variant, stats = 'render', render
+    else:
+        # Only load the proxy variant when render contains no usable terrain.
+        # An empty render stage must not prevent fallback to valid proxy meshes.
+        import_variant, stats = 'proxy', stage_report(src, 'proxy')
     if stats['world_mesh_faces'] == 0:
         raise RuntimeError(
             'The USD has NO solid chunk terrain meshes in either render or proxy mode. '
-            'It contains only reusable block prototypes/point instances and entities. '
+            'The stage may be empty or contain only block prototypes, instances, or entities. '
             'An importer cannot recreate terrain surfaces missing from the export. '
             'Export a small region near the actual build coordinates with the revised '
             'compatibility-first exporter (no face merging or point instancing). '

@@ -175,6 +175,25 @@ function Test-ChunkTerrainGeometry([string]$folder) {
     }
     return $false
 }
+function Assert-SafeResourcePackArchives([string]$worldFolder) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    foreach($name in @('resource_packs', 'behavior_packs', 'datapacks')) {
+        $folder = Join-Path $worldFolder $name
+        if(-not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
+        foreach($archive in (Get-ChildItem -LiteralPath $folder -File -Recurse -ErrorAction Stop | Where-Object { $_.Extension -in @('.zip', '.jar') })) {
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($archive.FullName)
+            try {
+                foreach($entry in $zip.Entries) {
+                    $entryPath = $entry.FullName.Replace('\', '/')
+                    if($entryPath.StartsWith('/') -or $entryPath -match '^[A-Za-z]:' -or
+                       $entryPath -match '(^|/)\.\.(/|$)') {
+                        throw "Unsafe resource-pack archive entry in $($archive.FullName): $($entry.FullName)"
+                    }
+                }
+            } finally { $zip.Dispose() }
+        }
+    }
+}
 function Abort([string]$reason) {throw $reason}
 
 try {
@@ -296,6 +315,8 @@ try {
         $actualWorldHash = (Get-FileHash -LiteralPath (Join-Path $worldPath 'level.dat') -Algorithm SHA256).Hash.ToLowerInvariant()
         Write-Host "Snapshot ready; world metadata SHA256: $actualWorldHash" -ForegroundColor Green
     }
+
+    if($UseWorldResourcePacks) { Assert-SafeResourcePackArchives $worldPath }
 
     if(-not (Test-Path -LiteralPath $jar)) {Get-WebFile $releaseUrl $jar}
     try {Test-Hash $jar $releaseSha256}

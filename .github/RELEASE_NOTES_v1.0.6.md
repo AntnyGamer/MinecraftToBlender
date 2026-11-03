@@ -13,6 +13,7 @@
 - Buffer EXE child-process log writes during verbose Minecraft conversions, preserving every output line in the saved log.
 - Bound the EXE's UI status checks to the already-displayed log excerpt instead of lowercasing multi-megabyte MiEx responses.
 - Count Blender scene meshes, faces, vertices, and point clouds in one traversal, without temporary mesh/cloud object lists.
+- When exporting directly into Blender, reuse the freshly validated USD so the large materials JSON and chunk directory are not parsed twice. Manual USD imports still run complete validation.
 - Reuse up to 512 sets of local bounding-box corners for repeated geometry instances while framing the scene. Mesh data, material nodes, and viewport bounds are not intentionally altered.
 - Add Windows full-output logging tests and Python regression tests for scene counts and viewport framing.
 

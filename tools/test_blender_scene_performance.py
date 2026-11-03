@@ -75,7 +75,7 @@ def imported_functions(bpy, messages):
     module = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
     functions = [node for node in module.body if isinstance(node, ast.FunctionDef)
                  and node.name in ("scene_report", "frame_actual_scene", "stage_report")]
-    assert len(functions) == 2
+    assert len(functions) == 3
     namespace = {
         "Counter": Counter, "Vector": Vec, "bpy": bpy,
         "log": lambda *args: messages.append(args),

@@ -22,6 +22,8 @@ jobs:
       - run: go test ./... -count=1
       - name: Validate_Bedrock_resources
         run: python tools/verify_bedrock_assets.py
+      - name: Validate_Blender_scene_performance
+        run: python tools/test_blender_scene_performance.py
 
   windows_build:
     runs-on: windows-latest

@@ -90,7 +90,7 @@ jobs:
             throw 'Failed publication lost the previous export'
           }
       - name: Validate_Blender_importer
-        run: python -m py_compile assets/Import_Existing_USD.py
+        run: python -c "from pathlib import Path; p = Path('assets/Import_Existing_USD.py'); compile(p.read_bytes(), str(p), 'exec')"
       - name: Build_executable
         run: go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -326,7 +326,15 @@ func saveAutoOpenBlender(value bool) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0644)
+	temp := path + ".new"
+	if err := os.WriteFile(temp, append(data, '\n'), 0644); err != nil {
+		return err
+	}
+	if ok, _, moveErr := pMoveFileEx.Call(ptr(temp), ptr(path), 0x1|0x8); ok == 0 {
+		_ = os.Remove(temp)
+		return fmt.Errorf("cannot save Blender auto-open preference: %w", moveErr)
+	}
+	return nil
 }
 
 func detectBlender() string {

@@ -14,7 +14,16 @@ def text_of(obj):
     return json.dumps(obj, ensure_ascii=False)
 
 
+def check_block_names(doc):
+    assert doc["blocks"]
+    assert all(name.startswith("minecraft:") for name in doc["blocks"]), doc["blocks"]
+
+
 def main():
+    for name in ("Bedrock_Beds.json", "Bedrock_Shulkers.json",
+                 "Bedrock_Signs.json", "Bedrock_Hanging_Signs.json"):
+        check_block_names(load(name))
+
     beds = load("Bedrock_Beds.json")
     assert "minecraft:bed" in beds["blocks"]
     bed_text = text_of(beds)

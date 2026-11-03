@@ -137,7 +137,7 @@ function Read-MiExAuditLog([string]$path) {
     $missingValues = New-Object 'System.Collections.Generic.List[string]'
     $errorValues = New-Object 'System.Collections.Generic.List[string]'
     $missingPattern = [regex]::new('Missing blockstate:\s*([^\r\n]+)', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-    $errorPattern = [regex]::new('\\[MSG\\] Error:|No blockstate file|Missing texture|No texture found|Missing model|No model file|Unknown block|Exception|\\[MSG\\] Error|\\[ERROR\\]', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $errorPattern = [regex]::new('\[MSG\] Error:|No blockstate file|Missing texture|No texture found|Missing model|No model file|Unknown block|Exception|\[MSG\] Error|\[ERROR\]', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     $success = $false
     if(Test-Path -LiteralPath $path -PathType Leaf) {
         foreach($line in [System.IO.File]::ReadLines($path)) {

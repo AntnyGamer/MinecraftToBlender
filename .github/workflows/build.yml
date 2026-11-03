@@ -96,11 +96,25 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $original 'new.usd')) -or (Test-Path -LiteralPath (Join-Path $original 'old.usd'))) {
             throw 'Published export mixed new and old files'
           }
+          # Preserve completed .blend files and Blender's numbered backups
+          # across a replacement without retaining stale USD chunk layers.
+          Set-Content -LiteralPath (Join-Path $original 'Saved.blend') -Value 'blender project'
+          Set-Content -LiteralPath (Join-Path $original 'Saved.blend1') -Value 'blender backup'
+          $nextStage = Join-Path $dir '.next_world'
+          New-Item -ItemType Directory -Force -Path $nextStage | Out-Null
+          Set-Content -LiteralPath (Join-Path $nextStage 'newer.usd') -Value 'newer'
+          Publish-Export $nextStage $original
+          foreach ($name in @('Saved.blend', 'Saved.blend1', 'newer.usd')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $original $name))) { throw "Export lost $name" }
+          }
+          if (Test-Path -LiteralPath (Join-Path $original 'new.usd')) {
+            throw 'Export retained stale USD after replacing the world'
+          }
           # If publication fails, restore the previously published output.
           try { Publish-Export (Join-Path $dir 'missing_stage') $original; throw 'Expected promotion failure' }
           catch { if ($_.Exception.Message -eq 'Expected promotion failure') { throw } }
-          if (-not (Test-Path -LiteralPath (Join-Path $original 'new.usd'))) {
-            throw 'Failed publication lost the previous export'
+          foreach ($name in @('Saved.blend', 'Saved.blend1', 'newer.usd')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $original $name))) { throw "Failed publication lost $name" }
           }
       - name: Validate_Blender_importer
         run: python -c "from pathlib import Path; p = Path('assets/Import_Existing_USD.py'); compile(p.read_bytes(), str(p), 'exec')"
@@ -126,18 +140,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Publish_v1_0_3_release
+      - name: Publish_v1_0_4_release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.3 >/dev/null 2>&1; then
-            echo "Release v1.0.3 already exists; leaving it unchanged."
+          if gh release view v1.0.4 >/dev/null 2>&1; then
+            echo "Release v1.0.4 already exists; leaving it unchanged."
             exit 0
           fi
           mkdir -p release
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
           test -s release/MinecraftToBlender_v1.exe
           (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
-          gh release create v1.0.3 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.3" \
-            --notes-file .github/RELEASE_NOTES_v1.0.3.md
+          gh release create v1.0.4 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.4" \
+            --notes-file .github/RELEASE_NOTES_v1.0.4.md

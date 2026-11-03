@@ -388,8 +388,12 @@ func pickerPaint(hwnd uintptr) {
 	if picker.gdipToken != 0 {
 		pGdipCreateGraphics.Call(dc, uintptr(unsafe.Pointer(&gdipGraphics)))
 	}
-	for i, v := range picker.worlds {
-		y := pickerListTop + i*(pickerCardH+pickerCardGap) - picker.scroll
+	step := pickerCardH + pickerCardGap
+	first := max(0, picker.scroll/step-1)
+	last := min(len(picker.worlds), (picker.scroll+pickerListHeight())/step+2)
+	for i := first; i < last; i++ {
+		v := picker.worlds[i]
+		y := pickerListTop + i*step - picker.scroll
 		if y+pickerCardH < pickerListTop || y > h-pickerFooterH {
 			continue
 		}

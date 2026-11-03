@@ -24,6 +24,7 @@ $worldDir = Join-Path $work 'world_source'
 $chunkSize = 16
 $enableGeometrySubsets = $false
 $enableFaceOptimization = $false
+$fillWorldBorders = $true
 $finalExportDir = Join-Path (Join-Path $work 'exports') $ExportName
 # Always export into a unique, empty directory. Never let leftover chunk files
 # from a previous run hide missing geometry in a failed or partial export.
@@ -139,16 +140,33 @@ function Test-UnsupportedBedrockChunk([string]$stdout,[string]$stderr) {
     return $false
 }
 function Publish-Export([string]$stage,[string]$destination) {
-    # Move a valid new export into place. If publication fails, restore the
-    # previous result; the current export is never mixed with stale chunk files.
+    # Preserve completed Blender projects when replacing generated USD chunks.
     $backup = $destination + '.previous_' + [guid]::NewGuid().ToString('N')
     $hadPrevious = Test-Path -LiteralPath $destination
     if($hadPrevious) { Move-Item -LiteralPath $destination -Destination $backup -ErrorAction Stop }
+    $published = $false
+    $movedProjects = @()
     try {
         Move-Item -LiteralPath $stage -Destination $destination -ErrorAction Stop
+        $published = $true
+        if($hadPrevious) {
+            foreach($project in (Get-ChildItem -LiteralPath $backup -File -ErrorAction Stop | Where-Object { $_.Name -match '\.blend[0-9]*$' })) {
+                $target = Join-Path $destination $project.Name
+                if(Test-Path -LiteralPath $target) { throw "New export conflicts with saved Blender project: $target" }
+                Move-Item -LiteralPath $project.FullName -Destination $target -ErrorAction Stop
+                $movedProjects += $project.Name
+            }
+        }
     } catch {
+        $failure = $_
+        if($published) {
+            foreach($name in $movedProjects) {
+                Move-Item -LiteralPath (Join-Path $destination $name) -Destination $backup -ErrorAction Stop
+            }
+            Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction Stop
+        }
         if($hadPrevious) { Move-Item -LiteralPath $backup -Destination $destination -ErrorAction Stop }
-        throw
+        throw $failure
     }
     if($hadPrevious) {
         try { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction Stop }
@@ -409,10 +427,11 @@ try {
     $packConfig | Add-Member -MemberType NoteProperty -Name 'usePointInstancersForIndividualBlocks' -Value $false -Force
     $packConfig | Add-Member -MemberType NoteProperty -Name 'runFaceOptimiser' -Value $enableFaceOptimization -Force
     $packConfig | Add-Member -MemberType NoteProperty -Name 'runRaytracingOptimiser' -Value $false -Force
+    $packConfig | Add-Member -MemberType NoteProperty -Name 'fillWorldBorders' -Value $fillWorldBorders -Force
     $outConfig = $packConfig | ConvertTo-Json -Depth 20
     [System.IO.File]::WriteAllText($packConfigPath, $outConfig + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
     $parsedConfig = Get-Content -LiteralPath $packConfigPath -Raw | ConvertFrom-Json
-    if([bool]$parsedConfig.useGeometrySubsets -ne $enableGeometrySubsets -or [bool]$parsedConfig.usePointInstancersForIndividualBlocks -or [bool]$parsedConfig.runFaceOptimiser -ne $enableFaceOptimization -or [bool]$parsedConfig.runRaytracingOptimiser) {
+    if([bool]$parsedConfig.useGeometrySubsets -ne $enableGeometrySubsets -or [bool]$parsedConfig.usePointInstancersForIndividualBlocks -or [bool]$parsedConfig.runFaceOptimiser -ne $enableFaceOptimization -or [bool]$parsedConfig.runRaytracingOptimiser -or [bool]$parsedConfig.fillWorldBorders -ne $fillWorldBorders) {
         Abort 'MiEx exporter resource-pack configuration did not validate.'
     }
     Write-Host 'Applied reusable exporter configuration in BlenderEEVEE/miex_config.json.' -ForegroundColor Green
@@ -734,6 +753,7 @@ try {
         ('USD geometry-subset batching enabled: ' + $enableGeometrySubsets),
         ('Face merging enabled (MiEx FaceOptimiser): ' + $enableFaceOptimization),
         'Raytracing geometry removal disabled (preserve all visible model surfaces).',
+        ('Fill export-region boundary faces: ' + $fillWorldBorders),
         ('MiEx JAR used: ' + $runJar),
         ('MiEx status success: ' + $logSuccess),
         ('USD binary Crate compaction: ' + $binarySummary),

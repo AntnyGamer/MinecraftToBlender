@@ -230,8 +230,9 @@ func readLevelDat(path string, edition worldEdition) (worldMeta, error) {
 	if e = nb.compound("", 0, &m); e != nil {
 		return m, e
 	}
-	if m.hasPX && m.hasPZ {
-		m.X, m.Z = int(m.px), int(m.pz)
+	if m.hasPX && m.hasPZ && !math.IsNaN(m.px) && !math.IsNaN(m.pz) &&
+		!math.IsInf(m.px, 0) && !math.IsInf(m.pz, 0) {
+		m.X, m.Z = int(math.Floor(m.px)), int(math.Floor(m.pz))
 		m.HasCenter = true
 	} else if m.hasSX && m.hasSZ {
 		m.X, m.Z = m.sx, m.sz

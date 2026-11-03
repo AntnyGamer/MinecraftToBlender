@@ -275,9 +275,17 @@ const (
 	uiWorkspaceLabel = 219
 	uiPrefsNote      = 220
 	uiPacksHint      = 223
+	uiAutoOpenHint   = 224
 	uiActivityTitle  = 221
 	uiActivityHint   = 222
 )
+
+func autoOpenBlenderLabel() string {
+	if app.autoOpenBlender {
+		return "Auto-open Blender: On"
+	}
+	return "Auto-open Blender: Off"
+}
 
 func createControls() {
 	ui.fonts[0] = font("Segoe UI Semibold", -28, 650)
@@ -341,13 +349,15 @@ func createControls() {
 	uiButton(idImport, "Create Blender project")
 
 	uiLabel(uiSettingsTitle, "App settings", 2, theme.white, theme.card)
-	uiLabel(uiSettingsInfo, "Control where output and downloaded conversion tools are saved.", 3, theme.muted, theme.card)
+	uiLabel(uiSettingsInfo, "Choose your workspace and export preferences.", 3, theme.muted, theme.card)
 	uiLabel(uiWorkspaceLabel, "WORKSPACE FOLDER", 3, theme.muted, theme.card)
 	uiField(idWorkspace, defaultWorkspace())
 	uiButton(idWorkspaceBrowse, "Browse")
 	uiButton(idWorldPacks, "Use world resource packs: Off")
 	uiLabel(uiPacksHint, "Off by default. Uses packs supplied with the world when available.", 3, theme.quiet, theme.card)
-	uiLabel(uiPrefsNote, "Requires Java 21+ and Blender. Worlds are copied to a workspace snapshot; original saves are never modified.", 3, theme.muted, theme.card)
+	uiButton(idAutoOpenBlender, autoOpenBlenderLabel())
+	uiLabel(uiAutoOpenHint, "Open the saved .blend after a successful import.", 3, theme.quiet, theme.card)
+	uiLabel(uiPrefsNote, "Java 21+ and Blender required. Original world saves stay unchanged.", 3, theme.muted, theme.card)
 
 	uiLabel(uiActivityTitle, "Activity", 2, theme.white, theme.card)
 	uiLabel(uiActivityHint, "Detailed conversion log", 3, theme.muted, theme.card)
@@ -524,14 +534,29 @@ func layoutUI() {
 		move(idImport, x, top+281, w, 51)
 	}
 
-	move(uiSettingsTitle, x, top+34, w, 30)
-	move(uiSettingsInfo, x, top+69, w, 20)
-	move(uiWorkspaceLabel, x, top+101, w, 20)
-	move(idWorkspace, x, top+125, fw, 40)
-	move(idWorkspaceBrowse, x+fw+10, top+123, 92, 44)
-	move(idWorldPacks, x, top+177, w, 40)
-	move(uiPacksHint, x, top+222, w, 19)
-	move(uiPrefsNote, x, top+252, w, 55)
+	if compact {
+		move(uiSettingsTitle, x, top+16, w, 28)
+		move(uiSettingsInfo, x, top+49, w, 20)
+		move(uiWorkspaceLabel, x, top+83, w, 18)
+		move(idWorkspace, x, top+106, fw, 35)
+		move(idWorkspaceBrowse, x+fw+10, top+104, 92, 39)
+		move(idWorldPacks, x, top+153, w, 37)
+		move(uiPacksHint, x, top+194, w, 18)
+		move(idAutoOpenBlender, x, top+224, w, 37)
+		move(uiAutoOpenHint, x, top+263, w, 18)
+		move(uiPrefsNote, x, top+287, w, 29)
+	} else {
+		move(uiSettingsTitle, x, top+34, w, 30)
+		move(uiSettingsInfo, x, top+69, w, 20)
+		move(uiWorkspaceLabel, x, top+101, w, 20)
+		move(idWorkspace, x, top+125, fw, 40)
+		move(idWorkspaceBrowse, x+fw+10, top+123, 92, 44)
+		move(idWorldPacks, x, top+177, w, 40)
+		move(uiPacksHint, x, top+222, w, 19)
+		move(idAutoOpenBlender, x, top+254, w, 40)
+		move(uiAutoOpenHint, x, top+298, w, 19)
+		move(uiPrefsNote, x, top+324, w, 48)
+	}
 
 	a := ui.activityTop
 	move(uiActivityTitle, x, a+11, 122, 26)
@@ -555,7 +580,7 @@ func layoutUI() {
 	for _, id := range []int{uiImportTitle, uiImportInfo, uiUsdLabel, uiBlenderLabel, uiImportHint, idUSD, idUSDBrowse, idBlender, idBlenderBrowse, idImport} {
 		show(id, ui.tab == 1 && (!compact || (id != uiImportHint && id != uiImportInfo)))
 	}
-	for _, id := range []int{uiSettingsTitle, uiSettingsInfo, uiWorkspaceLabel, uiPrefsNote, uiPacksHint, idWorkspace, idWorkspaceBrowse, idWorldPacks} {
+	for _, id := range []int{uiSettingsTitle, uiSettingsInfo, uiWorkspaceLabel, uiPrefsNote, uiPacksHint, uiAutoOpenHint, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
 		show(id, ui.tab == 2)
 	}
 	// In compact mode these actions sit near the bottom of the setup card.
@@ -586,7 +611,7 @@ func switchTab(id int) {
 	refreshButtons()
 }
 func refreshButtons() {
-	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
+	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idAutoOpenBlender, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
 		if h := app.ctrls[id]; h != 0 {
 			pInvalidate.Call(h, 0, 1)
 		}
@@ -668,7 +693,7 @@ func paintButton(lp uintptr) uintptr {
 		if pressed {
 			fill = color(210, 225, 248)
 		}
-	} else if id == idWorldPacks && app.useWorldPacks {
+	} else if (id == idWorldPacks && app.useWorldPacks) || (id == idAutoOpenBlender && app.autoOpenBlender) {
 		fill, fg = theme.accentDark, color(29, 78, 179)
 		if hover || focused {
 			fill = color(200, 223, 255)

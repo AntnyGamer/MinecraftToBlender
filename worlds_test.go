@@ -121,3 +121,54 @@ func TestMissingEnvironmentDoesNotScanRelativeFolders(t *testing.T) {
 		}
 	}
 }
+
+func TestPlayerPositionFloorsNegativeCoordinates(t *testing.T) {
+	for _, edition := range []worldEdition{javaEdition, bedrockEdition} {
+		order := binary.ByteOrder(binary.LittleEndian)
+		if edition == javaEdition {
+			order = binary.BigEndian
+		}
+		base := fixtureNBT(order, "Negative coordinates", 1750000000, 10, 10)
+		var nbt bytes.Buffer
+		nbt.Write(base[:len(base)-1])
+		nbt.WriteByte(10)
+		_ = binary.Write(&nbt, order, uint16(len("Player")))
+		nbt.WriteString("Player")
+		nbt.WriteByte(9)
+		_ = binary.Write(&nbt, order, uint16(len("Pos")))
+		nbt.WriteString("Pos")
+		nbt.WriteByte(6)
+		_ = binary.Write(&nbt, order, int32(3))
+		for _, coordinate := range []float64{-0.25, 70, -12.9} {
+			_ = binary.Write(&nbt, order, coordinate)
+		}
+		nbt.WriteByte(0)
+		nbt.WriteByte(0)
+
+		var saved bytes.Buffer
+		if edition == javaEdition {
+			gz := gzip.NewWriter(&saved)
+			if _, err := gz.Write(nbt.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+			if err := gz.Close(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			_ = binary.Write(&saved, order, uint32(10))
+			_ = binary.Write(&saved, order, uint32(nbt.Len()))
+			saved.Write(nbt.Bytes())
+		}
+		path := filepath.Join(t.TempDir(), "level.dat")
+		if err := os.WriteFile(path, saved.Bytes(), 0644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := readLevelDat(path, edition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.HasCenter || got.X != -1 || got.Z != -13 {
+			t.Fatalf("%s player position should round toward negative infinity: %+v", edition, got)
+		}
+	}
+}

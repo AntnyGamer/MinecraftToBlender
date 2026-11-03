@@ -54,4 +54,28 @@ func TestUSDValidationStreamsManyChunkEntries(t *testing.T) {
 	if err := usdFiles(mainUSD); err == nil || !strings.Contains(err.Error(), "not valid") {
 		t.Fatalf("streaming must retain materials validation, got %v", err)
 	}
+	for _, tc := range []struct {
+		name, data, errorPart string
+	}{
+		{"empty object", "{}", ""},
+		{"whitespace object", " \r\n{\"a\": {\"nodes\": [1, true, null]}}\n", ""},
+		{"null", "null", "not valid"},
+		{"array", "[]", "not valid"},
+		{"trailing object", "{}{}", "unexpected trailing JSON"},
+		{"broken material", "{\"a\":", "not valid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, "Large_World_materials.json")
+			if err := os.WriteFile(path, []byte(tc.data), 0644); err != nil {
+				t.Fatal(err)
+			}
+			err := usdFiles(mainUSD)
+			if tc.errorPart == "" && err != nil {
+				t.Fatalf("valid materials rejected: %v", err)
+			}
+			if tc.errorPart != "" && (err == nil || !strings.Contains(err.Error(), tc.errorPart)) {
+				t.Fatalf("expected %q for malformed materials, got %v", tc.errorPart, err)
+			}
+		})
+	}
 }

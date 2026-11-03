@@ -140,8 +140,7 @@ function Test-UnsupportedBedrockChunk([string]$stdout,[string]$stderr) {
     return $false
 }
 function Publish-Export([string]$stage,[string]$destination) {
-    # Preserve Blender projects inside an old export, even when new USD chunks
-    # replace that directory. Moves stay on the same volume; no large copies.
+    # Preserve completed Blender projects when replacing generated USD chunks.
     $backup = $destination + '.previous_' + [guid]::NewGuid().ToString('N')
     $hadPrevious = Test-Path -LiteralPath $destination
     if($hadPrevious) { Move-Item -LiteralPath $destination -Destination $backup -ErrorAction Stop }
@@ -151,7 +150,30 @@ function Publish-Export([string]$stage,[string]$destination) {
         Move-Item -LiteralPath $stage -Destination $destination -ErrorAction Stop
         $published = $true
         if($hadPrevious) {
-            foreach($project in (Get-ChildItem -LiteralPath $backup -File -ErrorAction Stop | Where-Object { $_.Name -match '\.blend[0-9]*function Test-ChunkTerrainGeometry([string]$folder) {
+            foreach($project in (Get-ChildItem -LiteralPath $backup -File -ErrorAction Stop | Where-Object { $_.Name -match '\.blend[0-9]*$' })) {
+                $target = Join-Path $destination $project.Name
+                if(Test-Path -LiteralPath $target) { throw "New export conflicts with saved Blender project: $target" }
+                Move-Item -LiteralPath $project.FullName -Destination $target -ErrorAction Stop
+                $movedProjects += $project.Name
+            }
+        }
+    } catch {
+        $failure = $_
+        if($published) {
+            foreach($name in $movedProjects) {
+                Move-Item -LiteralPath (Join-Path $destination $name) -Destination $backup -ErrorAction Stop
+            }
+            Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction Stop
+        }
+        if($hadPrevious) { Move-Item -LiteralPath $backup -Destination $destination -ErrorAction Stop }
+        throw $failure
+    }
+    if($hadPrevious) {
+        try { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction Stop }
+        catch { Write-Warning ("Previous export backup could not be removed: " + $backup) }
+    }
+}
+function Test-ChunkTerrainGeometry([string]$folder) {
     # MiEx's ASCII chunk layers contain nonempty faceVertexCounts for mesh
     # geometry. A directory full of empty USD layer shells is not terrain.
     # Read in bounded pieces: face arrays may occupy very long USD lines.

@@ -131,6 +131,34 @@ function Read-MiExDiagnostics([string]$logPath) {
     }
     return $result
 }
+function Read-MiExAuditLog([string]$path) {
+    # Parse the same audit evidence in one forward-only pass instead of
+    # opening a potentially large MiEx output log three separate times.
+    $missingValues = New-Object 'System.Collections.Generic.List[string]'
+    $errorValues = New-Object 'System.Collections.Generic.List[string]'
+    $missingPattern = [regex]::new('Missing blockstate:\s*([^\r\n]+)', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $errorPattern = [regex]::new('\\[MSG\\] Error:|No blockstate file|Missing texture|No texture found|Missing model|No model file|Unknown block|Exception|\\[MSG\\] Error|\\[ERROR\\]', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $success = $false
+    if(Test-Path -LiteralPath $path -PathType Leaf) {
+        foreach($line in [System.IO.File]::ReadLines($path)) {
+            foreach($match in $missingPattern.Matches($line)) {
+                $missingValues.Add($match.Groups[1].Value.Trim())
+            }
+            if($errorValues.Count -lt 35 -and $errorPattern.IsMatch($line)) {
+                $errorValues.Add($line.Trim())
+            }
+            if(-not $success -and
+               $line.IndexOf('[COMMAND] {"status":"success"}', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $success = $true
+            }
+        }
+    }
+    return [pscustomobject]@{
+        Missing = @($missingValues | Sort-Object -Unique)
+        Errors = @($errorValues)
+        Success = $success
+    }
+}
 function Test-UnsupportedBedrockChunk([string]$stdout,[string]$stderr) {
     foreach($path in @($stdout, $stderr)) {
         if((Test-Path -LiteralPath $path) -and (Select-String -LiteralPath $path -Pattern 'Chunk section format not supported' -Quiet -ErrorAction SilentlyContinue)) {
@@ -773,15 +801,11 @@ try {
     $main = Join-Path $exportDir $exportFile
     Write-Host 'Fresh export published; previous chunk layers cannot be reused.' -ForegroundColor Green
     $reportPath = Join-Path $work 'Export_Accuracy_Audit.txt'
-    $missing = @()
-    $errors = @()
+    $audit = Read-MiExAuditLog $log
+    $missing = @($audit.Missing)
+    $errors = @($audit.Errors)
     $exceptions = @()
-    $logSuccess = $false
-    if(Test-Path -LiteralPath $log) {
-        $missing = @(Select-String -LiteralPath $log -Pattern 'Missing blockstate:\s*([^\r\n]+)' -AllMatches | ForEach-Object { $_.Matches | ForEach-Object {$_.Groups[1].Value.Trim()} } | Sort-Object -Unique)
-        $errors = @(Select-String -LiteralPath $log -Pattern '(?i)\[MSG\] Error:|No blockstate file|Missing texture|No texture found|Missing model|No model file|Unknown block|Exception|\[MSG\] Error|\[ERROR\]' | Select-Object -First 35 | ForEach-Object {$_.Line.Trim()})
-        $logSuccess = [bool](Select-String -LiteralPath $log -SimpleMatch '[COMMAND] {"status":"success"}' -Quiet)
-    }
+    $logSuccess = $audit.Success
     if(Test-Path -LiteralPath $stderrLog) {
         $exceptions = @(Select-String -LiteralPath $stderrLog -Pattern 'Exception|Error:|OutOfMemory|fatal' | Select-Object -First 35 | ForEach-Object {$_.Line.Trim()})
     }

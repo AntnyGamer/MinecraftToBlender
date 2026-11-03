@@ -197,6 +197,9 @@ def frame_actual_scene():
     bounds_max = Vector((float('-inf'),) * 3)
     encountered = 0
     true_instances = 0
+    # A prototype may appear thousands of times. Its local bounding box is
+    # unchanged between instances, so reuse its eight corner vectors.
+    instance_corners = {}
     try:
         for instance in dg.object_instances:
             ob = instance.object
@@ -211,8 +214,17 @@ def frame_actual_scene():
                     pass
             else:
                 true_instances += 1
-            for p in ob.bound_box:
-                world_p = instance.matrix_world @ Vector(p)
+            if instance.is_instance:
+                key = ob.as_pointer()
+                corners = instance_corners.get(key)
+                if corners is None:
+                    corners = tuple(Vector(p) for p in ob.bound_box)
+                    if len(instance_corners) < 512:
+                        instance_corners[key] = corners
+            else:
+                corners = (Vector(p) for p in ob.bound_box)
+            for p in corners:
+                world_p = instance.matrix_world @ p
                 for axis in range(3):
                     bounds_min[axis] = min(bounds_min[axis], world_p[axis])
                     bounds_max[axis] = max(bounds_max[axis], world_p[axis])

@@ -51,6 +51,18 @@ jobs:
             throw 'Git blob SHA1 verifier incorrectly rejected known bytes'
           }
           if (Test-GitBlobSha1 $sample ('0' * 40)) { throw 'Git blob verifier accepted a mismatched hash' }
+          $testBedDir = Join-Path $env:RUNNER_TEMP 'asset_cleanup/resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
+          New-Item -ItemType Directory -Force -Path $testBedDir | Out-Null
+          $testBedFile = Join-Path $testBedDir 'red.png'
+          $testManifest = Join-Path $env:RUNNER_TEMP 'asset_cleanup_manifest.json'
+          @{ textures = @(@{ to = 'red.png'; git_blob_sha1 = '3b18e512dba79e4c8300dd08aeb37f8e728b8dad' }) } |
+            ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $testManifest -Encoding UTF8
+          [IO.File]::WriteAllBytes($testBedFile, [Text.Encoding]::UTF8.GetBytes("hello world`n"))
+          Remove-ManagedBedrockBedTextures (Join-Path $env:RUNNER_TEMP 'asset_cleanup') $testManifest
+          if (Test-Path -LiteralPath $testBedFile) { throw 'Managed Bedrock fallback texture was not cleaned up' }
+          [IO.File]::WriteAllText($testBedFile, 'user custom texture')
+          Remove-ManagedBedrockBedTextures (Join-Path $env:RUNNER_TEMP 'asset_cleanup') $testManifest
+          if (-not (Test-Path -LiteralPath $testBedFile)) { throw 'Cleanup deleted a user-created texture' }
           # Exercise the actual captured-process helpers, not a separate mock.
           foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))

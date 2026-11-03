@@ -660,16 +660,31 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 		defer wg.Done()
 		scanner := bufio.NewScanner(r)
 		scanner.Buffer(make([]byte, 65536), 8*1024*1024)
+		// Batch disk writes on verbose exports, without buffering the full log.
+		logWriter := bufio.NewWriterSize(f, 256*1024)
+		var writeErr error
 		for scanner.Scan() {
 			line := scanner.Text()
-			fmt.Fprintln(f, line)
+			if writeErr == nil {
+				if _, writeErr = logWriter.WriteString(line); writeErr == nil {
+					writeErr = logWriter.WriteByte('\n')
+				}
+			}
 			guiLog(line)
 		}
-		if readErr := scanner.Err(); readErr != nil {
+		if err := logWriter.Flush(); writeErr == nil {
+			writeErr = err
+		}
+		readErr := scanner.Err()
+		if readErr != nil {
 			// Stop the pipe writer too, so an oversized line cannot leave the
 			// child blocked forever while the parent waits for it to exit.
-			guiLog("Process log read error: " + readErr.Error())
 			_ = r.CloseWithError(readErr)
+		} else {
+			readErr = writeErr
+		}
+		if readErr != nil {
+			guiLog("Process log read error: " + readErr.Error())
 			readErrors <- readErr
 		}
 	}()

@@ -545,22 +545,24 @@ func usdFiles(src string) error {
 	if err != nil || materialInfo.IsDir() || materialInfo.Size() == 0 {
 		return fmt.Errorf("missing or empty %s", filepath.Base(materialsPath))
 	}
-	// A present but truncated JSON file previously passed validation.
-	f, err := os.Open(materialsPath)
+	// Validate the full JSON object without creating a copy of every
+	// material and node definition. A large model may contain many materials.
+	materialsData, err := os.ReadFile(materialsPath)
 	if err != nil {
 		return err
 	}
-	var materials map[string]json.RawMessage
-	decoder := json.NewDecoder(f)
-	decodeErr := decoder.Decode(&materials)
-	if decodeErr == nil {
-		var extra json.RawMessage
-		if trailing := decoder.Decode(&extra); trailing != io.EOF {
-			decodeErr = fmt.Errorf("unexpected trailing JSON: %v", trailing)
+	trimmed := bytes.TrimSpace(materialsData)
+	if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
+		// Keep the original decoder's detailed error on invalid files.
+		var materials map[string]json.RawMessage
+		decoder := json.NewDecoder(bytes.NewReader(materialsData))
+		decodeErr := decoder.Decode(&materials)
+		if decodeErr == nil {
+			var extra json.RawMessage
+			if trailing := decoder.Decode(&extra); trailing != io.EOF {
+				decodeErr = fmt.Errorf("unexpected trailing JSON: %v", trailing)
+			}
 		}
-	}
-	f.Close()
-	if decodeErr != nil || materials == nil {
 		return fmt.Errorf("MiEx materials JSON is not valid: %v", decodeErr)
 	}
 	chunkDir := filepath.Join(dir, name+"_chunks")

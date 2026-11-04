@@ -73,6 +73,14 @@ with tempfile.TemporaryDirectory() as folder:
     assert compress_modes == [True]
     assert original.read_bytes().startswith(bytes((0x1f, 0x8b)))
 
+    # Blender 3+ saves compressed projects using Zstandard, not gzip.
+    output.unlink()
+    original.write_bytes(bytes((0x28, 0xb5, 0x2f, 0xfd)) + b"synthetic zstd blend")
+    compress_modes.clear()
+    optimize(output)
+    assert compress_modes == [True]
+    assert original.read_bytes().startswith(bytes((0x28, 0xb5, 0x2f, 0xfd)))
+
     # Never overwrite a previously saved output or original file.
     for existing in (original, output):
         try:

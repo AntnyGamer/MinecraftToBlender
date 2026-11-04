@@ -4,11 +4,17 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestStandardEditLogAppendPreservesText(t *testing.T) {
+	// The HWND belongs to its creating Windows thread. Without this lock,
+	// the Go scheduler may move subsequent SendMessage calls to another
+	// thread and deadlock because the owner does not pump a message loop.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	// Exercise the actual Windows standard EDIT control used when RichEdit
 	// is unavailable. No text is discarded during repeated append operations.
 	h, _, err := pCreateWindow.Call(0, ptr("EDIT"), ptr(""),

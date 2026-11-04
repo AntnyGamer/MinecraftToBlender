@@ -13,6 +13,20 @@ function Test-GitBlobSha1([string]$path,[string]$expected) {
         return $actual -eq $expected
     } finally { $sha1.Dispose() }
 }
+function Test-BedrockBedAtlas([string]$path) {
+    if(-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+    # The pinned Bedrock geometry uses a 64x64 atlas. Permit lossless
+    # high-resolution replacements, but never use a corrupt or non-square PNG.
+    try {
+        Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+        $image = [System.Drawing.Image]::FromFile($path)
+        try {
+            return ($image.RawFormat.Guid -eq [System.Drawing.Imaging.ImageFormat]::Png.Guid -and
+                    $image.Width -ge 64 -and $image.Height -ge 64 -and
+                    $image.Width -eq $image.Height -and ($image.Width % 64) -eq 0)
+        } finally { $image.Dispose() }
+    } catch { return $false }
+}
 function Ensure-BedrockBedTextures([string]$miexDir,[string]$manifestPath) {
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if($manifest.source -ne 'Mojang/bedrock-samples' -or
@@ -55,6 +69,15 @@ function Ensure-BedrockBedTextures([string]$miexDir,[string]$manifestPath) {
                 Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
             }
         }
+    }
+    $invalid = @()
+    foreach($entry in $manifest.textures) {
+        $target = Join-Path $targetDir $entry.to
+        if(-not (Test-BedrockBedAtlas $target)) { $invalid += $entry.to }
+    }
+    if($invalid.Count -gt 0) {
+        throw ('Bedrock bed texture(s) missing, corrupt, or incompatible with the 64x64 atlas: ' +
+               ($invalid -join ', ') + '. Check internet access and retry; the earlier successful export is preserved.')
     }
 }
 

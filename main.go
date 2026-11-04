@@ -63,7 +63,6 @@ var (
 	pGetOpenFile    = comdlg32.NewProc("GetOpenFileNameW")
 	pBrowseFolder   = shell32.NewProc("SHBrowseForFolderW")
 	pGetFolderPath  = shell32.NewProc("SHGetPathFromIDListW")
-	pFreeFolder     = kernel32.NewProc("GlobalFree")
 	pCoTaskMemFree  = syscall.NewLazyDLL("ole32.dll").NewProc("CoTaskMemFree")
 	pInitCommon     = comctl32.NewProc("InitCommonControlsEx")
 	pGetStockObject = syscall.NewLazyDLL("gdi32.dll").NewProc("GetStockObject")
@@ -99,7 +98,6 @@ const (
 	bsPushbutton       = 0
 	bsGroupbox         = 0x00000007
 	swShow             = 5
-	mbOK               = 0
 	mbWarn             = 0x30
 	mbError            = 0x10
 	mbYesNo            = 0x04
@@ -108,8 +106,6 @@ const (
 	defaultGuiFont     = 17
 	pbsMarquee         = 0x08
 	pbmSetMarquee      = 0x040A
-	pbmSetRange32      = 0x0406
-	pbmSetPos          = 0x0402
 	ofnExplorer        = 0x00080000
 	ofnFileMustExist   = 0x00001000
 	ofnPathMustExist   = 0x00000800

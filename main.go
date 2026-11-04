@@ -873,13 +873,42 @@ func doImportValidated(ctx context.Context, src, blender, tools string) (string,
 
 // Never place the working files inside a live Minecraft world, nor select a
 // world located inside the app's working files. This check must precede writes.
-func pathsOverlap(a, b string) bool {
-	aa, ea := filepath.Abs(a)
-	bb, eb := filepath.Abs(b)
-	if ea != nil || eb != nil {
-		return true
+// Resolve existing parent directories as well as symbolic links and Windows
+// junctions. The workspace may not exist yet, so evaluate the deepest existing
+// ancestor and append the child names that have not been created.
+func pathWithResolvedAncestors(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
 	}
-	aa, bb = strings.ToLower(filepath.Clean(aa)), strings.ToLower(filepath.Clean(bb))
+	current := filepath.Clean(abs)
+	var missing []string
+	for {
+		real, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			for i := len(missing)-1; i >= 0; i-- {
+				real = filepath.Join(real, missing[i])
+			}
+			return strings.ToLower(filepath.Clean(real)), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
+}
+
+func pathsOverlap(a, b string) bool {
+	aa, ea := pathWithResolvedAncestors(a)
+	bb, eb := pathWithResolvedAncestors(b)
+	if ea != nil || eb != nil {
+		return true // Fail closed if the save/workspace cannot be resolved.
+	}
 	return aa == bb || strings.HasPrefix(aa, bb+string(filepath.Separator)) || strings.HasPrefix(bb, aa+string(filepath.Separator))
 }
 

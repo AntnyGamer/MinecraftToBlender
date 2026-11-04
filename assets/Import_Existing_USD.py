@@ -201,6 +201,46 @@ def audit_imported_textures(target):
 
 
 
+def is_minecraft_water_material(name):
+    """Only MiEx water block texture materials, never water plants or cauldrons."""
+    name = name.lower()
+    return name.startswith('mat_') and (
+        'water_still' in name or 'water_flow' in name
+    )
+
+
+def apply_minecraft_water_materials():
+    """Optional inexpensive Minecraft-style water surface approximation.
+
+    Preserve MiEx UVs, existing color/biome tint nodes, and the original
+    water mesh. Change only the alpha and surface highlights on its existing
+    Principled shader; do not add costly displacement or per-frame modifiers.
+    """
+    count = 0
+    for material in bpy.data.materials:
+        if not is_minecraft_water_material(material.name) or not material.use_nodes:
+            continue
+        shader = material.node_tree.nodes.get('MAT')
+        if shader is None or shader.type != 'BSDF_PRINCIPLED':
+            continue
+        alpha = shader.inputs.get('Alpha')
+        roughness = shader.inputs.get('Roughness')
+        if alpha is None or roughness is None:
+            continue
+        for link in tuple(alpha.links):
+            material.node_tree.links.remove(link)
+        alpha.default_value = 0.68
+        roughness.default_value = 0.20
+        specular = shader.inputs.get('Specular IOR Level')
+        if specular is not None:
+            specular.default_value = 0.24
+        # Color and biome-dependent tint remain exactly as MiEx authored them.
+        count += 1
+    log('MINECRAFT-STYLE WATER:', count,
+        'vanilla water texture materials adjusted (not Minecraft engine rendering).')
+    return count
+
+
 def clear_objects():
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
@@ -318,9 +358,10 @@ def hide_relationship_lines():
 
 def main():
     arguments = sys.argv[sys.argv.index('--') + 1:]
-    if len(arguments) != 3:
-        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file')
-    src, importer, target = [Path(arg).resolve() for arg in arguments]
+    if len(arguments) not in (3, 4) or (len(arguments) == 4 and arguments[3] != '--minecraft-water'):
+        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water]')
+    minecraft_water = len(arguments) == 4
+    src, importer, target = [Path(arg).resolve() for arg in arguments[:3]]
     log('BLENDER VERSION:', bpy.app.version_string)
     log('Input USD:', src)
     log('Existing importer:', importer)
@@ -349,6 +390,8 @@ def main():
     log('Selected MiEx import variant:', import_variant)
     load_patched_importer(importer)
     scene = import_world(src, import_variant)
+    if minecraft_water:
+        apply_minecraft_water_materials()
     if stats['instancers'] and scene['clouds'] == 0 and scene['faces'] < 1000:
         raise RuntimeError('Point-instanced USD objects did not import as Blender geometry. No .blend saved.')
     if not scene['meshes'] and not scene['points']:

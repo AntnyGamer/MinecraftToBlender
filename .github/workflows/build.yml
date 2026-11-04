@@ -80,34 +80,78 @@ jobs:
           # original download behavior, without any network dependency.
           $installDir = Join-Path $env:RUNNER_TEMP 'asset_install'
           $bedNames = @('white','orange','magenta','light_blue','yellow','lime','pink','gray','light_gray','cyan','purple','blue','brown','green','red','black')
+          # Test with real PNG data rather than the old "hello world" mock,
+          # which previously passed while producing a black bed in Blender.
+          Add-Type -AssemblyName System.Drawing
+          $vanillaSample = Join-Path $env:RUNNER_TEMP 'bedrock_vanilla_sample.png'
+          $customSample = Join-Path $env:RUNNER_TEMP 'bedrock_user_sample.png'
+          $image = [Drawing.Bitmap]::new(64,64)
+          try {
+            $image.SetPixel(4,4,[Drawing.Color]::Red)
+            $image.Save($vanillaSample,[Drawing.Imaging.ImageFormat]::Png)
+          } finally { $image.Dispose() }
+          $image = [Drawing.Bitmap]::new(64,64)
+          try {
+            $image.SetPixel(4,4,[Drawing.Color]::Blue)
+            $image.Save($customSample,[Drawing.Imaging.ImageFormat]::Png)
+          } finally { $image.Dispose() }
+          if(-not (Test-BedrockBedAtlas $vanillaSample) -or
+             -not (Test-BedrockBedAtlas $customSample) -or
+             (Test-BedrockBedAtlas $sample)) {
+            throw '64x64 Bedrock PNG validation rejected a valid atlas or accepted invalid bytes'
+          }
+          $script:sourceBedBytes = [IO.File]::ReadAllBytes($vanillaSample)
+          $prefix = [Text.Encoding]::ASCII.GetBytes(('blob ' + $script:sourceBedBytes.Length + [char]0))
+          $payload = New-Object byte[] ($prefix.Length + $script:sourceBedBytes.Length)
+          [Array]::Copy($prefix,0,$payload,0,$prefix.Length)
+          [Array]::Copy($script:sourceBedBytes,0,$payload,$prefix.Length,$script:sourceBedBytes.Length)
+          $sha1 = [Security.Cryptography.SHA1]::Create()
+          try {
+            $expectedBedBlob = ([BitConverter]::ToString($sha1.ComputeHash($payload))).Replace('-','').ToLowerInvariant()
+          } finally { $sha1.Dispose() }
           $installManifest = Join-Path $env:RUNNER_TEMP 'asset_install_manifest.json'
           @{ source='Mojang/bedrock-samples'; revision=('a' * 40); folder='resource_pack/textures/entity/bed';
-             textures=@($bedNames | ForEach-Object { @{from=($_ + '.png');to=($_ + '.png');git_blob_sha1='3b18e512dba79e4c8300dd08aeb37f8e728b8dad'} }) } |
+             textures=@($bedNames | ForEach-Object { @{from=($_ + '.png');to=($_ + '.png');git_blob_sha1=$expectedBedBlob} }) } |
             ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $installManifest -Encoding UTF8
           $installBedDir = Join-Path $installDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
           New-Item -ItemType Directory -Force -Path $installBedDir | Out-Null
-          foreach ($name in $bedNames) { [IO.File]::WriteAllText((Join-Path $installBedDir ($name + '.png')), 'user custom texture') }
+          foreach ($name in $bedNames) { [IO.File]::Copy($customSample,(Join-Path $installBedDir ($name + '.png'))) }
           $script:assetDownloads = 0
           function Invoke-WebRequest {
             [CmdletBinding()]
             param([switch]$UseBasicParsing,[string]$Uri,[string]$OutFile,[int]$TimeoutSec)
             $script:assetDownloads++
-            [IO.File]::WriteAllBytes($OutFile, [Text.Encoding]::UTF8.GetBytes("hello world`n"))
+            [IO.File]::WriteAllBytes($OutFile, $script:sourceBedBytes)
           }
           Ensure-BedrockBedTextures $installDir $installManifest
-          if ($script:assetDownloads -ne 0) { throw 'Installer downloaded over a user custom texture' }
+          if ($script:assetDownloads -ne 0) { throw 'Installer downloaded over a valid custom texture' }
           foreach ($name in $bedNames) {
-            if ([IO.File]::ReadAllText((Join-Path $installBedDir ($name + '.png'))) -ne 'user custom texture') {
-              throw ('Installer overwrote user customization: ' + $name)
+            $path = Join-Path $installBedDir ($name + '.png')
+            if (-not (Test-GitBlobSha1 $path $expectedBedBlob) -and
+                (Test-BedrockBedAtlas $path) -and
+                ([Convert]::ToBase64String([IO.File]::ReadAllBytes($path)) -eq
+                 [Convert]::ToBase64String([IO.File]::ReadAllBytes($customSample)))) {
+              continue
             }
+            throw ('Installer overwrote or corrupted user customization: ' + $name)
           }
           $missingBed = Join-Path $installBedDir 'red.png'
           Remove-Item -LiteralPath $missingBed -Force
           Ensure-BedrockBedTextures $installDir $installManifest
           if ($script:assetDownloads -ne 1 -or
-              -not (Test-GitBlobSha1 $missingBed '3b18e512dba79e4c8300dd08aeb37f8e728b8dad')) {
-            throw 'Missing managed bed texture was not installed and verified'
+              -not (Test-GitBlobSha1 $missingBed $expectedBedBlob) -or
+              -not (Test-BedrockBedAtlas $missingBed)) {
+            throw 'Missing managed bed PNG was not installed, decoded and verified'
           }
+          $damaged = Join-Path $installBedDir 'orange.png'
+          [IO.File]::WriteAllText($damaged,'corrupt PNG')
+          try {
+            Ensure-BedrockBedTextures $installDir $installManifest
+            throw 'A corrupt Bedrock bed texture was silently accepted'
+          } catch {
+            if($_.Exception.Message -eq 'A corrupt Bedrock bed texture was silently accepted') { throw }
+          }
+          [IO.File]::Copy($customSample,$damaged,$true)
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
           foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {

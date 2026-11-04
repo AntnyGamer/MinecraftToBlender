@@ -170,6 +170,13 @@ func readiness(ctx context.Context, world localWorld, workspace, blender, dim st
 	if strings.TrimSpace(workspace) == "" {
 		warnings = append(warnings, "Choose a workspace folder before exporting.")
 	} else {
+		if st, err := os.Stat(workspace); err == nil {
+			if !st.IsDir() {
+				warnings = append(warnings, "The selected workspace is a file, not a folder.")
+			}
+		} else if !os.IsNotExist(err) {
+			warnings = append(warnings, "Cannot access the selected workspace: "+err.Error())
+		}
 		if pathsOverlap(world.path, toolsDir(workspace)) {
 			warnings = append(warnings, "Workspace and Minecraft save folders overlap. Move the workspace outside the world.")
 		}

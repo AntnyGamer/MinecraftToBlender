@@ -452,6 +452,39 @@ def frame_actual_scene(evaluate_instances=True):
     # IMPORTANT: Never set hide_viewport or hide_set False on hidden meshes here.
 
 
+def configure_fast_viewport():
+    """Reduce *interactive viewport* shading costs without touching scene data.
+
+    Blender's Solid+Texture shading uses the active image texture/UVs but does
+    not evaluate full EEVEE material graphs, transparency, reflections or biome
+    tint mix nodes. Users can press Z -> Material Preview to inspect the
+    original full-fidelity materials; no mesh, UV or render setting is changed.
+    """
+    changed = 0
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type != 'VIEW_3D':
+                continue
+            space = area.spaces.active
+            shading = space.shading
+            shading.type = 'SOLID'
+            shading.color_type = 'TEXTURE'
+            shading.light = 'STUDIO'
+            shading.show_cavity = False
+            shading.show_shadows = False
+            shading.show_specular_highlight = False
+            if hasattr(shading, 'use_dof'):
+                shading.use_dof = False
+            # Keep selection outlines and object editing available. Extras
+            # draw cameras/lights/empties on top of thousands of terrain meshes.
+            if hasattr(space.overlay, 'show_extras'):
+                space.overlay.show_extras = False
+            changed += 1
+    log('FAST VIEWPORT:', changed,
+        '3D view(s) use textured Solid shading without full material shaders.')
+    return changed
+
+
 def hide_relationship_lines():
     for screen in bpy.data.screens:
         for area in screen.areas:
@@ -462,9 +495,12 @@ def hide_relationship_lines():
 
 def main():
     arguments = sys.argv[sys.argv.index('--') + 1:]
-    if len(arguments) not in (3, 4) or (len(arguments) == 4 and arguments[3] != '--minecraft-water'):
-        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water]')
-    minecraft_water = len(arguments) == 4
+    flags = arguments[3:]
+    accepted = {'--minecraft-water', '--fast-viewport'}
+    if len(arguments) < 3 or len(flags) != len(set(flags)) or not set(flags) <= accepted:
+        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water] [--fast-viewport]')
+    minecraft_water = '--minecraft-water' in flags
+    fast_viewport = '--fast-viewport' in flags
     src, importer, target = [Path(arg).resolve() for arg in arguments[:3]]
     log('BLENDER VERSION:', bpy.app.version_string)
     log('Input USD:', src)
@@ -510,6 +546,12 @@ def main():
     frame_actual_scene(scene['evaluate_bounds'])
     log('[PERF] Scene framing:', round(time.monotonic() - phase_start, 2), 'seconds')
     hide_relationship_lines()
+    if fast_viewport:
+        configure_fast_viewport()
+    if scene['meshes'] > 1000:
+        log('VIEWPORT NOTICE:', scene['meshes'],
+            'mesh objects may limit FPS in large scenes. Fast viewport mode can'
+            ' reduce shader costs but cannot remove object draw-call overhead.')
     try:
         audit_imported_textures(target)
     except Exception as exc:

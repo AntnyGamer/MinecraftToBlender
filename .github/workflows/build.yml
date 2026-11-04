@@ -104,7 +104,7 @@ jobs:
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Copy-WorldSnapshot', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -133,6 +133,9 @@ jobs:
           $auditLog = Join-Path $dir 'audit_cases.log'
           $auditLines = [System.Collections.Generic.List[string]]::new()
           $auditLines.Add('[COMMAND] {"status":"success"}')
+          # Setup success alone must not count as export success.
+          $auditLines.Add('Exporting world to C:\MiEx\test.usd')
+          $auditLines.Add('[COMMAND] {"status":"success"}')
           $auditLines.Add('Missing blockstate: minecraft:bed')
           $auditLines.Add('Missing blockstate: minecraft:bed')
           $auditLines.Add('Missing blockstate: minecraft:banner')
@@ -149,6 +152,9 @@ jobs:
               $accuracy.Errors[1] -ne '[MSG] Error: invalid texture') {
             throw ('Streaming audit changed missing-blockstate or error classifications: ' + ($accuracy | Out-String))
           }
+          $setupOnly = Join-Path $dir 'setup_only.log'
+          [IO.File]::WriteAllLines($setupOnly, [string[]]@('[COMMAND] {"status":"success"}', 'Exporting world to C:\MiEx\test.usd'))
+          if((Read-MiExAuditLog $setupOnly).Success) { throw 'Setup success incorrectly counted as export success' }
           $emptyAccuracy = Read-MiExAuditLog (Join-Path $dir 'nonexistent_audit.log')
           if ($emptyAccuracy.Success -or @($emptyAccuracy.Missing).Count -ne 0 -or
               @($emptyAccuracy.Errors).Count -ne 0) { throw 'Missing MiEx log no longer yields empty audit' }
@@ -184,6 +190,17 @@ jobs:
           $blocked = $false
           try { Assert-SafeResourcePackArchives $packWorld } catch { $blocked = $_.Exception.Message -like '*Unsafe resource-pack archive entry*' }
           if (-not $blocked) { throw 'Unsafe resource-pack ZIP entry was not rejected' }
+          # Verify parallel snapshot copy preserves full world folder structure.
+          $sourceWorld = Join-Path $dir 'copy_source'
+          $destWorld = Join-Path $dir 'copy_dest'
+          New-Item -ItemType Directory -Force -Path (Join-Path $sourceWorld 'db') | Out-Null
+          Set-Content -LiteralPath (Join-Path $sourceWorld 'level.dat') -Value 'sample'
+          Set-Content -LiteralPath (Join-Path $sourceWorld 'db/00001.ldb') -Value 'db data'
+          Copy-WorldSnapshot $sourceWorld $destWorld
+          if(-not (Test-Path -LiteralPath (Join-Path $destWorld 'level.dat')) -or
+             -not (Test-Path -LiteralPath (Join-Path $destWorld 'db/00001.ldb'))) {
+              throw 'Snapshot copy dropped a file'
+          }
           # A completed export replaces old data without mixing stale chunks.
           $original = Join-Path $dir 'World'
           $stage = Join-Path $dir '.staging_world'

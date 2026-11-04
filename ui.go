@@ -298,7 +298,7 @@ func createControls() {
 	ui.brushLog, _, _ = pCreateBrush.Call(uintptr(theme.logBg))
 
 	uiLabel(uiBrand, "MINECRAFT", 2, theme.sideText, theme.side)
-	uiLabel(uiBrandSub, "TO BLENDER", 3, theme.sideMuted, theme.side)
+	uiLabel(uiBrandSub, "TO BLENDER", 2, theme.sideText, theme.side)
 	uiLabel(uiNavHeader, "CONVERT", 3, theme.sideMuted, theme.side)
 	uiLabel(uiTitle, "Export a Minecraft world", 0, theme.white, theme.bg)
 	uiLabel(uiSubtitle, "Choose a Java or Bedrock save directly from your Minecraft world library.", 3, theme.muted, theme.bg)
@@ -431,7 +431,7 @@ func layoutUI() {
 	}
 
 	move(uiBrand, 55, 28, 145, 28)
-	move(uiBrandSub, 22, 69, 175, 19)
+	move(uiBrandSub, 55, 48, 145, 24)
 	move(uiNavHeader, 22, 119, 167, 22)
 	for i, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions} {
 		move(id, 13, 148+i*53, 179, 46)
@@ -447,7 +447,7 @@ func layoutUI() {
 
 	move(uiTitle, contentX, 23, contentW-5, 37)
 	move(uiSubtitle, contentX, 66, contentW-5, 22)
-	move(uiVersion, contentR-135, 9, 135, 19)
+	move(uiVersion, contentR-135, 13, 135, 27)
 
 	x := contentX + 22
 	w := contentW - 44

@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -91,4 +90,3 @@ func verifiedResumeCheckpoint(path string,identity resumeIdentity,worldPath,usdP
 	return err==nil&&exportHash==saved.ExportHash
 }
 
-var _ hash.Hash = sha256.New()

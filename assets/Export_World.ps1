@@ -1,4 +1,4 @@
-# Minecraft to Blender v1: full-detail Java/Bedrock world folder to Blender USD.
+# Minecraft to Blender: full-detail Java/Bedrock world folder to Blender USD.
 # The source save remains untouched; no missing-block substitution is performed by this script.
 # MiEx itself may have limitations and this workflow does not certify pixel-for-pixel parity.
 [CmdletBinding()]
@@ -13,7 +13,10 @@ param(
     [ValidateRange(-256,2048)][int]$MaxY = 319,
     [ValidatePattern('^[a-zA-Z][a-zA-Z0-9_]{0,60}$')][string]$ExportName = 'Bedrock_World',
     [switch]$CompactUSD,
-    [switch]$UseWorldResourcePacks
+    [switch]$UseWorldResourcePacks,
+    [ValidateSet('overworld','the_nether','the_end')][string]$Dimension = 'overworld',
+    [string]$Entities = 'minecraft:item_frame,minecraft:glow_item_frame,minecraft:painting,minecraft:block_display,minecraft:item_display,minecraft:armor_stand',
+    [switch]$PreviewOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -37,8 +40,8 @@ $minX = $CenterX - [int][math]::Floor($Size/2)
 $minZ = $CenterZ - [int][math]::Floor($Size/2)
 $maxX = $minX + $Size - 1
 $maxZ = $minZ + $Size - 1
-Write-Host ('Minecraft to Blender v1: face optimization ON, raytracing and subsets OFF, chunk size 16.') -ForegroundColor Cyan
-Write-Host ("Region: X=$minX..$maxX Z=$minZ..$maxZ Y=$MinY..$MaxY")
+Write-Host ('Minecraft to Blender: face optimization ON, raytracing and subsets OFF, chunk size 16.') -ForegroundColor Cyan
+Write-Host ("Region: X=$minX..$maxX Z=$minZ..$maxZ Y=$MinY..$MaxY; dimension=$Dimension")
 $miexDir = Join-Path $work 'miex'
 $jar = Join-Path $miexDir 'MiEx.jar'
 $releaseUrl = 'https://github.com/BramStoutProductions/MiEx/releases/download/v2.0.0.experimental-34/MiEx.jar'
@@ -170,7 +173,31 @@ function Test-UnsupportedBedrockChunk([string]$stdout,[string]$stderr) {
     }
     return $false
 }
+function Restore-InterruptedExport([string]$destination) {
+    # A hard termination between rename-to-backup and rename-of-staging can
+    # leave the previous completed export under its .previous_GUID name.
+    # Restore only when the normal destination is absent; never overwrite it.
+    if(Test-Path -LiteralPath $destination) { return $false }
+    $parent = Split-Path -Parent $destination
+    if(-not (Test-Path -LiteralPath $parent -PathType Container)) { return $false }
+    $name = [IO.Path]::GetFileName($destination)
+    $pattern = '^' + [regex]::Escape($name) + '\.previous_[0-9a-f]{32}$'
+    $candidates = @(
+        Get-ChildItem -LiteralPath $parent -Directory -ErrorAction Stop |
+        Where-Object { $_.Name -cmatch $pattern -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName ($name + '.usd')) -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName ($name + '_materials.json')) -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName ($name + '_chunks')) -PathType Container) } |
+        Sort-Object LastWriteTimeUtc -Descending
+    )
+    if($candidates.Count -eq 0) { return $false }
+    Move-Item -LiteralPath $candidates[0].FullName -Destination $destination -ErrorAction Stop
+    Write-Host ('Restored a previously completed export after interrupted publication: ' + $destination) -ForegroundColor Green
+    return $true
+}
 function Publish-Export([string]$stage,[string]$destination) {
+    # Recover an interrupted previous rename before replacing that export.
+    [void](Restore-InterruptedExport $destination)
     # Preserve completed Blender projects when replacing generated USD chunks.
     $backup = $destination + '.previous_' + [guid]::NewGuid().ToString('N')
     $hadPrevious = Test-Path -LiteralPath $destination
@@ -214,6 +241,23 @@ function Publish-Export([string]$stage,[string]$destination) {
         catch { Write-Warning ("Previous export backup could not be removed: " + $backup) }
     }
 }
+function Assert-ReferencedChunkLayers([string]$folder, [System.Text.RegularExpressions.MatchCollection]$references) {
+    if($references.Count -eq 0) { throw 'Main USD has no terrain chunk payload references.' }
+    $checked = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($reference in $references) {
+        $filename = [regex]::Match($reference.Value, 'region_1_chunk_\d+_\d+\.usd').Value
+        if(-not $filename) { throw "Malformed USD payload reference: $($reference.Value)" }
+        if(-not $checked.Add($filename)) { continue }
+        $filePath = Join-Path $folder $filename
+        if(-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+            throw "Main USD references a missing chunk layer: $filePath"
+        }
+        if((Get-Item -LiteralPath $filePath -ErrorAction Stop).Length -eq 0) {
+            throw "Main USD references an empty chunk layer: $filePath"
+        }
+    }
+    return $checked.Count
+}
 function Test-ChunkTerrainGeometry([string]$folder, [System.IO.FileInfo[]]$files = $null) {
     # MiEx's ASCII chunk layers contain nonempty faceVertexCounts for mesh
     # geometry. A directory full of empty USD layer shells is not terrain.
@@ -256,6 +300,17 @@ function Assert-SafeResourcePackArchives([string]$worldFolder) {
         }
     }
 }
+function Remove-ManagedPreviewPack([string]$resourcePackDir, [string]$packName) {
+    # Only remove GUID-named ephemeral preview packs. Completed exports may
+    # still need their installed resource-pack files for external USD textures.
+    if($packName -cnotmatch '^MinecraftToBlender_Preview_[0-9a-f]{32}$') {
+        throw 'Refusing to remove a resource pack not owned by this preview.'
+    }
+    $target = Join-Path $resourcePackDir $packName
+    if(Test-Path -LiteralPath $target -PathType Container) {
+        Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+    }
+}
 function Copy-WorldSnapshot([string]$source,[string]$destination) {
     # Parallel file copying avoids PowerShell's per-file loop overhead on large saves.
     $copyExe = Get-Command robocopy.exe -ErrorAction SilentlyContinue
@@ -291,7 +346,9 @@ try {
             Abort 'Converter workspace overlaps the selected world folder. Move the workspace outside the Minecraft save.'
         }
     }
-    New-Item -ItemType Directory -Force -Path $work,$exportDir,$miexDir | Out-Null
+    $workFolders = @($work, $miexDir)
+    if(-not $PreviewOnly) { $workFolders += $exportDir }
+    New-Item -ItemType Directory -Force -Path $workFolders | Out-Null
 
     if(-not $WorldZip -and -not $WorldPath) {
         Add-Type -AssemblyName System.Windows.Forms
@@ -362,8 +419,12 @@ try {
         if($Edition -eq 'bedrock' -and -not (Test-Path -LiteralPath (Join-Path $source 'db') -PathType Container)) {
             Abort 'Selected Bedrock world has no LevelDB db folder.'
         }
-        if($Edition -eq 'java' -and -not ((Test-Path -LiteralPath (Join-Path $source 'region') -PathType Container) -or (Test-Path -LiteralPath (Join-Path $source 'dimensions') -PathType Container))) {
-            Abort 'Selected Java world has no region/dimensions folder.'
+        if($Edition -eq 'java' -and -not (
+            (Test-Path -LiteralPath (Join-Path $source 'region') -PathType Container) -or
+            (Test-Path -LiteralPath (Join-Path $source 'DIM-1/region') -PathType Container) -or
+            (Test-Path -LiteralPath (Join-Path $source 'DIM1/region') -PathType Container) -or
+            (Test-Path -LiteralPath (Join-Path $source 'dimensions') -PathType Container))) {
+            Abort 'Selected Java world has no saved dimension region folder.'
         }
         if($source.Equals($work, [System.StringComparison]::OrdinalIgnoreCase) -or
            $source.StartsWith(($work + [IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase) -or
@@ -544,7 +605,7 @@ try {
     }
 
     $addon = Join-Path $base 'MiExImport.py'
-    if(-not (Test-Path -LiteralPath $addon)) {
+    if(-not $PreviewOnly -and -not (Test-Path -LiteralPath $addon)) {
         Get-WebFile 'https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/extras/Blender/BlenderAddon/MiExImport.py' $addon
     }
 
@@ -570,34 +631,65 @@ try {
         }
     }
     $commands = @()
+    $worldPackName = ''
     if($UseWorldResourcePacks) {
-        # A unique working pack avoids stale textures from a different export
-        # and keeps any USD-relative texture references valid after export.
-        $worldPackName = 'MinecraftToBlender_World_' + [guid]::NewGuid().ToString('N')
+        # Preview packs are temporary; export packs may be referenced by USD.
+        $worldPackPrefix = if($PreviewOnly) { 'MinecraftToBlender_Preview_' } else { 'MinecraftToBlender_World_' }
+        $worldPackName = $worldPackPrefix + [guid]::NewGuid().ToString('N')
         $commands += @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')}
         $commands += @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$true; worldResourcePackName=$worldPackName}
         Write-Host 'Using world-supplied resource packs where available.' -ForegroundColor Cyan
     } else {
         $commands += @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$false}
     }
-    $commands += @{command='loadDimension'; dimension='overworld'}
+    $commands += @{command='loadDimension'; dimension=$Dimension}
     if(-not $UseWorldResourcePacks) {
         $commands += @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')}
     }
-    $commands += @(
-      @{command='getWorld'},
-      @{command='getChunk'; chunks=$probeChunks; heightmap=$true},
-      @{command='applyExportSettings'; settings=@{chunkSize=$chunkSize; exportRegions=@{'Region 1'=$region}; runOptimiser=$enableFaceOptimization; removeCaves=$false; fillInCaves=$false; exportBlockAnimations=$false; entityStartFrame=0; entityEndFrame=1; entityFPS=24; entitySpawnRules=@(); entitySimulate=@(); entityExport=@('minecraft:item_frame','minecraft:glow_item_frame','minecraft:painting','minecraft:block_display','minecraft:item_display','minecraft:armor_stand')}},
-      @{command='export';path=(Join-Path $exportDir $exportFile)}
-    )
+    $entityList = @()
+    if($Entities -ne 'none') {
+        $entityList = @($Entities.Split(',') | Where-Object { $_ -ne '' })
+        $allowedEntities = @('minecraft:item_frame','minecraft:glow_item_frame','minecraft:painting','minecraft:block_display','minecraft:item_display','minecraft:armor_stand')
+        foreach($id in $entityList) {
+            if($id -notin $allowedEntities) { Abort "Unsupported entity ID: $id" }
+        }
+    }
+    if($PreviewOnly) {
+        # Sample actual chunk images from MiEx; 16x16 samples limit cost for huge regions.
+        $probeChunks = @()
+        $previewSeen = @{}
+        for($row = 0; $row -lt 16; $row++) {
+            for($col = 0; $col -lt 16; $col++) {
+                $chunkX = [int][math]::Floor($minChunkX + ($maxChunkX - $minChunkX) * ($col / 15.0))
+                $chunkZ = [int][math]::Floor($minChunkZ + ($maxChunkZ - $minChunkZ) * ($row / 15.0))
+                $key = "$chunkX,$chunkZ"
+                if(-not $previewSeen.ContainsKey($key)) {
+                    $previewSeen[$key] = $true
+                    $probeChunks += @{chunkX=$chunkX;chunkZ=$chunkZ}
+                }
+            }
+        }
+        $commands += @{command='getChunk';chunks=$probeChunks;image=$true}
+    } else {
+        $commands += @(
+          @{command='getWorld'},
+          @{command='getChunk'; chunks=$probeChunks; heightmap=$true},
+          @{command='applyExportSettings'; settings=@{chunkSize=$chunkSize; exportRegions=@{'Region 1'=$region}; runOptimiser=$enableFaceOptimization; removeCaves=$false; fillInCaves=$false; exportBlockAnimations=$false; entityStartFrame=0; entityEndFrame=1; entityFPS=24; entitySpawnRules=@(); entitySimulate=@(); entityExport=$entityList}},
+          @{command='export';path=(Join-Path $exportDir $exportFile)}
+        )
+    }
     $cmdFile = Join-Path $work 'MiEx_export_commands.json'
     $commands | ConvertTo-Json -Depth 15 | Set-Content -LiteralPath $cmdFile -Encoding UTF8
-    Write-Host 'Enabling vanilla item-frame, glow-frame, painting, display and armor-stand models (single static frame).' -ForegroundColor Cyan
+    Write-Host ("Selected entity exports: " + ($(if($entityList.Count -gt 0) { $entityList -join ', ' } else { 'none' }))) -ForegroundColor Cyan
     $env:MIEX_PORTABLE_EXPORTS='1'
     $env:MIEX_STORE_GEN_TEX_IN_EXPORT='1'
     $env:MIEX_SKIP_WORLD_RESOURCEPACK_CHECK = if($UseWorldResourcePacks) { '0' } else { '1' }
     $log = Join-Path $work 'miex_console.log'
-    Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
+    if($PreviewOnly) {
+        Write-Host 'Sampling chunk colors for the region preview. Minecraft world files remain unchanged.' -ForegroundColor Cyan
+    } else {
+        Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
+    }
     # IMPORTANT: Java writes harmless warnings to stderr. Windows PowerShell 5.1
     # can turn those warnings into terminating errors when ErrorActionPreference
     # is Stop and stderr is merged with stdout using *>&1. Capture both streams
@@ -620,11 +712,18 @@ try {
     $proc = $capture.Process
     $lastSize = -1
     $lastStderrSize = -1
+    $lastMemoryReport = [DateTime]::UtcNow.AddSeconds(-20)
     $outOfMemory = $false
     $oomPattern = 'java\.lang\.OutOfMemoryError|GC overhead limit exceeded'
     while(-not $proc.HasExited) {
         [void]$proc.WaitForExit(5000)
         $proc.Refresh()
+        if(([DateTime]::UtcNow - $lastMemoryReport).TotalSeconds -ge 15 -and -not $proc.HasExited) {
+            $lastMemoryReport = [DateTime]::UtcNow
+            try {
+                Write-Host ("[MEMORY] MiEx Java working set: {0:N1} GiB" -f ($proc.WorkingSet64 / 1GB))
+            } catch { }
+        }
         if(Test-Path -LiteralPath $log) {
             $length = (Get-Item -LiteralPath $log).Length
             if($length -ne $lastSize) {
@@ -651,11 +750,27 @@ try {
         }
     }
     $code = Finish-CapturedProcess $capture
+    if($PreviewOnly -and $worldPackName) {
+        try {
+            # FileUtil.getResourcePackDir uses the MiEx process working dir,
+            # unless MIEX_RESOURCEPACK_DIR was explicitly set.
+            $packRoot = if($env:MIEX_RESOURCEPACK_DIR) { $env:MIEX_RESOURCEPACK_DIR } else { Join-Path $miexDir 'resources' }
+            Remove-ManagedPreviewPack $packRoot $worldPackName
+        } catch {
+            Write-Warning ('Could not clean temporary preview resource pack: ' + $_.Exception.Message)
+        }
+    }
     if($outOfMemory -or ((Test-Path -LiteralPath $stderrLog) -and
         (Select-String -LiteralPath $stderrLog -Pattern $oomPattern -Quiet -ErrorAction SilentlyContinue))) {
         Abort "MiEx exhausted Java heap during export. Raytracing is disabled in this build; try a smaller region and inspect $stderrLog. Previous exports were preserved."
     }
     Write-Host "MiEx Java process exited with code $code"
+    if($PreviewOnly) {
+        if(Test-Path -LiteralPath $exportDir) { Remove-Item -LiteralPath $exportDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if($code -ne 0) { Abort "MiEx chunk preview failed (exit $code). See $stderrLog" }
+        Write-Host "Preview: sampled $($probeChunks.Count) real chunk coordinates. Raw image data saved to $log" -ForegroundColor Green
+        return
+    }
     if((Test-Path -LiteralPath $stderrLog) -and (Get-Item -LiteralPath $stderrLog).Length -gt 0) {
         Write-Host 'MiEx stderr (last 12 lines, warnings alone are not fatal):' -ForegroundColor Yellow
         Get-Content -LiteralPath $stderrLog -Tail 12 | ForEach-Object {Write-Host $_}
@@ -708,6 +823,8 @@ try {
     $refPattern = 'payload\s*=\s*@\./' + [regex]::Escape($ExportName + '_chunks') + '/region_1_chunk_\d+_\d+\.usd@'
     $refMatches = [regex]::Matches($usdText, $refPattern)
     $regionPayloadCount = $refMatches.Count
+    $verifiedPayloadLayers = Assert-ReferencedChunkLayers $chunksDir $refMatches
+    Write-Host ("Verified main USD references: $verifiedPayloadLayers distinct nonempty chunk layer(s).") -ForegroundColor Green
     $expectedSections = [int][math]::Ceiling($Size / (16.0 * $chunkSize))
     $expectedSections = $expectedSections * $expectedSections
     if($regionPayloadCount -ne $expectedSections) {
@@ -803,7 +920,7 @@ try {
         $exceptions = @(Select-String -LiteralPath $stderrLog -Pattern 'Exception|Error:|OutOfMemory|fatal' | Select-Object -First 35 | ForEach-Object {$_.Line.Trim()})
     }
     $report = @(
-        'MINECRAFT TO BLENDER v1 - ACCURACY AUDIT',
+        'MINECRAFT TO BLENDER - ACCURACY AUDIT',
         ('Generated UTC: ' + [DateTime]::UtcNow.ToString('u')),
         ('USD: ' + $main),
         ('USD size after optional binary compaction: ' + (Get-Item -LiteralPath $main).Length + ' bytes'),
@@ -826,11 +943,13 @@ try {
         ('USD materials sidecar present: ' + $materialsUsdFound),
         ('Source ZIP SHA256 or direct world level.dat SHA256: ' + $actualWorldHash),
         ('Source world edition: ' + $Edition),
+        ('Dimension: ' + $Dimension),
         'Source world compatibility depends on MiEx support for this saved version.',
         'MiEx Java asset source may differ from Bedrock; vanilla texture parity is NOT verified.',
         ('Export region X=' + $minX + '..' + $maxX + ', Z=' + $minZ + '..' + $maxZ + ', Y=' + $MinY + '..' + $MaxY + ', LOD disabled'),
-        'Bedrock frame and glow-frame blockstate definitions and pinned vanilla frame-entity model corrected; visual item-frame verification still required.',
-        'Entity export requested: item_frame, glow_item_frame, painting, block_display, item_display, armor_stand.',
+        ('Bedrock frame-model overrides applied: ' + ($Edition -eq 'bedrock')),
+        'Frame and item appearance still require Blender visual verification.',
+        ('Entity export IDs requested: ' + $(if($entityList.Count -eq 0) { 'none' } else { $entityList -join ', ' })),
         'Entity timeline: static single frame (no simulation).',
         'Face optimizer enabled; geometry-subset batching disabled. Verify visually.',
         'IMPORTANT: Check actual frame meshes and item contents in Blender. Blockstate warnings alone cannot prove entity export failed or succeeded.',
@@ -853,7 +972,7 @@ try {
         'MiEx Bedrock block-state translation and model generation are not independently verified for all block variants.',
         'MiEx uses translated assets; exact Bedrock texture parity is not independently proven.',
         'MiEx Bedrock WorldBedrock.java initializes worldVersion=0 intentionally; this is not an error.',
-        'Frame block entities are requested via entityExport; corrected model output and item contents still require Blender inspection.',
+        'Only the entity types listed above were requested; corrected model output and item contents still require Blender inspection.',
         'Non-animated USD cannot exactly reproduce every runtime rendering effect; animations and lighting are excluded by user request.'
     )
     [System.IO.File]::WriteAllLines($reportPath, $report, [System.Text.Encoding]::UTF8)

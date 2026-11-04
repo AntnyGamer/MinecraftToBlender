@@ -271,6 +271,10 @@ const (
 	uiPacksHint      = 223
 	uiAutoOpenHint   = 224
 	uiActivityTitle  = 221
+	uiOptionsTitle   = 225
+	uiOptionsInfo    = 226
+	uiOptionsNote    = 227
+	uiEntityHeading  = 228
 )
 
 func autoOpenBlenderLabel() string {
@@ -298,10 +302,11 @@ func createControls() {
 	uiLabel(uiNavHeader, "CONVERT", 3, theme.sideMuted, theme.side)
 	uiLabel(uiTitle, "Export a Minecraft world", 0, theme.white, theme.bg)
 	uiLabel(uiSubtitle, "Choose a Java or Bedrock save directly from your Minecraft world library.", 3, theme.muted, theme.bg)
-	uiLabel(uiVersion, "VERSION 1", 3, theme.accent, theme.bg)
+	uiLabel(uiVersion, "VERSION "+appVersion(), 3, theme.accent, theme.bg)
 	uiButton(idTabExport, "Export world")
 	uiButton(idTabImport, "Import USD")
 	uiButton(idTabSettings, "Settings")
+	uiButton(idTabOptions, "Export options")
 
 	uiLabel(uiExportStep, "NEW EXPORT", 3, theme.accent, theme.card)
 	uiLabel(uiExportTitle, "Minecraft world", 2, theme.white, theme.card)
@@ -351,6 +356,19 @@ func createControls() {
 	uiButton(idAutoOpenBlender, autoOpenBlenderLabel())
 	uiLabel(uiAutoOpenHint, "Open the saved .blend after a successful import.", 3, theme.quiet, theme.card)
 	uiLabel(uiPrefsNote, "Java 21+ and Blender required. Original world saves stay unchanged.", 3, theme.muted, theme.card)
+
+	uiLabel(uiOptionsTitle, "Export options", 2, theme.white, theme.card)
+	uiLabel(uiOptionsInfo, "Configure dimensions, preview and choose exported entities.", 3, theme.muted, theme.card)
+	uiButton(idDimension, "Dimension: Overworld")
+	uiButton(idPreview, "Preview region")
+	uiButton(idPreflight, "Check readiness")
+	uiLabel(uiEntityHeading, "ENTITY TYPES TO INCLUDE", 3, theme.muted, theme.card)
+	uiButton(idEntityFrames, "Item frames: On")
+	uiButton(idEntityPaintings, "Paintings: On")
+	uiButton(idEntityStands, "Armor stands: On")
+	uiButton(idEntityDisplays, "Displays: On")
+	uiButton(idResume, "Safe resume: Off")
+	uiLabel(uiOptionsNote, "Resume reuses verified completed USD only; partial chunks are never trusted.", 3, theme.quiet, theme.card)
 
 	uiLabel(uiActivityTitle, "Activity", 2, theme.white, theme.card)
 	uiButton(idFollow, "Following")
@@ -415,7 +433,7 @@ func layoutUI() {
 	move(uiBrand, 55, 28, 145, 28)
 	move(uiBrandSub, 22, 69, 175, 19)
 	move(uiNavHeader, 22, 119, 167, 22)
-	for i, id := range []int{idTabExport, idTabImport, idTabSettings} {
+	for i, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions} {
 		move(id, 13, 148+i*53, 179, 46)
 	}
 	// Quick access header is drawn once by paintMain, avoiding a stale label control.
@@ -548,6 +566,33 @@ func layoutUI() {
 		move(uiAutoOpenHint, x, top+298, w, 19)
 		move(uiPrefsNote, x, top+324, w, 48)
 	}
+	if compact {
+		move(uiOptionsTitle, x, top+14, w, 25)
+		move(uiOptionsInfo, x, top+42, w, 18)
+		move(idDimension, x, top+64, w, 33)
+		move(idPreview, x, top+104, (w-10)/2, 33)
+		move(idPreflight, x+(w-10)/2+10, top+104, (w-10)/2, 33)
+		move(uiEntityHeading, x, top+145, w, 18)
+		move(idEntityFrames, x, top+166, (w-10)/2, 32)
+		move(idEntityPaintings, x+(w-10)/2+10, top+166, (w-10)/2, 32)
+		move(idEntityStands, x, top+205, (w-10)/2, 32)
+		move(idEntityDisplays, x+(w-10)/2+10, top+205, (w-10)/2, 32)
+		move(idResume, x, top+244, w, 32)
+		move(uiOptionsNote, x, top+282, w, 26)
+	} else {
+		move(uiOptionsTitle, x, top+28, w, 27)
+		move(uiOptionsInfo, x, top+60, w, 19)
+		move(idDimension, x, top+89, w, 39)
+		move(idPreview, x, top+139, (w-12)/2, 40)
+		move(idPreflight, x+(w-12)/2+12, top+139, (w-12)/2, 40)
+		move(uiEntityHeading, x, top+192, w, 18)
+		move(idEntityFrames, x, top+218, (w-12)/2, 40)
+		move(idEntityPaintings, x+(w-12)/2+12, top+218, (w-12)/2, 40)
+		move(idEntityStands, x, top+269, (w-12)/2, 40)
+		move(idEntityDisplays, x+(w-12)/2+12, top+269, (w-12)/2, 40)
+		move(idResume, x, top+317, w, 39)
+		move(uiOptionsNote, x, top+360, w, 20)
+	}
 
 	a := ui.activityTop
 	move(uiActivityTitle, x, a+11, 122, 26)
@@ -571,6 +616,9 @@ func layoutUI() {
 	for _, id := range []int{uiSettingsTitle, uiSettingsInfo, uiWorkspaceLabel, uiPrefsNote, uiPacksHint, uiAutoOpenHint, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
 		show(id, ui.tab == 2)
 	}
+	for _, id := range []int{uiOptionsTitle, uiOptionsInfo, uiOptionsNote, uiEntityHeading, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume} {
+		show(id, ui.tab == 3)
+	}
 	// In compact mode these actions sit near the bottom of the setup card.
 	pInvalidate.Call(app.main, 0, 1)
 }
@@ -583,6 +631,8 @@ func switchTab(id int) {
 		ui.tab = 1
 	case idTabSettings:
 		ui.tab = 2
+	case idTabOptions:
+		ui.tab = 3
 	}
 	switch ui.tab {
 	case 0:
@@ -594,12 +644,15 @@ func switchTab(id int) {
 	case 2:
 		setText(app.ctrls[uiTitle], "Settings & workspace")
 		setText(app.ctrls[uiSubtitle], "Choose where exports, tools, and completed models are saved.")
+	case 3:
+		setText(app.ctrls[uiTitle], "Customize your export")
+		setText(app.ctrls[uiSubtitle], "Preview the selected region and choose which Minecraft features to export.")
 	}
 	layoutUI()
 	refreshButtons()
 }
 func refreshButtons() {
-	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idAutoOpenBlender, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
+	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idAutoOpenBlender, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
 		if h := app.ctrls[id]; h != 0 {
 			pInvalidate.Call(h, 0, 1)
 		}
@@ -637,8 +690,8 @@ func buttonText(dc uintptr, t string, r rect, fg uint32, f uintptr, align uintpt
 func paintButton(lp uintptr) uintptr {
 	d := (*drawItem)(unsafe.Pointer(lp))
 	id, r := int(d.ID), d.Rect
-	nav := id == idTabExport || id == idTabImport || id == idTabSettings
-	active := (id == idTabExport && ui.tab == 0) || (id == idTabImport && ui.tab == 1) || (id == idTabSettings && ui.tab == 2)
+	nav := id == idTabExport || id == idTabImport || id == idTabSettings || id == idTabOptions
+	active := (id == idTabExport && ui.tab == 0) || (id == idTabImport && ui.tab == 1) || (id == idTabSettings && ui.tab == 2) || (id == idTabOptions && ui.tab == 3)
 	primary := id == idBoth || id == idImport
 	selectedEdition := app.selectedWorld != nil &&
 		((id == idSelectBedrock && app.selectedWorld.edition == bedrockEdition) ||
@@ -670,6 +723,13 @@ func paintButton(lp uintptr) uintptr {
 			fill = color(210, 225, 248)
 		}
 	} else if (id == idWorldPacks && app.useWorldPacks) || (id == idAutoOpenBlender && app.autoOpenBlender) {
+		fill, fg = theme.accentDark, color(29, 78, 179)
+		if hover || focused {
+			fill = color(200, 223, 255)
+		}
+	} else if (id == idEntityFrames && app.entityFrames) || (id == idEntityPaintings && app.entityPaintings) ||
+		(id == idEntityStands && app.entityStands) || (id == idEntityDisplays && app.entityDisplays) ||
+		(id == idResume && app.resumeEnabled) {
 		fill, fg = theme.accentDark, color(29, 78, 179)
 		if hover || focused {
 			fill = color(200, 223, 255)
@@ -1086,7 +1146,7 @@ func mainWindow() {
 		height = 570
 	}
 	x, y := (int(screenW)-width)/2, (int(screenH)-height)/2
-	h, _, e := pCreateWindow.Call(0, uintptr(unsafe.Pointer(name)), ptr("Minecraft to Blender v1"), wsOverlappedWindow|wsClipChildren,
+	h, _, e := pCreateWindow.Call(0, uintptr(unsafe.Pointer(name)), ptr("Minecraft to Blender v"+appVersion()), wsOverlappedWindow|wsClipChildren,
 		uintptr(x), uintptr(y), uintptr(width), uintptr(height), 0, 0, module, 0)
 	if h == 0 {
 		panic(fmt.Sprintf("CreateWindowEx failed: %v", e))

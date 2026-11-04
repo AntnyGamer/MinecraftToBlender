@@ -20,6 +20,7 @@ var (
 	pGdipCreateGraphics = gdiplus.NewProc("GdipCreateFromHDC")
 	pGdipDeleteGraphics = gdiplus.NewProc("GdipDeleteGraphics")
 	pGdipDrawImage      = gdiplus.NewProc("GdipDrawImageRectI")
+	pGdipInterpolation = gdiplus.NewProc("GdipSetInterpolationMode")
 	pDestroyWindow      = user32.NewProc("DestroyWindow")
 	pPickerSaveDC       = syscall.NewLazyDLL("gdi32.dll").NewProc("SaveDC")
 	pPickerRestoreDC    = syscall.NewLazyDLL("gdi32.dll").NewProc("RestoreDC")

@@ -93,11 +93,10 @@ func validWorldDir(path string, edition worldEdition) bool {
 		s, e := os.Stat(filepath.Join(path, "db"))
 		return e == nil && s.IsDir()
 	}
-	if s, e := os.Stat(filepath.Join(path, "region")); e == nil && s.IsDir() {
-		return true
-	}
-	if s, e := os.Stat(filepath.Join(path, "dimensions")); e == nil && s.IsDir() {
-		return true
+	for _, folder := range []string{"region", "DIM-1/region", "DIM1/region", "dimensions"} {
+		if s, err := os.Stat(filepath.Join(path, filepath.FromSlash(folder))); err == nil && s.IsDir() {
+			return true
+		}
 	}
 	return false
 }

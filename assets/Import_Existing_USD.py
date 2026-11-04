@@ -114,6 +114,7 @@ def load_patched_importer(src):
                 self.maxColumn = 0'''
     faster = '''                self.nodes : list[Node] = []
                 self.byName = {}
+                self.columnSizes = {}
                 self.minColumn = 0
                 self.maxColumn = 0'''
     if contents.count(original) != 1:
@@ -138,20 +139,52 @@ def load_patched_importer(src):
                 node2 = self.byName.get(node.name)
                 if node2 is not None:
                     return node2
-                node2 = Node(node, 0, len(self.getColumn(0)))
+                node2 = Node(node, 0, self.columnSizes.get(0, 0))
                 self.nodes.append(node2)
                 self.byName[node.name] = node2
+                self.columnSizes[0] = self.columnSizes.get(0, 0) + 1
                 return node2
 
             def getNodeIfMissing(self, node: bpy.types.Node) -> Node|None:
                 if node.name in self.byName:
                     return None
-                node2 = Node(node, 0, len(self.getColumn(0)))
+                node2 = Node(node, 0, self.columnSizes.get(0, 0))
                 self.nodes.append(node2)
                 self.byName[node.name] = node2
+                self.columnSizes[0] = self.columnSizes.get(0, 0) + 1
                 return node2'''
     if contents.count(original) != 1:
         raise RuntimeError('MiEx layout node lookup changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
+    original = '''            def setColumn(self, node:Node, column: int):
+                if node.column >= column:
+                    return
+                prevColumn = node.column
+                prevRow = node.row
+                node.row = len(self.getColumn(column))
+                node.column = column
+                for node in self.nodes:
+                    if node.column == prevColumn and node.row > prevRow:
+                        node.row -= 1
+                self.minColumn = min(self.minColumn, column)
+                self.maxColumn = max(self.maxColumn, column)'''
+    faster = '''            def setColumn(self, node:Node, column: int):
+                if node.column >= column:
+                    return
+                prevColumn = node.column
+                prevRow = node.row
+                newRow = self.columnSizes.get(column, 0)
+                self.columnSizes[prevColumn] -= 1
+                self.columnSizes[column] = newRow + 1
+                node.row = newRow
+                node.column = column
+                for node in self.nodes:
+                    if node.column == prevColumn and node.row > prevRow:
+                        node.row -= 1
+                self.minColumn = min(self.minColumn, column)
+                self.maxColumn = max(self.maxColumn, column)'''
+    if contents.count(original) != 1:
+        raise RuntimeError('MiEx layout column movement changed; refusing unverified patch.')
     contents = contents.replace(original, faster, 1)
     module = types.ModuleType('miex_import_compat')
     module.__file__ = str(src)

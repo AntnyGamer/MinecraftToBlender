@@ -1,4 +1,4 @@
-# Minecraft to Blender v1: full-detail Java/Bedrock world folder to Blender USD.
+# Minecraft to Blender: full-detail Java/Bedrock world folder to Blender USD.
 # The source save remains untouched; no missing-block substitution is performed by this script.
 # MiEx itself may have limitations and this workflow does not certify pixel-for-pixel parity.
 [CmdletBinding()]
@@ -37,7 +37,7 @@ $minX = $CenterX - [int][math]::Floor($Size/2)
 $minZ = $CenterZ - [int][math]::Floor($Size/2)
 $maxX = $minX + $Size - 1
 $maxZ = $minZ + $Size - 1
-Write-Host ('Minecraft to Blender v1: face optimization ON, raytracing and subsets OFF, chunk size 16.') -ForegroundColor Cyan
+Write-Host ('Minecraft to Blender: face optimization ON, raytracing and subsets OFF, chunk size 16.') -ForegroundColor Cyan
 Write-Host ("Region: X=$minX..$maxX Z=$minZ..$maxZ Y=$MinY..$MaxY")
 $miexDir = Join-Path $work 'miex'
 $jar = Join-Path $miexDir 'MiEx.jar'
@@ -803,7 +803,7 @@ try {
         $exceptions = @(Select-String -LiteralPath $stderrLog -Pattern 'Exception|Error:|OutOfMemory|fatal' | Select-Object -First 35 | ForEach-Object {$_.Line.Trim()})
     }
     $report = @(
-        'MINECRAFT TO BLENDER v1 - ACCURACY AUDIT',
+        'MINECRAFT TO BLENDER - ACCURACY AUDIT',
         ('Generated UTC: ' + [DateTime]::UtcNow.ToString('u')),
         ('USD: ' + $main),
         ('USD size after optional binary compaction: ' + (Get-Item -LiteralPath $main).Length + ' bytes'),

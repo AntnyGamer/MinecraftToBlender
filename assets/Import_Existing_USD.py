@@ -316,6 +316,7 @@ def main():
     if not src.is_file() or not importer.is_file():
         raise RuntimeError('Main USD or existing MiExImport.py not found.')
     # Prefer render terrain; check proxy only when the render variant is empty.
+    phase_start = time.monotonic()
     render = stage_report(src, 'render')
     if render['world_mesh_faces']:
         import_variant, stats = 'render', render
@@ -332,6 +333,7 @@ def main():
             'face-only exporter (raytracing, subsets and individual-block instancing off). '
             'The original Minecraft ZIP and USD have not been changed.'
         )
+    log('[PERF] USD integrity inspection:', round(time.monotonic() - phase_start, 2), 'seconds')
     log('Selected MiEx import variant:', import_variant)
     load_patched_importer(importer)
     scene = import_world(src, import_variant)
@@ -345,13 +347,17 @@ def main():
     # positions. Point clouds alone were what the broken output displayed.
     if scene['terrain_faces'] < stats['world_mesh_faces'] * 0.5:
         raise RuntimeError('Blender imported less than half of the terrain faces represented in the USD. No misleading success file saved.')
+    phase_start = time.monotonic()
     frame_actual_scene(scene['evaluate_bounds'])
+    log('[PERF] Scene framing:', round(time.monotonic() - phase_start, 2), 'seconds')
     hide_relationship_lines()
     try:
         audit_imported_textures(target)
     except Exception as exc:
         log('WARNING: Optional texture audit failed; continuing with the intact Blender scene:', repr(exc))
+    phase_start = time.monotonic()
     bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=False)
+    log('[PERF] Saving Blender project:', round(time.monotonic() - phase_start, 2), 'seconds')
     if not target.is_file() or target.stat().st_size == 0:
         raise RuntimeError('Blender did not create the output file.')
     log('OUTPUT .blend saved:', target)

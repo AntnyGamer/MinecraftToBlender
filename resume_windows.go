@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -42,10 +43,21 @@ func makeResumeIdentity(world string,edition worldEdition,name string,options ex
 
 // Calculate an exact digest before reusing work. File sizes or timestamps
 // alone cannot establish that a Minecraft LevelDB snapshot stayed unchanged.
-func digestDirectory(root string) (string,error) {
+type cancelReader struct {
+	ctx context.Context
+	reader io.Reader
+}
+
+func (r cancelReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil { return 0, err }
+	return r.reader.Read(p)
+}
+
+func digestDirectory(ctx context.Context, root string) (string,error) {
 	hasher:=sha256.New()
 	buffer:=make([]byte,128*1024)
 	err:=filepath.WalkDir(root,func(path string,d os.DirEntry,walkErr error)error{
+		if err := ctx.Err(); err != nil { return err }
 		if walkErr!=nil{return walkErr}
 		if d.IsDir(){return nil}
 		if d.Type()&os.ModeSymlink!=0 {return fmt.Errorf("cannot reuse a checkpoint with symlinks: %s",path)}
@@ -54,7 +66,7 @@ func digestDirectory(root string) (string,error) {
 		info,err:=d.Info();if err!=nil{return err}
 		_,_=fmt.Fprintf(hasher,"%s\x00%d\x00",filepath.ToSlash(rel),info.Size())
 		f,err:=os.Open(path);if err!=nil{return err}
-		_,err=io.CopyBuffer(hasher,f,buffer)
+		_,err=io.CopyBuffer(hasher,cancelReader{ctx:ctx,reader:f},buffer)
 		closeErr:=f.Close()
 		if err!=nil{return err}
 		return closeErr
@@ -67,9 +79,10 @@ func checkpointFile(workspace,name string) string {
 	return filepath.Join(workspace,"AppTools","MiEx_Work","checkpoints",name+".json")
 }
 
-func saveResumeCheckpoint(path string,identity resumeIdentity,worldPath,usdPath string)error{
-	worldHash,err:=digestDirectory(worldPath);if err!=nil{return err}
-	exportHash,err:=digestDirectory(filepath.Dir(usdPath));if err!=nil{return err}
+func saveResumeCheckpoint(ctx context.Context,path string,identity resumeIdentity,worldPath,usdPath string)error{
+	worldHash,err:=digestDirectory(ctx,worldPath);if err!=nil{return err}
+	exportHash,err:=digestDirectory(ctx,filepath.Dir(usdPath));if err!=nil{return err}
+	if err:=ctx.Err();err!=nil{return err}
 	data,err:=json.MarshalIndent(resumeCheckpoint{Identity:identity,WorldHash:worldHash,ExportHash:exportHash},"","  ")
 	if err!=nil{return err}
 	if err:=os.MkdirAll(filepath.Dir(path),0700);err!=nil{return err}
@@ -79,14 +92,14 @@ func saveResumeCheckpoint(path string,identity resumeIdentity,worldPath,usdPath 
 	return nil
 }
 
-func verifiedResumeCheckpoint(path string,identity resumeIdentity,worldPath,usdPath string) bool{
+func verifiedResumeCheckpoint(ctx context.Context,path string,identity resumeIdentity,worldPath,usdPath string) bool{
 	data,err:=os.ReadFile(path);if err!=nil{return false}
 	var saved resumeCheckpoint
 	if json.Unmarshal(data,&saved)!=nil||saved.Identity!=identity||saved.WorldHash==""||saved.ExportHash==""{return false}
 	if usdFiles(usdPath)!=nil{return false}
-	worldHash,err:=digestDirectory(worldPath)
+	worldHash,err:=digestDirectory(ctx,worldPath)
 	if err!=nil||worldHash!=saved.WorldHash{return false}
-	exportHash,err:=digestDirectory(filepath.Dir(usdPath))
+	exportHash,err:=digestDirectory(ctx,filepath.Dir(usdPath))
 	return err==nil&&exportHash==saved.ExportHash
 }
 

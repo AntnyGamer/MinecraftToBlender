@@ -15,7 +15,7 @@
 
 ## Viewport FPS improvements
 - Add **Nearby-only** (Off by default) to hide distant Minecraft terrain mesh objects in Blender's current view layer, without removing their geometry, changing any materials, or hiding them in final renders. Press **Alt+H** in Object Mode to reveal the full world. The toggle is not dynamic Minecraft-style streaming, and only helps when large exports contain separately bounded meshes; the import log reports actual hidden mesh counts.
-- Unlike the earlier ineffective Solid-mode preset, this directly reduces how many mesh objects and polygons Blender needs to draw. Blender already starts in Solid mode, so the new option leaves shading unchanged. Small regions are not culled.
+- Unlike the earlier ineffective Solid-mode preset, this directly reduces how many mesh objects and polygons Blender needs to draw. Blender already starts in Solid mode; the option preserves that mode but also turns off optional Solid shadows, cavity and specular highlights when enabled. Full materials/render settings remain unchanged. Small regions are not culled.
 - Reduce the initial viewport's unnecessarily large far-clipping distance from five times to two times the world span, retaining full-scene visibility from the initial viewpoint and improving depth-buffer range.
 
 ## Performance

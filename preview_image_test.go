@@ -21,7 +21,7 @@ func TestSampledPreviewUsesActualChunkColors(t *testing.T) {
 		pixels[i+2]=0x56
 		pixels[i+3]=0xff
 	}
-	line := fmt.Sprintf("[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"image\":\"%s\"}]}\n",base64.StdEncoding.EncodeToString(pixels))
+	line := fmt.Sprintf("[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"layerCount\":1,\"image\":\"%s\"}]}\n",base64.StdEncoding.EncodeToString(pixels))
 	if err:=os.WriteFile(logPath,[]byte(line),0600);err!=nil {t.Fatal(err)}
 	n,err:=renderSampledPreview(logPath,output,8,8,16)
 	if err!=nil || n!=256 {t.Fatalf("expected 256 duplicated sampled tiles, got %d: %v",n,err)}

@@ -21,7 +21,7 @@ var regionPreview struct {
 var regionPreviewCallback uintptr
 var regionPreviewRegistered bool
 
-func runPreview(ctx context.Context, world localWorld, workspace, dimension string, size, x, z int) result {
+func runPreview(ctx context.Context, world localWorld, workspace, dimension string, useWorldPacks bool, size, x, z int) result {
 	if !validWorldDir(world.path,world.edition) {
 		return result{what:"Region preview",err:fmt.Errorf("Minecraft world is no longer available")}
 	}
@@ -31,7 +31,7 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 	args:=[]string{"-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",filepath.Join(tools,"Export_World.ps1"),
 		"-WorldPath",world.path,"-Edition",string(world.edition),"-Dimension",dimension,"-PreviewOnly",
 		"-Size",strconv.Itoa(size),"-CenterX",strconv.Itoa(x),"-CenterZ",strconv.Itoa(z)}
-	if app.useWorldPacks {
+	if useWorldPacks {
 		args=append(args,"-UseWorldResourcePacks")
 	}
 	if err:=runProcess(ctx,"powershell.exe",args,logFile);err!=nil {

@@ -168,8 +168,11 @@ def test_usd_stage_mesh_grouping():
         def __init__(self, prim):
             self.prim = prim
 
+        def GetFaceCount(self):
+            return self.prim.count
+
         def GetFaceVertexCountsAttr(self):
-            return NS(Get=lambda: [4] * self.prim.count)
+            raise AssertionError("Do not fetch huge mesh count arrays into Python")
 
     class PointInstancer:
         def __init__(self, prim):

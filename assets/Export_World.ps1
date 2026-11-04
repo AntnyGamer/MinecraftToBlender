@@ -599,11 +599,16 @@ try {
     if($PreviewOnly) {
         # Sample actual chunk images from MiEx; 16x16 samples limit cost for huge regions.
         $probeChunks = @()
+        $previewSeen = @{}
         for($row = 0; $row -lt 16; $row++) {
             for($col = 0; $col -lt 16; $col++) {
                 $chunkX = [int][math]::Floor($minChunkX + ($maxChunkX - $minChunkX) * ($col / 15.0))
                 $chunkZ = [int][math]::Floor($minChunkZ + ($maxChunkZ - $minChunkZ) * ($row / 15.0))
-                $probeChunks += @{chunkX=$chunkX;chunkZ=$chunkZ}
+                $key = "$chunkX,$chunkZ"
+                if(-not $previewSeen.ContainsKey($key)) {
+                    $previewSeen[$key] = $true
+                    $probeChunks += @{chunkX=$chunkX;chunkZ=$chunkZ}
+                }
             }
         }
         $commands += @{command='getChunk';chunks=$probeChunks;image=$true}

@@ -350,14 +350,17 @@ def clear_objects():
     bpy.ops.object.delete(use_global=False)
 
 
-def import_world(src, import_type):
+def import_world(src, import_type, fast_viewport=False):
     log('PHASE: Importing with MiEx option:', import_type)
     t0 = time.monotonic()
     clear_objects()
     Usd.Stage.SetGlobalVariantFallbacks({'MiEx_LOD': ['proxy' if import_type == 'proxy' else 'render']})
     result = bpy.ops.mieximport.world(filepath=str(src), import_type=import_type,
                                        max_animation_frames=1, flatten=False,
-                                       hide_background='show')
+                                       # Keep all background geometry available for
+                                       # final renders, but optionally hide those
+                                       # background objects only in the viewport.
+                                       hide_background='hide' if fast_viewport else 'show')
     log('MiEx operator result:', result, 'elapsed:', round(time.monotonic()-t0, 2), 'seconds')
     if 'FINISHED' not in result:
         raise RuntimeError('MiEx reported a cancelled import. See errors above.')
@@ -529,7 +532,7 @@ def main():
     log('[PERF] USD integrity inspection:', round(time.monotonic() - phase_start, 2), 'seconds')
     log('Selected MiEx import variant:', import_variant)
     load_patched_importer(importer)
-    scene = import_world(src, import_variant)
+    scene = import_world(src, import_variant, fast_viewport)
     if minecraft_water:
         apply_minecraft_water_materials()
     if stats['instancers'] and scene['clouds'] == 0 and scene['faces'] < 1000:

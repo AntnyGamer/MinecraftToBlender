@@ -215,6 +215,7 @@ type result struct {
 	output  string
 	err     error
 	logFile string
+	minX, minZ, size int
 }
 type appState struct {
 	main          uintptr
@@ -1108,6 +1109,13 @@ func onCompleted(r result) {
 		appendLog("ERROR: " + r.err.Error())
 		updateLog()
 		alert(r.what+" failed", r.err.Error(), mbError)
+		return
+	}
+	if r.what == "Region preview" {
+		state("Region preview ready. Click a location to set center X/Z.")
+		appendLog("Region preview saved: "+r.output)
+		updateLog()
+		openPreviewWindow(r.output, r.minX, r.minZ, r.size)
 		return
 	}
 	ui.progressComplete = true

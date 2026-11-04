@@ -294,7 +294,9 @@ try {
             Abort 'Converter workspace overlaps the selected world folder. Move the workspace outside the Minecraft save.'
         }
     }
-    New-Item -ItemType Directory -Force -Path $work,$exportDir,$miexDir | Out-Null
+    $workFolders = @($work, $miexDir)
+    if(-not $PreviewOnly) { $workFolders += $exportDir }
+    New-Item -ItemType Directory -Force -Path $workFolders | Out-Null
 
     if(-not $WorldZip -and -not $WorldPath) {
         Add-Type -AssemblyName System.Windows.Forms
@@ -547,7 +549,7 @@ try {
     }
 
     $addon = Join-Path $base 'MiExImport.py'
-    if(-not (Test-Path -LiteralPath $addon)) {
+    if(-not $PreviewOnly -and -not (Test-Path -LiteralPath $addon)) {
         Get-WebFile 'https://raw.githubusercontent.com/BramStoutProductions/MiEx/631e9fc2fde8c749bf59d4c3495492e62a83ef6c/extras/Blender/BlenderAddon/MiExImport.py' $addon
     }
 
@@ -626,7 +628,11 @@ try {
     $env:MIEX_STORE_GEN_TEX_IN_EXPORT='1'
     $env:MIEX_SKIP_WORLD_RESOURCEPACK_CHECK = if($UseWorldResourcePacks) { '0' } else { '1' }
     $log = Join-Path $work 'miex_console.log'
-    Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
+    if($PreviewOnly) {
+        Write-Host 'Sampling chunk colors for the region preview. Minecraft world files remain unchanged.' -ForegroundColor Cyan
+    } else {
+        Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
+    }
     # IMPORTANT: Java writes harmless warnings to stderr. Windows PowerShell 5.1
     # can turn those warnings into terminating errors when ErrorActionPreference
     # is Stop and stderr is merged with stdout using *>&1. Capture both streams

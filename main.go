@@ -830,6 +830,62 @@ func blenderOutputPath(src string) (string, error) {
 	return "", errors.New("all 100 Blender output names are in use; move or rename older files")
 }
 
+// Optimize an already-exported .blend from this EXE. Use Blender's own
+// background process and the import helper embedded in the EXE, saving a
+// separately named project so that the original is never overwritten.
+func doOptimizeExistingBlend(ctx context.Context, src, blender, tools string, batchMeshes bool) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(filepath.Ext(src), ".blend") {
+		return "", errors.New("select a .blend project to optimize")
+	}
+	input, err := os.Stat(src)
+	if err != nil {
+		return "", fmt.Errorf("cannot open Blender project: %w", err)
+	}
+	if !input.Mode().IsRegular() || input.Size() == 0 {
+		return "", errors.New("Blender project must be a nonempty regular file")
+	}
+	if blender == "" {
+		return "", errors.New("select Blender.exe in the Import tab")
+	}
+	if _, err := os.Stat(blender); err != nil {
+		return "", fmt.Errorf("Blender executable not found: %w", err)
+	}
+	target, err := blenderOutputPath(src)
+	if err != nil {
+		return "", err
+	}
+	logFile := filepath.Join(filepath.Dir(src), "Minecraft_Blender_Optimize.log")
+	args := []string{
+		"--background", "--factory-startup", "--disable-autoexec",
+		src, "--python", filepath.Join(tools, "Import_Existing_USD.py"),
+		"--", target, "--optimize-blend",
+	}
+	if batchMeshes {
+		args = append(args, "--batch-static-meshes")
+	}
+	guiLog("Optimizing the existing Blender project; saving a new copy without re-exporting Minecraft...")
+	if err := runProcess(ctx, blender, args, logFile); err != nil {
+		return "", fmt.Errorf("Blender optimization failed: %w; details: %s", err, logFile)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	output, err := os.Stat(target)
+	if err != nil || output.Size() == 0 {
+		return "", fmt.Errorf("Blender did not save an optimized copy; see %s", logFile)
+	}
+	logContent, err := os.ReadFile(logFile)
+	if err != nil || !bytes.Contains(logContent, []byte("RESULT: EXISTING BLENDER PROJECT OPTIMIZED.")) {
+		return "", fmt.Errorf("Blender did not confirm a completed optimization; see %s", logFile)
+	}
+	guiLog("Optimized Blender copy saved: " + target)
+	guiLog("The original Blender project remains unchanged.")
+	return target, nil
+}
+
 func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 	return doImportWithWater(ctx, src, blender, tools, false)
 }
@@ -1088,9 +1144,9 @@ func startExport(both bool) {
 	}()
 }
 func startImport() {
-	usd := strings.Trim(strings.TrimSpace(getText(idUSD)), "\"")
-	if usd == "" {
-		alert("Select a USD file", "Select the main MiEx .usd (not a chunk USD).", mbWarn)
+	source := strings.Trim(strings.TrimSpace(getText(idUSD)), "\"")
+	if source == "" {
+		alert("Select a file", "Select a main MiEx .usd export or existing .blend project.", mbWarn)
 		return
 	}
 	workspace := strings.TrimSpace(getText(idWorkspace))
@@ -1103,17 +1159,33 @@ func startImport() {
 		alert("Blender required", "Select the installed blender.exe.", mbWarn)
 		return
 	}
-	if e := usdFiles(usd); e != nil {
-		alert("Incomplete USD", e.Error(), mbError)
+	isBlend := strings.EqualFold(filepath.Ext(source), ".blend")
+	if isBlend {
+		info, err := os.Stat(source)
+		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+			alert("Invalid Blender project", "Select a readable, nonempty .blend file.", mbError)
+			return
+		}
+	} else if strings.EqualFold(filepath.Ext(source), ".usd") {
+		if err := usdFiles(source); err != nil {
+			alert("Incomplete USD", err.Error(), mbError)
+			return
+		}
+	} else {
+		alert("Unsupported file", "Select a main MiEx .usd export or .blend project.", mbError)
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	app.cancel = cancel
 	app.lastBlend = "" // Only the current import may populate Open Project.
 	resetLog()
-	state("Importing existing USD into Blender...")
+	if isBlend {
+		state("Optimizing existing Blender project...")
+	} else {
+		state("Importing existing USD into Blender...")
+	}
 	setBusy(true)
-	app.lastFolder = filepath.Dir(usd)
+	app.lastFolder = filepath.Dir(source)
 	minecraftWater := app.minecraftWater
 	batchMeshes := app.batchMeshes
 	go func() {
@@ -1122,8 +1194,13 @@ func startImport() {
 			app.doneCh <- result{what: "Import", err: e}
 			return
 		}
-		out, e := doImportWithOptions(ctx, usd, blender, tools, minecraftWater, batchMeshes)
-		app.doneCh <- result{what: "Import", output: out, err: e}
+		if isBlend {
+			out, optimizeErr := doOptimizeExistingBlend(ctx, source, blender, tools, batchMeshes)
+			app.doneCh <- result{what: "Optimize Blender project", output: out, err: optimizeErr}
+			return
+		}
+		out, importErr := doImportWithOptions(ctx, source, blender, tools, minecraftWater, batchMeshes)
+		app.doneCh <- result{what: "Import", output: out, err: importErr}
 	}()
 }
 func browseButton(id int) {
@@ -1131,7 +1208,7 @@ func browseButton(id int) {
 	case idWorldBrowse:
 		openWorldLibrary(bedrockEdition)
 	case idUSDBrowse:
-		if s := selectFile("Main MiEx USD (*.usd)|*.usd|All files (*.*)|*.*", "Select the main MiEx USD export"); s != "" {
+		if s := selectFile("Main MiEx USD (*.usd)|*.usd|Blender project (*.blend)|*.blend|All files (*.*)|*.*", "Select a MiEx USD export or Blender project"); s != "" {
 			setText(app.ctrls[idUSD], s)
 		}
 	case idBlenderBrowse:

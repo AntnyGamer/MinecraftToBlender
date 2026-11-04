@@ -617,18 +617,6 @@ func refreshButtons() {
 		}
 	}
 }
-func paintRounded(dc uintptr, r rect, fill, border uint32, round int) {
-	brush, _, _ := pCreateBrush.Call(uintptr(fill))
-	pen, _, _ := pCreatePen.Call(psSolid, 1, uintptr(border))
-	oldB, _, _ := pSelectObject.Call(dc, brush)
-	oldP, _, _ := pSelectObject.Call(dc, pen)
-	pRoundRect.Call(dc, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right), uintptr(r.Bottom), uintptr(round), uintptr(round))
-	pSelectObject.Call(dc, oldB)
-	pSelectObject.Call(dc, oldP)
-	pDeleteObject.Call(brush)
-	pDeleteObject.Call(pen)
-}
-
 // paintPill draws a filled rounded button with no border, stroke or focus outline.
 // We retain a standard BUTTON control (with OwnerDraw) for keyboard, tab and
 // accessibility behavior, while the appearance is fully painted here.

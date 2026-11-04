@@ -96,13 +96,27 @@ func readiness(ctx context.Context, world localWorld, workspace, blender, dim st
 	}
 	info = append(info, fmt.Sprintf("Dimension: %s; region %dx%d, center (%d,%d)", dimensionLabel(dim), size, size, x, z))
 	if world.edition == javaEdition {
-		hasChunks, err := javaRegionHasSavedChunksContext(ctx, world.path, dim, size, x, z)
-		if err != nil {
-			warnings = append(warnings, "Cannot inspect saved Java chunks: "+err.Error())
-		} else if !hasChunks {
-			warnings = append(warnings, "No saved Java chunks were found in this selected region and dimension.")
+		if deep {
+			hasChunks, err := javaRegionHasSavedChunksContext(ctx, world.path, dim, size, x, z)
+			if err != nil {
+				warnings = append(warnings, "Cannot inspect saved Java chunks: "+err.Error())
+			} else if !hasChunks {
+				warnings = append(warnings, "No saved Java chunks were found in this selected region and dimension.")
+			} else {
+				info = append(info, "Saved Java chunks found inside the selected region.")
+			}
 		} else {
-			info = append(info, "Saved Java chunks found inside the selected region.")
+			// The automatic pre-export check runs on the GUI thread. Do not
+			// scan potentially thousands of Anvil region files there: the
+			// detailed Check readiness action does that in a cancellable worker.
+			regionDir, err := javaDimensionRegionPath(world.path, dim)
+			if err != nil {
+				warnings = append(warnings, err.Error())
+			} else if st, err := os.Stat(regionDir); err != nil || !st.IsDir() {
+				warnings = append(warnings, "Selected Java dimension has no saved region folder.")
+			} else {
+				info = append(info, "Java region folder found; Check readiness can inspect saved chunks.")
+			}
 		}
 	} else {
 		info = append(info, "Bedrock chunk contents will be sampled by MiEx during preview/export.")

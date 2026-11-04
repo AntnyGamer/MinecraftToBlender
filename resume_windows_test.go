@@ -36,6 +36,8 @@ func TestResumeCheckpointRequiresIdenticalFilesAndSettings(t *testing.T) {
 	write(filepath.Join(filepath.Dir(out),"Saved.blend"),"partial blend output")
 	write(filepath.Join(filepath.Dir(out),"Saved_2.blend"),"another failed attempt")
 	write(filepath.Join(filepath.Dir(out),"Saved.blend1"),"backup")
+	write(filepath.Join(filepath.Dir(out),"Saved_texture_audit.txt"),"generated Blender texture diagnostics")
+	write(filepath.Join(filepath.Dir(out),"Saved_2_texture_audit.txt"),"generated retry diagnostics")
 	if !verifiedResumeCheckpoint(context.Background(),checkpoint,key,world,out) {
 		t.Fatal("Blender log/project files incorrectly invalidate a complete USD export")
 	}

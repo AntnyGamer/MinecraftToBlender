@@ -664,6 +664,27 @@ def deduplicate_exact_material_slots():
 
 
 
+def clear_bulk_import_selection(min_meshes=128):
+    """Avoid thousands of imported-mesh selection outlines at first open.
+
+    Selection is an editor state, not geometry or material data. USD import may
+    select everything; drawing and testing thousands of orange outlines can
+    burden the viewport. Small scenes retain their initial selection.
+    """
+    selected = tuple(bpy.context.selected_objects)
+    mesh_count = sum(
+        ob.type == 'MESH' and ob.visible_get() for ob in selected
+    )
+    if mesh_count < min_meshes:
+        return 0
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = None
+    log('VIEWPORT: cleared initial selection for', mesh_count,
+        'visible imported meshes to avoid bulk outline/selection overhead; '
+        'all objects remain visible and selectable.')
+    return mesh_count
+
+
 def hide_relationship_lines():
     for screen in bpy.data.screens:
         for area in screen.areas:
@@ -725,6 +746,7 @@ def main():
     bounds = frame_actual_scene(scene['evaluate_bounds'])
     log('[PERF] Scene framing:', round(time.monotonic() - phase_start, 2), 'seconds')
     hide_relationship_lines()
+    clear_bulk_import_selection()
     if batch_meshes:
         phase_start = time.monotonic()
         batch_static_terrain_meshes()

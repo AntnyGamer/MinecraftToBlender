@@ -277,11 +277,11 @@ const (
 	uiEntityHeading  = 228
 )
 
-func fastViewportLabel() string {
-	if app.fastViewport {
-		return "Nearby-only: On"
+func batchMeshesLabel() string {
+	if app.batchMeshes {
+		return "Batch meshes: On"
 	}
-	return "Nearby-only: Off"
+	return "Batch meshes: Off"
 }
 
 func minecraftWaterLabel() string {
@@ -382,7 +382,7 @@ func createControls() {
 	uiButton(idEntityStands, "Armor stands: On")
 	uiButton(idEntityDisplays, "Displays: On")
 	uiButton(idResume, "Safe resume: Off")
-	uiButton(idFastViewport, fastViewportLabel())
+	uiButton(idBatchMeshes, batchMeshesLabel())
 	uiButton(idWaterStyle, minecraftWaterLabel())
 	uiLabel(uiOptionsNote, "Resume reuses verified completed USD only; partial chunks are never trusted.", 3, theme.quiet, theme.card)
 
@@ -594,7 +594,7 @@ func layoutUI() {
 		move(idEntityStands, x, top+198, (w-10)/2, 29)
 		move(idEntityDisplays, x+(w-10)/2+10, top+198, (w-10)/2, 29)
 		move(idResume, x, top+233, (w-10)/2, 29)
-		move(idFastViewport, x+(w-10)/2+10, top+233, (w-10)/2, 29)
+		move(idBatchMeshes, x+(w-10)/2+10, top+233, (w-10)/2, 29)
 		move(idWaterStyle, x, top+267, w, 29)
 		move(uiOptionsNote, x, top+299, w, 18)
 	} else {
@@ -609,7 +609,7 @@ func layoutUI() {
 		move(idEntityStands, x, top+241, (w-12)/2, 37)
 		move(idEntityDisplays, x+(w-12)/2+12, top+241, (w-12)/2, 37)
 		move(idResume, x, top+284, (w-12)/2, 36)
-		move(idFastViewport, x+(w-12)/2+12, top+284, (w-12)/2, 36)
+		move(idBatchMeshes, x+(w-12)/2+12, top+284, (w-12)/2, 36)
 		move(idWaterStyle, x, top+326, w, 36)
 		move(uiOptionsNote, x, top+366, w, 18)
 	}
@@ -636,7 +636,7 @@ func layoutUI() {
 	for _, id := range []int{uiSettingsTitle, uiSettingsInfo, uiWorkspaceLabel, uiPrefsNote, uiPacksHint, uiAutoOpenHint, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
 		show(id, ui.tab == 2)
 	}
-	for _, id := range []int{uiOptionsTitle, uiOptionsInfo, uiOptionsNote, uiEntityHeading, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idFastViewport, idWaterStyle} {
+	for _, id := range []int{uiOptionsTitle, uiOptionsInfo, uiOptionsNote, uiEntityHeading, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idBatchMeshes, idWaterStyle} {
 		show(id, ui.tab == 3)
 	}
 	// In compact mode these actions sit near the bottom of the setup card.
@@ -672,7 +672,7 @@ func switchTab(id int) {
 	refreshButtons()
 }
 func refreshButtons() {
-	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idFastViewport, idWaterStyle, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idAutoOpenBlender, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
+	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idBatchMeshes, idWaterStyle, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idAutoOpenBlender, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
 		if h := app.ctrls[id]; h != 0 {
 			pInvalidate.Call(h, 0, 1)
 		}
@@ -749,7 +749,7 @@ func paintButton(lp uintptr) uintptr {
 		}
 	} else if (id == idEntityFrames && app.entityFrames) || (id == idEntityPaintings && app.entityPaintings) ||
 		(id == idEntityStands && app.entityStands) || (id == idEntityDisplays && app.entityDisplays) ||
-		(id == idResume && app.resumeEnabled) || (id == idFastViewport && app.fastViewport) || (id == idWaterStyle && app.minecraftWater) {
+		(id == idResume && app.resumeEnabled) || (id == idBatchMeshes && app.batchMeshes) || (id == idWaterStyle && app.minecraftWater) {
 		fill, fg = theme.accentDark, color(29, 78, 179)
 		if hover || focused {
 			fill = color(200, 223, 255)

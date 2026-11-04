@@ -5,10 +5,10 @@ from types import SimpleNamespace as NS
 
 source = Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8")
 module = ast.parse(source)
-names = {"outside_nearby_radius", "hide_distant_meshes", "import_world"}
+names = {"outside_nearby_radius", "hide_distant_meshes", "lighten_solid_viewport", "import_world"}
 funcs = [node for node in module.body if isinstance(node, ast.FunctionDef)
          and node.name in names]
-assert len(funcs) == 3
+assert len(funcs) == 4
 
 
 class Vec:
@@ -56,13 +56,22 @@ invisible_render = Mesh("render-hidden prototype", (650, 650, 0), (670, 670, 10)
 already_hidden = Mesh("originally hidden", (700, 700, 0), (710, 710, 10),
                       hidden=True)
 objects = [near, far, underground, spanning, invisible_render, already_hidden]
+solid_shading = NS(type="SOLID", show_shadows=True, show_cavity=True,
+                   show_specular_highlight=True)
+material_shading = NS(type="MATERIAL", show_shadows=True, show_cavity=True,
+                      show_specular_highlight=True)
+screens = [NS(areas=[
+    NS(type="VIEW_3D", spaces=NS(active=NS(shading=solid_shading))),
+    NS(type="VIEW_3D", spaces=NS(active=NS(shading=material_shading))),
+    NS(type="OUTLINER", spaces=NS(active=NS())),
+])]
 records = []
 import_calls = []
 bpy = NS(
     context=NS(scene=NS(objects=objects)),
     ops=NS(mieximport=NS(world=lambda **kwargs: (
         import_calls.append(kwargs), {"FINISHED"})[1])),
-    data=NS(materials=[object()], meshes=[object()]),
+    data=NS(materials=[object()], meshes=[object()], screens=screens),
 )
 scope = {
     "bpy": bpy,
@@ -75,6 +84,16 @@ scope = {
 }
 exec(compile(ast.Module(body=funcs, type_ignores=[]),
              "<view-culling-test>", "exec"), scope)
+
+assert scope["lighten_solid_viewport"]() == 3
+assert solid_shading.type == "SOLID"
+assert not solid_shading.show_shadows
+assert not solid_shading.show_cavity
+assert not solid_shading.show_specular_highlight
+assert material_shading.type == "MATERIAL"
+assert material_shading.show_shadows
+assert material_shading.show_cavity
+assert material_shading.show_specular_highlight
 
 # The two widest axes are used as horizontal dimensions, independent of
 # whether Blender's import is Y-up or Z-up.

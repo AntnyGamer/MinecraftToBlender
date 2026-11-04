@@ -34,3 +34,20 @@ func TestJavaRegionInspectionHonorsCancel(t *testing.T) {
 		t.Fatalf("canceled region scan must immediately stop: %v", err)
 	}
 }
+
+func TestJavaDimensionRegionPaths(t *testing.T) {
+	root := t.TempDir()
+	for dimension, want := range map[string]string{
+		"overworld": filepath.Join(root, "region"),
+		"the_nether": filepath.Join(root, "DIM-1", "region"),
+		"the_end": filepath.Join(root, "DIM1", "region"),
+	} {
+		got, err := javaDimensionRegionPath(root, dimension)
+		if err != nil || got != want {
+			t.Fatalf("dimension %s: got %q, %v, want %q", dimension, got, err, want)
+		}
+	}
+	if _, err := javaDimensionRegionPath(root, "unknown"); err == nil {
+		t.Fatal("unknown Java dimensions should be rejected")
+	}
+}

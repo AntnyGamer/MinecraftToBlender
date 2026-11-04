@@ -86,9 +86,22 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 			for py := 0; py < 16; py++ {
 				for px := 0; px < 16; px++ {
 					offset := (py*16+px)*4
-					out.SetNRGBA(col*16+px, row*16+py, imgcolor.NRGBA{
-						R: data[offset+2], G: data[offset+1], B: data[offset], A: 255,
-					})
+					alpha := data[offset+3]
+					if alpha == 0 {
+						continue // Keep the gray unavailable/transparent background.
+					}
+					x, y := col*16+px, row*16+py
+					pixel := imgcolor.NRGBA{R: data[offset+2], G: data[offset+1], B: data[offset], A: 255}
+					if alpha < 255 {
+						bg := out.NRGBAAt(x, y)
+						blend := func(source, background uint8) uint8 {
+							return uint8((uint32(source)*uint32(alpha) + uint32(background)*uint32(255-alpha) + 127) / 255)
+						}
+						pixel.R = blend(pixel.R, bg.R)
+						pixel.G = blend(pixel.G, bg.G)
+						pixel.B = blend(pixel.B, bg.B)
+					}
+					out.SetNRGBA(x, y, pixel)
 				}
 			}
 		}

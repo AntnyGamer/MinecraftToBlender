@@ -693,8 +693,61 @@ def hide_relationship_lines():
                     space.overlay.show_relationship_lines = False
 
 
+
+
+def optimize_existing_blend(target, batch_meshes=False):
+    """Optimize the Blender project already loaded by the EXE, saving a copy."""
+    source = Path(bpy.data.filepath).resolve() if bpy.data.filepath else None
+    if source is None or not source.is_file():
+        raise RuntimeError('Open an existing .blend in Blender before optimizing.')
+    if source == target or target.exists():
+        raise RuntimeError('Optimization must save to a new .blend, never overwrite the original.')
+    if not target.parent.is_dir():
+        raise RuntimeError('The target Blender project folder does not exist.')
+
+    meshes = tuple(ob for ob in bpy.context.scene.objects if ob.type == 'MESH')
+    before_faces = sum(len(ob.data.polygons) for ob in meshes)
+    if before_faces == 0:
+        raise RuntimeError('This .blend has no terrain mesh faces to optimize.')
+
+    log('OPTIMIZING EXISTING BLENDER FILE:', source)
+    log('BLENDER VERSION:', bpy.app.version_string)
+    log('BEFORE: mesh objects:', len(meshes), 'faces:', before_faces)
+    phase_start = time.monotonic()
+    cleared = clear_bulk_import_selection()
+    joined = batch_static_terrain_meshes() if batch_meshes else 0
+    slots = deduplicate_exact_material_slots()
+    after_meshes = tuple(ob for ob in bpy.context.scene.objects if ob.type == 'MESH')
+    after_faces = sum(len(ob.data.polygons) for ob in after_meshes)
+    if before_faces != after_faces:
+        raise RuntimeError('Mesh faces changed during optimization; refusing to save.')
+    log('AFTER: mesh objects:', len(after_meshes), 'faces:', after_faces)
+    log('OPTIMIZED: selected outlines cleared:', cleared,
+        'joined objects:', joined, 'duplicate material slots:', slots)
+    log('[PERF] Existing project optimization:', round(time.monotonic() - phase_start, 2), 'seconds')
+
+    phase_start = time.monotonic()
+    bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=False)
+    log('[PERF] Saving optimized Blender copy:', round(time.monotonic() - phase_start, 2), 'seconds')
+    if not target.is_file() or target.stat().st_size == 0:
+        raise RuntimeError('Blender did not save the optimized project.')
+    log('OUTPUT .blend saved:', target)
+    log('RESULT: EXISTING BLENDER PROJECT OPTIMIZED. Original file unchanged.')
+
+
 def main():
     arguments = sys.argv[sys.argv.index('--') + 1:]
+    if '--optimize-blend' in arguments:
+        flags = arguments[1:]
+        if len(arguments) < 2 or flags not in (
+                ['--optimize-blend'],
+                ['--optimize-blend', '--batch-static-meshes']):
+            raise RuntimeError('Expected target .blend --optimize-blend [--batch-static-meshes]')
+        if Path(arguments[0]).suffix.lower() != '.blend':
+            raise RuntimeError('Optimization output must be a .blend file.')
+        optimize_existing_blend(Path(arguments[0]).resolve(),
+                                batch_meshes='--batch-static-meshes' in flags)
+        return
     flags = arguments[3:]
     accepted = {'--minecraft-water', '--batch-static-meshes'}
     if len(arguments) < 3 or len(flags) != len(set(flags)) or not set(flags) <= accepted:

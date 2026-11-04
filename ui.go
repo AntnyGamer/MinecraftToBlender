@@ -298,7 +298,7 @@ func createControls() {
 	uiLabel(uiNavHeader, "CONVERT", 3, theme.sideMuted, theme.side)
 	uiLabel(uiTitle, "Export a Minecraft world", 0, theme.white, theme.bg)
 	uiLabel(uiSubtitle, "Choose a Java or Bedrock save directly from your Minecraft world library.", 3, theme.muted, theme.bg)
-	uiLabel(uiVersion, "VERSION 1", 3, theme.accent, theme.bg)
+	uiLabel(uiVersion, "VERSION "+appVersion(), 3, theme.accent, theme.bg)
 	uiButton(idTabExport, "Export world")
 	uiButton(idTabImport, "Import USD")
 	uiButton(idTabSettings, "Settings")
@@ -1086,7 +1086,7 @@ func mainWindow() {
 		height = 570
 	}
 	x, y := (int(screenW)-width)/2, (int(screenH)-height)/2
-	h, _, e := pCreateWindow.Call(0, uintptr(unsafe.Pointer(name)), ptr("Minecraft to Blender v1"), wsOverlappedWindow|wsClipChildren,
+	h, _, e := pCreateWindow.Call(0, uintptr(unsafe.Pointer(name)), ptr("Minecraft to Blender v"+appVersion()), wsOverlappedWindow|wsClipChildren,
 		uintptr(x), uintptr(y), uintptr(width), uintptr(height), 0, 0, module, 0)
 	if h == 0 {
 		panic(fmt.Sprintf("CreateWindowEx failed: %v", e))

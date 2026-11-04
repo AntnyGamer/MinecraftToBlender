@@ -915,7 +915,7 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 	guiLog("Exported world: " + usd)
 	if options.Resume && alsoImport {
 		guiLog("Recording exact-content USD checkpoint for retrying a failed Blender import...")
-		if err := saveResumeCheckpoint(checkpoint, identity, worldPath, usd); err != nil {
+		if err := saveResumeCheckpoint(checkpoint, identity, filepath.Join(tools, "MiEx_Work", "world_source"), usd); err != nil {
 			guiLog("WARNING: Could not save optional resume checkpoint: " + err.Error())
 		}
 	}

@@ -36,7 +36,6 @@ var (
 	pGetScrollInfo   = user32.NewProc("GetScrollInfo")
 	pSetFocus        = user32.NewProc("SetFocus")
 	pDwmSetAttribute = dwm.NewProc("DwmSetWindowAttribute")
-	pIsWindowEnabled = user32.NewProc("IsWindowEnabled")
 	pTrackMouseEvent = user32.NewProc("TrackMouseEvent")
 )
 
@@ -68,8 +67,6 @@ const (
 	odStateSelected = 0x0001
 	odStateDisabled = 0x0004
 	odStateFocus    = 0x0010
-	wsSizeBox       = 0x00040000
-	wsMaximizeBox   = 0x00010000
 )
 
 func color(r, g, b uint32) uint32 { return r | (g << 8) | (b << 16) }

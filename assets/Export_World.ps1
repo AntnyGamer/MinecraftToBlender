@@ -367,8 +367,12 @@ try {
         if($Edition -eq 'bedrock' -and -not (Test-Path -LiteralPath (Join-Path $source 'db') -PathType Container)) {
             Abort 'Selected Bedrock world has no LevelDB db folder.'
         }
-        if($Edition -eq 'java' -and -not ((Test-Path -LiteralPath (Join-Path $source 'region') -PathType Container) -or (Test-Path -LiteralPath (Join-Path $source 'dimensions') -PathType Container))) {
-            Abort 'Selected Java world has no region/dimensions folder.'
+        if($Edition -eq 'java' -and -not (
+            (Test-Path -LiteralPath (Join-Path $source 'region') -PathType Container) -or
+            (Test-Path -LiteralPath (Join-Path $source 'DIM-1/region') -PathType Container) -or
+            (Test-Path -LiteralPath (Join-Path $source 'DIM1/region') -PathType Container) -or
+            (Test-Path -LiteralPath (Join-Path $source 'dimensions') -PathType Container))) {
+            Abort 'Selected Java world has no saved dimension region folder.'
         }
         if($source.Equals($work, [System.StringComparison]::OrdinalIgnoreCase) -or
            $source.StartsWith(($work + [IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase) -or

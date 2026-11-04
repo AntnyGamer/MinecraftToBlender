@@ -448,7 +448,7 @@ def frame_actual_scene(evaluate_instances=True):
                 space = area.spaces.active
                 space.region_3d.view_location = center
                 space.region_3d.view_distance = focus_distance
-                space.clip_end = max(space.clip_end, 1000.0, size * 5)
+                space.clip_end = max(space.clip_end, 1000.0, size * 2)
     # IMPORTANT: Never set hide_viewport or hide_set False on hidden meshes here.
     return center, dimensions
 
@@ -486,7 +486,7 @@ def hide_distant_meshes(view_bounds):
     center, dimensions = view_bounds
     axes = tuple(sorted(range(3), key=lambda axis: dimensions[axis], reverse=True)[:2])
     span = max(dimensions[axis] for axis in axes)
-    radius = max(160.0, min(320.0, span * 0.25))
+    radius = max(160.0, min(320.0, span * 0.20))
     if span <= max(512.0, 2 * radius):
         log('NEARBY VIEW: selected region is small; no mesh hiding necessary.')
         return 0

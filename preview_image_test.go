@@ -86,3 +86,19 @@ func TestPreviewRejectsMissingMiExChunkResponse(t *testing.T) {
 	_, err := renderSampledPreview(log, filepath.Join(dir,"preview.png"), 0,0,512)
 	if err == nil {t.Fatal("a missing getChunk command response must not be shown as successful")}
 }
+
+func TestPreviewRejectsCorruptLoadedChunkImage(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir,"miex.log")
+	for _, chunk := range []string{
+		`{"chunkX":0,"chunkZ":0,"layerCount":1,"image":"broken!"}`,
+		`{"chunkX":0,"chunkZ":0,"layerCount":1,"image":""}`,
+		`{"chunkX":0,"chunkZ":0,"layerCount":1,"image":"AA=="}`,
+	} {
+		payload := "[COMMAND] " + `{"chunks":[` + chunk + `]}` + "\n"
+		if err:=os.WriteFile(log,[]byte(payload),0600);err!=nil {t.Fatal(err)}
+		if _,err:=renderSampledPreview(log, filepath.Join(dir,"map.png"), 8,8,16);err==nil {
+			t.Fatalf("corrupt loaded chunk was accepted: %s",chunk)
+		}
+	}
+}

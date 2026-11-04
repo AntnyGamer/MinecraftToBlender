@@ -69,6 +69,9 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 		if regionPreview.bitmap!=0 {
 			var gfx uintptr
 			if status,_,_:=pGdipCreateGraphics.Call(dc,uintptr(unsafe.Pointer(&gfx)));status==0 && gfx!=0 {
+				// Pixel-art maps should keep block edges crisp when enlarged.
+				// GDI+ InterpolationModeNearestNeighbor = 5.
+				pGdipInterpolation.Call(gfx,5)
 				pGdipDrawImage.Call(gfx,regionPreview.bitmap,32,70,512,512)
 				pGdipDeleteGraphics.Call(gfx)
 			}

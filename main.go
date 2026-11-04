@@ -136,6 +136,15 @@ const (
 	idSelectJava       = 135
 	idWorldPacks       = 136
 	idAutoOpenBlender = 137
+	idTabOptions       = 138
+	idDimension        = 139
+	idPreview          = 140
+	idPreflight        = 141
+	idEntityFrames     = 142
+	idEntityPaintings  = 143
+	idEntityStands     = 144
+	idEntityDisplays   = 145
+	idResume           = 146
 )
 
 type wndClass struct {
@@ -222,9 +231,19 @@ type appState struct {
 	followLog     bool
 	useWorldPacks bool
 	autoOpenBlender bool
+	dimension       string
+	entityFrames    bool
+	entityPaintings bool
+	entityStands    bool
+	entityDisplays  bool
+	resumeEnabled   bool
+	operationStart   time.Time
+	operationStage   string
+	operationMemory  string
 }
 
-var app = appState{ctrls: map[int]uintptr{}, logCh: make(chan string, 4096), doneCh: make(chan result, 8)}
+var app = appState{ctrls: map[int]uintptr{}, logCh: make(chan string, 4096), doneCh: make(chan result, 8),
+	dimension: "overworld", entityFrames: true, entityPaintings: true, entityStands: true, entityDisplays: true, resumeEnabled: true}
 var droppedLogLines atomic.Uint64
 
 func w(s string) *uint16   { return syscall.StringToUTF16Ptr(s) }
@@ -432,6 +451,9 @@ func appendLog(s string) {
 	// Log-based stages are real milestones, not guessed completion percentages.
 	if app.busy {
 		lower := strings.ToLower(s)
+		if strings.HasPrefix(s, "[MEMORY] ") {
+			app.operationMemory = strings.TrimPrefix(s, "[MEMORY] ")
+		}
 		switch {
 		case strings.Contains(lower, "copying a safe, read-only snapshot"):
 			state("Preparing a snapshot of your selected Minecraft world...")
@@ -465,15 +487,35 @@ func appendLog(s string) {
 		app.logShown = -1
 	}
 }
-func state(txt string) { setText(app.ctrls[idStatus], txt) }
+func state(txt string) {
+	app.operationStage = txt
+	if app.busy {
+		setText(app.ctrls[idStatus], operationStatus())
+	} else {
+		setText(app.ctrls[idStatus], txt)
+	}
+}
+func operationStatus() string {
+	if app.operationStart.IsZero() || !app.busy {
+		return app.operationStage
+	}
+	elapsed := time.Since(app.operationStart).Round(time.Second)
+	if app.operationMemory == "" {
+		return fmt.Sprintf("%s  •  %s elapsed", app.operationStage, elapsed)
+	}
+	return fmt.Sprintf("%s  •  %s elapsed  •  %s", app.operationStage, elapsed, app.operationMemory)
+}
+
 func setBusy(b bool) {
 	app.busy = b
 	if b {
 		ui.progressComplete = false
 		ui.progressFrame = 0
+		app.operationStart = time.Now()
+		app.operationMemory = ""
 	}
 	pInvalidate.Call(app.main, 0, 0)
-	for _, id := range []int{idSelectBedrock, idSelectJava, idWorldBrowse, idWorld, idName, idSize, idX, idZ, idMinY, idMaxY, idExport, idBoth, idUSD, idUSDBrowse, idBlender, idBlenderBrowse, idImport, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
+	for _, id := range []int{idSelectBedrock, idSelectJava, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idWorldBrowse, idWorld, idName, idSize, idX, idZ, idMinY, idMaxY, idExport, idBoth, idUSD, idUSDBrowse, idBlender, idBlenderBrowse, idImport, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
 		enabled(id, !b)
 	}
 	enabled(idCancel, b)
@@ -834,7 +876,7 @@ func pathsOverlap(a, b string) bool {
 	return aa == bb || strings.HasPrefix(aa, bb+string(filepath.Separator)) || strings.HasPrefix(bb, aa+string(filepath.Separator))
 }
 
-func runExport(ctx context.Context, worldPath string, edition worldEdition, workspace, exportName, blender string, size, x, z, minY, maxY int, useWorldPacks, alsoImport bool) result {
+func runExport(ctx context.Context, worldPath string, edition worldEdition, workspace, exportName, blender string, size, x, z, minY, maxY int, useWorldPacks, alsoImport bool, options exportOptions) result {
 	if pathsOverlap(worldPath, toolsDir(workspace)) {
 		return result{what: "Export", err: errors.New("the converter workspace conflicts with the selected Minecraft save. Choose a workspace outside the world folder")}
 	}
@@ -846,9 +888,12 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 		return result{what: "Export", err: err}
 	}
 	guiLog("Preparing MiEx export...")
-	args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(tools, "Export_World.ps1"), "-WorldPath", worldPath, "-Edition", string(edition), "-Size", strconv.Itoa(size), "-CenterX", strconv.Itoa(x), "-CenterZ", strconv.Itoa(z), "-MinY", strconv.Itoa(minY), "-MaxY", strconv.Itoa(maxY), "-ExportName", exportName}
+	args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(tools, "Export_World.ps1"), "-WorldPath", worldPath, "-Edition", string(edition), "-Size", strconv.Itoa(size), "-CenterX", strconv.Itoa(x), "-CenterZ", strconv.Itoa(z), "-MinY", strconv.Itoa(minY), "-MaxY", strconv.Itoa(maxY), "-ExportName", exportName, "-Dimension", options.Dimension, "-Entities", options.EntityList()}
 	if useWorldPacks {
 		args = append(args, "-UseWorldResourcePacks")
+	}
+	if options.Resume {
+		args = append(args, "-ResumeSafe")
 	}
 	file := filepath.Join(workspace, "Minecraft_Blender_Export.log")
 	err = runProcess(ctx, "powershell.exe", args, file)
@@ -941,10 +986,11 @@ func startExport(both bool) {
 	state("Exporting Minecraft world...")
 	setBusy(true)
 	app.lastFolder = filepath.Join(toolsDir(workspace), "MiEx_Work", "exports", name)
-	guiLog(fmt.Sprintf("Exporting %d x %d blocks around X=%d Z=%d", size, size, x, z))
+	options := exportOptions{Dimension: app.dimension, Frames: app.entityFrames, Paintings: app.entityPaintings, Stands: app.entityStands, Displays: app.entityDisplays, Resume: app.resumeEnabled}
+	guiLog(fmt.Sprintf("Exporting %d x %d blocks around X=%d Z=%d (%s)", size, size, x, z, options.Dimension))
 	useWorldPacks := app.useWorldPacks
 	go func() {
-		app.doneCh <- runExport(ctx, world.path, world.edition, workspace, name, blender, size, x, z, minY, maxY, useWorldPacks, both)
+		app.doneCh <- runExport(ctx, world.path, world.edition, workspace, name, blender, size, x, z, minY, maxY, useWorldPacks, both, options)
 	}()
 }
 func startImport() {
@@ -1095,6 +1141,9 @@ func onCompleted(r result) {
 func tick() {
 	if app.busy {
 		ui.progressFrame++
+		if !app.operationStart.IsZero() && ui.progressFrame%8 == 0 {
+			setText(app.ctrls[idStatus], operationStatus())
+		}
 		a := ui.activityTop + 76
 		area := rect{Left: 227, Top: int32(a - 1), Right: int32(ui.w - 25), Bottom: int32(a + 8)}
 		pInvalidate.Call(app.main, uintptr(unsafe.Pointer(&area)), 0)
@@ -1146,7 +1195,7 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 		return 0
 	case wmCommand:
 		id := int(wp & 0xffff)
-		if app.busy && id != idCancel && id != idTabExport && id != idTabImport && id != idTabSettings && id != idFollow && id != idFolder && id != idBlendOpen {
+		if app.busy && id != idCancel && id != idTabExport && id != idTabImport && id != idTabSettings && id != idTabOptions && id != idFollow && id != idFolder && id != idBlendOpen {
 			return 0
 		}
 		switch id {
@@ -1154,10 +1203,22 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 			openWorldLibrary(bedrockEdition)
 		case idSelectJava:
 			openWorldLibrary(javaEdition)
-		case idTabExport, idTabImport, idTabSettings:
+		case idTabExport, idTabImport, idTabSettings, idTabOptions:
 			switchTab(id)
 		case idFollow:
 			resumeFollowing()
+		case idDimension:
+			app.dimension = nextDimension(app.dimension)
+			setText(app.ctrls[idDimension], "Dimension: "+dimensionLabel(app.dimension))
+		case idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays:
+			toggleEntity(id)
+		case idResume:
+			app.resumeEnabled = !app.resumeEnabled
+			setText(app.ctrls[idResume], resumeLabel())
+		case idPreflight:
+			showPreflight()
+		case idPreview:
+			startPreview()
 		case idWorldPacks:
 			app.useWorldPacks = !app.useWorldPacks
 			if app.useWorldPacks {

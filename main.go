@@ -103,8 +103,6 @@ const (
 	idYes              = 6
 	colorWindow        = 5
 	defaultGuiFont     = 17
-	pbsMarquee         = 0x08
-	pbmSetMarquee      = 0x040A
 	ofnExplorer        = 0x00080000
 	ofnFileMustExist   = 0x00001000
 	ofnPathMustExist   = 0x00000800
@@ -130,7 +128,6 @@ const (
 	idBlendOpen        = 121
 	idLog              = 122
 	idStatus           = 123
-	idProgress         = 124
 	idTabExport        = 130
 	idTabImport        = 131
 	idTabSettings      = 132
@@ -215,13 +212,11 @@ type appState struct {
 	ctrls         map[int]uintptr
 	busy          bool
 	cancel        context.CancelFunc
-	processPID    int
 	logCh         chan string
 	doneCh        chan result
 	logLines      []string
 	lastBlend     string
 	lastFolder    string
-	lastLog       string
 	selectedWorld *localWorld
 	logShown      int
 	followLog     bool
@@ -486,11 +481,6 @@ func setBusy(b bool) {
 	show(idCancel, b)
 	show(idBlendOpen, !b && app.lastBlend != "")
 	refreshButtons()
-	n := uintptr(0)
-	if b {
-		n = 1
-	}
-	send(app.ctrls[idProgress], pbmSetMarquee, n, 65)
 }
 func toolsDir(workspace string) string { return filepath.Join(workspace, "AppTools") }
 func outputUSD(workspace, name string) string {
@@ -674,27 +664,61 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(r)
-		scanner.Buffer(make([]byte, 65536), 8*1024*1024)
-		// Batch disk writes on verbose exports, without buffering the full log.
+		// Read stdout/stderr in bounded fragments. MiEx can emit a single JSON
+		// diagnostic larger than eight megabytes; Scanner rejects such a line.
+		reader := bufio.NewReaderSize(r, 64*1024)
 		logWriter := bufio.NewWriterSize(f, 256*1024)
-		var writeErr error
-		for scanner.Scan() {
-			line := scanner.Text()
-			if writeErr == nil {
-				if _, writeErr = logWriter.WriteString(line); writeErr == nil {
-					writeErr = logWriter.WriteByte('\n')
+		preview := make([]byte, 0, 4000)
+		truncated := false
+		var readErr, writeErr error
+		for {
+			part, err := reader.ReadSlice('\n')
+			if len(part) > 0 {
+				// Preserve complete diagnostics on disk without holding a full line.
+				if writeErr == nil {
+					_, writeErr = logWriter.Write(part)
 				}
+				if len(preview) < 4000 {
+					count := min(len(part), 4000-len(preview))
+					preview = append(preview, part[:count]...)
+					if count < len(part) {
+						truncated = true
+					}
+				} else {
+					truncated = true
+				}
+				if part[len(part)-1] == '\n' {
+					line := strings.TrimRight(string(preview), "\r\n")
+					if truncated {
+						line += "..."
+					}
+					guiLog(line)
+					preview = preview[:0]
+					truncated = false
+				}
+			}
+			if err == bufio.ErrBufferFull {
+				continue
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				readErr = err
+				break
+			}
+		}
+		if len(preview) > 0 {
+			line := string(preview)
+			if truncated {
+				line += "..."
 			}
 			guiLog(line)
 		}
 		if err := logWriter.Flush(); writeErr == nil {
 			writeErr = err
 		}
-		readErr := scanner.Err()
 		if readErr != nil {
-			// Stop the pipe writer too, so an oversized line cannot leave the
-			// child blocked forever while the parent waits for it to exit.
 			_ = r.CloseWithError(readErr)
 		} else {
 			readErr = writeErr
@@ -1034,7 +1058,6 @@ func onCompleted(r result) {
 	app.cancel = nil
 	if r.err != nil {
 		ui.progressComplete = false
-		app.lastLog = r.logFile
 		state("Failed — see details in log")
 		appendLog("ERROR: " + r.err.Error())
 		updateLog()

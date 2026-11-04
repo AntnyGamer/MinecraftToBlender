@@ -691,7 +691,7 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 	}
 	defer f.Close()
 	cmd := exec.Command(name, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 	// One shared pipe preserves combined diagnostic information without blocking on stderr.
 	r, wpipe := io.Pipe()
 	cmd.Stdout = wpipe
@@ -779,7 +779,9 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 	case <-ctx.Done():
 		// PowerShell starts a Java subprocess. Terminate the process tree, not only its parent.
 		killCtx, stopKill := context.WithTimeout(context.Background(), 8*time.Second)
-		killErr := exec.CommandContext(killCtx, "taskkill.exe", "/T", "/F", "/PID", strconv.Itoa(appPID)).Run()
+		killCmd := exec.CommandContext(killCtx, "taskkill.exe", "/T", "/F", "/PID", strconv.Itoa(appPID))
+		killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+		killErr := killCmd.Run()
 		stopKill()
 		if killErr != nil {
 			// Fall back to killing the parent when taskkill is unavailable.

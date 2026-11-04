@@ -151,6 +151,14 @@ assert key(different) != key(terrain[0])  # different actual material
 assert key(water_mesh) is None
 assert key(entity) is None
 assert key(complex_mesh) is None
+nested_entity = Obj("mesh_chunk_1_0_prototype", Mesh([stone], faces=5))
+nested_entity.parent = NS(name="entities", parent=None, animation_data=None,
+                          constraints=[], hide_render=False)
+assert key(nested_entity) is None, "Never merge meshes from the entity branch"
+nested_background = Obj("mesh_chunk_1_0_background", Mesh([stone], faces=5))
+nested_background.parent = NS(name="background", parent=None, animation_data=None,
+                              constraints=[], hide_render=False)
+assert key(nested_background) is None, "Do not merge proxy or background meshes"
 
 before_faces = sum(len(obj.data.polygons) for obj in all_objects)
 joined = scope["batch_static_terrain_meshes"]()

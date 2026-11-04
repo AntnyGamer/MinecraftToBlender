@@ -14,7 +14,6 @@ var (
 	dwm              = syscall.NewLazyDLL("dwmapi.dll")
 	pCreateFont      = gdi.NewProc("CreateFontW")
 	pCreateBrush     = gdi.NewProc("CreateSolidBrush")
-	pCreatePen       = gdi.NewProc("CreatePen")
 	pSelectObject    = gdi.NewProc("SelectObject")
 	pDeleteObject    = gdi.NewProc("DeleteObject")
 	pRoundRect       = gdi.NewProc("RoundRect")
@@ -71,7 +70,6 @@ const (
 	odStateFocus    = 0x0010
 	wsSizeBox       = 0x00040000
 	wsMaximizeBox   = 0x00010000
-	psSolid         = 0
 )
 
 func color(r, g, b uint32) uint32 { return r | (g << 8) | (b << 16) }

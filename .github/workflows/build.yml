@@ -176,7 +176,7 @@ jobs:
           # publishing it over a previously completed export.
           $referenced = Join-Path $dir 'referenced_chunk_layers'
           New-Item -ItemType Directory -Force -Path $referenced | Out-Null
-          $references = [regex]::Matches('payload = @./World_chunks/region_1_chunk_1_1.usd@; payload = @./World_chunks/region_1_chunk_1_1.usd@', 'payload\\s*=\\s*@\\./World_chunks/region_1_chunk_\\d+_\\d+\\.usd@')
+          $references = [regex]::Matches('payload = @./World_chunks/region_1_chunk_1_1.usd@; payload = @./World_chunks/region_1_chunk_1_1.usd@', 'payload\s*=\s*@\./World_chunks/region_1_chunk_\d+_\d+\.usd@')
           try {
             [void](Assert-ReferencedChunkLayers $referenced $references)
             throw 'Missing referenced chunk incorrectly accepted'

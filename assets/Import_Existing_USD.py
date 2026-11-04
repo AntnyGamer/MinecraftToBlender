@@ -453,6 +453,26 @@ def frame_actual_scene(evaluate_instances=True):
     return center, dimensions
 
 
+def lighten_solid_viewport():
+    """Turn off expensive optional effects, not the already-Solid view mode."""
+    disabled = 0
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type != 'VIEW_3D':
+                continue
+            shading = area.spaces.active.shading
+            if shading.type != 'SOLID':
+                continue
+            for option in ('show_shadows', 'show_cavity', 'show_specular_highlight'):
+                if hasattr(shading, option) and getattr(shading, option):
+                    setattr(shading, option, False)
+                    disabled += 1
+    log('NEARBY VIEW: disabled', disabled,
+        'optional Solid-view shadow/cavity/highlight effects; '
+        'kept the original shading mode.')
+    return disabled
+
+
 def outside_nearby_radius(box_min, box_max, center, axes, radius):
     """True only if the entire world-space bounding box is farther away.
 
@@ -587,8 +607,9 @@ def main():
     hide_relationship_lines()
     if fast_viewport:
         phase_start = time.monotonic()
+        lighten_solid_viewport()
         hide_distant_meshes(bounds)
-        log('[PERF] Viewport nearby-object culling:',
+        log('[PERF] Viewport nearby-object culling and Solid effects:',
             round(time.monotonic() - phase_start, 2), 'seconds')
     if scene['meshes'] > 1000:
         log('VIEWPORT NOTICE:', scene['meshes'],

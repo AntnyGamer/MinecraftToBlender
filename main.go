@@ -455,6 +455,10 @@ func appendLog(s string) {
 		lower := strings.ToLower(s)
 		if strings.HasPrefix(s, "[MEMORY] ") {
 			app.operationMemory = strings.TrimPrefix(s, "[MEMORY] ")
+		} else if strings.Contains(lower, "miex java process exited") {
+			// Java memory measurements must not remain visible while Blender
+			// imports or saves a project after the Java process has exited.
+			app.operationMemory = ""
 		}
 		switch {
 		case strings.Contains(lower, "copying a safe, read-only snapshot"):

@@ -119,15 +119,25 @@ func readiness(world localWorld, workspace, blender, dim string, size, x, z int,
 		if err != nil {
 			warnings = append(warnings, "Java version check failed: "+err.Error())
 		} else {
-			first := strings.SplitN(string(data), "\n", 2)[0]
-			info = append(info, "Java: "+strings.TrimSpace(first))
+			first := strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0])
+			info = append(info, "Java: "+first)
+			if major := javaMajorVersion(first); major != 0 && major < 21 {
+				warnings = append(warnings, fmt.Sprintf("Java %d is too old; MiEx requires Java 21 or newer.",major))
+			}
 		}
 	}
 	if alsoImport {
 		if s, err := os.Stat(blender); err != nil || s.IsDir() {
 			warnings = append(warnings, "Blender executable cannot be found.")
 		} else {
-			info = append(info, "Blender found.")
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+			data, err := exec.CommandContext(ctx, blender, "--version").CombinedOutput()
+			cancel()
+			if err != nil {
+				warnings = append(warnings, "Blender could not report its version: "+err.Error())
+			} else {
+				info = append(info, "Blender: "+strings.TrimSpace(strings.SplitN(string(data),"\n",2)[0]))
+			}
 		}
 	}
 	if ram := physicalRAM(); ram != 0 {
@@ -145,6 +155,19 @@ func readiness(world localWorld, workspace, blender, dim string, size, x, z int,
 		warnings = append(warnings, "Couldn't determine available workspace disk space.")
 	}
 	return strings.Join(info, "\n"), warnings
+}
+
+func javaMajorVersion(line string) int {
+	quoted := strings.Split(line, "\"")
+	if len(quoted) < 2 {return 0}
+	parts := strings.Split(quoted[1], ".")
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {return 0}
+	if major == 1 && len(parts) > 1 {
+		legacy, err := strconv.Atoi(parts[1])
+		if err == nil {return legacy}
+	}
+	return major
 }
 
 func showPreflight() {

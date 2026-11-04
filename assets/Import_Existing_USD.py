@@ -491,6 +491,7 @@ def hide_distant_meshes(view_bounds):
         log('NEARBY VIEW: selected region is small; no mesh hiding necessary.')
         return 0
     hidden = 0
+    hidden_faces = 0
     meshes = 0
     for ob in bpy.context.scene.objects:
         if ob.type != 'MESH' or ob.hide_render or ob.hide_get():
@@ -511,9 +512,11 @@ def hide_distant_meshes(view_bounds):
         if outside_nearby_radius(bounds_min, bounds_max, center, axes, radius):
             ob.hide_set(True)
             hidden += 1
+            hidden_faces += len(ob.data.polygons)
     log('NEARBY VIEW:', hidden, '/', meshes,
-        'visible mesh objects hidden beyond', round(radius, 1),
-        'Blender units. Alt+H in Object Mode reveals every hidden object.')
+        'visible mesh objects hidden,',
+        hidden_faces, 'mesh faces omitted from viewport drawing, beyond',
+        round(radius, 1), 'Blender units. Alt+H in Object Mode reveals all.')
     if hidden == 0:
         log('NEARBY VIEW: no separate distant meshes were found. '
             'If MiEx exported very large combined meshes, this option will '

@@ -130,7 +130,7 @@ func TestPreviewPlacesNonAdjacentChunksAtTheirWorldCoordinates(t *testing.T) {
 	// 272 blocks span 17 chunks along each axis. The old large-region
 	// renderer wrongly drew sparse samples in adjacent 16-pixel tiles.
 	payload := fmt.Sprintf(
-		"[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":5,\"chunkZ\":7,\"layerCount\":1,\"image\":\"%s\"},{\"chunkX\":6,\"chunkZ\":7,\"layerCount\":1,\"image\":\"%s\"}]}\\n",
+		"[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":5,\"chunkZ\":7,\"layerCount\":1,\"image\":\"%s\"},{\"chunkX\":6,\"chunkZ\":7,\"layerCount\":1,\"image\":\"%s\"}]}\n",
 		solidChunkImage(225, 10, 20), solidChunkImage(15, 235, 20),
 	)
 	if err := os.WriteFile(logPath, []byte(payload), 0600); err != nil {
@@ -165,7 +165,7 @@ func TestPreviewPreservesNegativeChunkCoordinates(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "miex.log")
 	output := filepath.Join(dir, "map.png")
-	payload := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-1,\"chunkZ\":-1,\"layerCount\":1,\"image\":\"%s\"}]}\\n", solidChunkImage(22, 66, 177))
+	payload := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-1,\"chunkZ\":-1,\"layerCount\":1,\"image\":\"%s\"}]}\n", solidChunkImage(22, 66, 177))
 	if err := os.WriteFile(logPath, []byte(payload), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestHugePreviewUsesAverageColorsRatherThanInventedBlockGeometry(t *testing.
 		}
 		pixels[4*i+3] = 255
 	}
-	payload := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-64,\"chunkZ\":-64,\"layerCount\":1,\"image\":\"%s\"}]}\\n", base64.StdEncoding.EncodeToString(pixels))
+	payload := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-64,\"chunkZ\":-64,\"layerCount\":1,\"image\":\"%s\"}]}\n", base64.StdEncoding.EncodeToString(pixels))
 	if err := os.WriteFile(logPath, []byte(payload), 0600); err != nil {
 		t.Fatal(err)
 	}

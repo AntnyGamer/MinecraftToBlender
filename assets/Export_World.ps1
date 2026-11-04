@@ -262,7 +262,11 @@ function Copy-WorldSnapshot([string]$source,[string]$destination) {
     if($copyExe) {
         $robocopyExe = $copyExe.Source
         & $robocopyExe $source $destination /E /MT:8 /R:1 /W:1 /XJ /NFL /NDL /NJH /NJS /NP | Out-Null
-        if($LASTEXITCODE -ge 8) { throw "World snapshot copy failed (Robocopy exit $LASTEXITCODE)." }
+        $copyExitCode = $LASTEXITCODE
+        # Robocopy uses 1-7 for successful copies; don't leak that native
+        # process status into the calling PowerShell or GitHub Actions.
+        $global:LASTEXITCODE = 0
+        if($copyExitCode -ge 8) { throw "World snapshot copy failed (Robocopy exit $copyExitCode)." }
     } else {
         foreach($entry in (Get-ChildItem -LiteralPath $source -Force -ErrorAction Stop)) {
             Copy-Item -LiteralPath $entry.FullName -Destination $destination -Recurse -Force -ErrorAction Stop

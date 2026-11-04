@@ -96,6 +96,35 @@ function Start-CapturedProcess([string]$exe,[string]$arguments,[string]$folder,[
         } catch { $errFile.Dispose(); throw }
     } catch { $outFile.Dispose(); $process.Dispose(); throw }
 }
+function Assert-GeneratedTextureFiles([string]$exportDir,[string]$name,[string]$materialsText) {
+    # MiEx references banner/layered textures relative to <name>_chunks/textures.
+    # An absent generated image can produce a structurally valid yet untextured
+    # Blender project. Catch the missing assets before publishing this export.
+    $normalized = $materialsText.Replace('\\', '/').Replace('\/', '/')
+    $folder = $name + '_chunks/textures/'
+    $references = [regex]::Matches($normalized, [regex]::Escape($folder) + '[A-Za-z0-9_./-]+')
+    $root = [IO.Path]::GetFullPath((Join-Path $exportDir ($name + '_chunks/textures')))
+    $seen = @{}
+    foreach($match in $references) {
+        $relative = $match.Value.Substring($folder.Length)
+        $relative = $relative.TrimEnd('.')
+        if([string]::IsNullOrWhiteSpace($relative)) { continue }
+        if([IO.Path]::GetExtension($relative) -eq '') {
+            $relative += '.png'
+        }
+        if($seen.ContainsKey($relative)) { continue }
+        $seen[$relative] = $true
+        $actual = [IO.Path]::GetFullPath((Join-Path $root ($relative -replace '/', '\')))
+        if(-not $actual.StartsWith(($root + '\'),[StringComparison]::OrdinalIgnoreCase)) {
+            throw ('Unsafe generated texture path: ' + $relative)
+        }
+        if(-not (Test-Path -LiteralPath $actual -PathType Leaf) -or
+            (Get-Item -LiteralPath $actual).Length -eq 0) {
+            throw ('Generated banner/layered texture missing or empty: ' + $actual)
+        }
+    }
+    return $seen.Count
+}
 function Get-PreviewChunkCoordinates([int]$firstX,[int]$lastX,[int]$firstZ,[int]$lastZ) {
     $spanX = $lastX - $firstX + 1
     $spanZ = $lastZ - $firstZ + 1
@@ -977,6 +1006,8 @@ try {
     if($matText.Contains($exportDir + '\') -or $matText.Contains(($exportDir -replace '\\', '/'))) {
         Abort 'Materials reference the temporary export path; refusing to publish a broken import.'
     }
+    $verifiedGeneratedTextures = Assert-GeneratedTextureFiles $exportDir $ExportName $matText
+    Write-Host ("Verified $verifiedGeneratedTextures generated material texture reference(s).")
     Publish-Export $exportDir $finalExportDir
     $exportDir = $finalExportDir
     $main = Join-Path $exportDir $exportFile

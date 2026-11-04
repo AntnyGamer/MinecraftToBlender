@@ -77,7 +77,6 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	firstChunkZ := int(math.Floor(float64(minZ)/16))
 	lastChunkX := int(math.Floor(float64(minX+size-1)/16))
 	lastChunkZ := int(math.Floor(float64(minZ+size-1)/16))
-	loaded := 0
 	paintPixel := func(x,y int,data []byte,offset int) {
 		alpha := data[offset+3]
 		if alpha == 0 {
@@ -99,7 +98,6 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	// Minecraft positions. Repeating one tiny chunk 256 times made a false
 	// tiled overview instead of a correctly enlarged map of those blocks.
 	if lastChunkX-firstChunkX < 16 && lastChunkZ-firstChunkZ < 16 {
-		seen := make(map[[2]int]bool)
 		for y:=0;y<256;y++ {
 			worldZ:=minZ+y*size/256
 			chunkZ:=int(math.Floor(float64(worldZ)/16))
@@ -109,12 +107,10 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 				chunkX:=int(math.Floor(float64(worldX)/16))
 				data,ok:=tiles[[2]int{chunkX,chunkZ}]
 				if !ok {continue}
-				seen[[2]int{chunkX,chunkZ}]=true
 				localX:=((worldX%16)+16)%16
 				paintPixel(x,y,data,(localZ*16+localX)*4)
 			}
 		}
-		loaded=len(seen)
 	} else {
 		// Larger regions use a coarse 16x16 sample preview, never a claim of
 		// full terrain coverage. Each cell displays the corresponding sampled
@@ -125,7 +121,6 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 				chunkZ := int(math.Floor(float64(firstChunkZ)+float64(lastChunkZ-firstChunkZ)*float64(row)/15))
 				data, ok := tiles[[2]int{chunkX, chunkZ}]
 				if !ok {continue}
-				loaded++
 				for py:=0;py<16;py++ {
 					for px:=0;px<16;px++ {
 						paintPixel(col*16+px,row*16+py,data,(py*16+px)*4)

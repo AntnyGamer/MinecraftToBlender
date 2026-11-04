@@ -111,3 +111,117 @@ func TestPreviewRejectsExplicitMiExFailure(t *testing.T) {
 	_,err:=renderSampledPreview(log,filepath.Join(dir,"map.png"),0,0,512)
 	if err==nil { t.Fatal("MiEx failure incorrectly rendered as an empty valid region") }
 }
+
+func solidChunkImage(red, green, blue byte) string {
+	pixels := make([]byte, 16*16*4)
+	for i := 0; i < len(pixels); i += 4 {
+		pixels[i] = blue
+		pixels[i+1] = green
+		pixels[i+2] = red
+		pixels[i+3] = 255
+	}
+	return base64.StdEncoding.EncodeToString(pixels)
+}
+
+func TestPreviewPlacesNonAdjacentChunksAtTheirWorldCoordinates(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "miex.log")
+	output := filepath.Join(dir, "map.png")
+	// 272 blocks span 17 chunks along each axis. The old large-region
+	// renderer wrongly drew sparse samples in adjacent 16-pixel tiles.
+	payload := fmt.Sprintf(
+		"[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":5,\"chunkZ\":7,\"layerCount\":1,\"image\":\"%s\"},{\"chunkX\":6,\"chunkZ\":7,\"layerCount\":1,\"image\":\"%s\"}]}\\n",
+		solidChunkImage(225, 10, 20), solidChunkImage(15, 235, 20),
+	)
+	if err := os.WriteFile(logPath, []byte(payload), 0600); err != nil {
+		t.Fatal(err)
+	}
+	n, err := renderSampledPreview(logPath, output, 136, 136, 272)
+	if err != nil || n != 2 {
+		t.Fatalf("expected two decoded chunks, got %d: %v", n, err)
+	}
+	file, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	img, err := png.Decode(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(x, y int, wantR, wantG, wantB uint32) {
+		t.Helper()
+		r, g, b, _ := img.At(x, y).RGBA()
+		if r>>8 != wantR || g>>8 != wantG || b>>8 != wantB {
+			t.Errorf("pixel (%d,%d): got %d,%d,%d want %d,%d,%d", x, y, r>>8, g>>8, b>>8, wantR, wantG, wantB)
+		}
+	}
+	check(78, 110, 225, 10, 20)
+	check(92, 110, 15, 235, 20)
+	check(65, 110, 218, 218, 218) // Adjacent unsampled land stays gray, not relocated.
+}
+
+func TestPreviewPreservesNegativeChunkCoordinates(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "miex.log")
+	output := filepath.Join(dir, "map.png")
+	payload := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-1,\"chunkZ\":-1,\"layerCount\":1,\"image\":\"%s\"}]}\\n", solidChunkImage(22, 66, 177))
+	if err := os.WriteFile(logPath, []byte(payload), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := renderSampledPreview(logPath, output, 0, 0, 32); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	img, err := png.Decode(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := img.At(0, 0).RGBA()
+	if r>>8 != 22 || g>>8 != 66 || b>>8 != 177 {
+		t.Fatalf("negative chunk displayed in the wrong position: %d,%d,%d", r>>8, g>>8, b>>8)
+	}
+	r, _, _, _ = img.At(128, 0).RGBA()
+	if r>>8 != 218 {
+		t.Fatalf("the neighboring unqueried chunk was incorrectly filled: %d", r>>8)
+	}
+}
+
+func TestHugePreviewUsesAverageColorsRatherThanInventedBlockGeometry(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "miex.log")
+	output := filepath.Join(dir, "map.png")
+	pixels := make([]byte, 16*16*4)
+	for i := 0; i < 16*16; i++ {
+		if i < 128 {
+			pixels[4*i] = 255 // blue in BGRA
+		} else {
+			pixels[4*i+2] = 255 // red in BGRA
+		}
+		pixels[4*i+3] = 255
+	}
+	payload := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-64,\"chunkZ\":-64,\"layerCount\":1,\"image\":\"%s\"}]}\\n", base64.StdEncoding.EncodeToString(pixels))
+	if err := os.WriteFile(logPath, []byte(payload), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := renderSampledPreview(logPath, output, 0, 0, 2048); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	img, err := png.Decode(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := img.At(0, 0).RGBA()
+	if r>>8 != 127 || g>>8 != 0 || b>>8 != 127 {
+		t.Fatalf("coarse preview must use mean color, not raw texture pixels: %d,%d,%d", r>>8, g>>8, b>>8)
+	}
+}

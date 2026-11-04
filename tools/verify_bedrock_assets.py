@@ -34,8 +34,10 @@ def main():
     shulkers = load("Bedrock_Shulkers.json")
     shulker_text = text_of(shulkers)
     assert "minecraft:shulker_box" in shulkers["blocks"]
+    assert "thisBlock.state.facing_direction != null" in shulker_text
     for direction in range(6):
-        assert f"thisBlock.state.facing_direction == {direction}" in shulker_text
+        assert f"bedrockFacing == {direction}" in shulker_text
+    assert "bedrockFacing == 1 ? 0.0" in shulker_text
 
     # Legacy Bedrock names really appear in the user's saved block palette.
     # Missing them used to bypass otherwise correct model overrides.

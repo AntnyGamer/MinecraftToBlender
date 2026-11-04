@@ -26,6 +26,13 @@
 - Append log chunks directly to the standard Windows EDIT control when RichEdit is unavailable and auto-follow is enabled, instead of retrieving and rewriting the full accumulated log every update. Keep the original behavior near the EDIT text-length limit or while follow is paused.
 - Windows regressions exercise streaming audit classifications and incremental standard EDIT appends without altering the saved log file.
 
+## Additional bounded-memory improvements
+
+- Queue only the same 4,000-byte diagnostic prefix the EXE already displays, so unusually large MiEx JSON responses do not occupy megabytes per queued UI line. Saved process logs remain byte-for-byte complete.
+- When Bedrock level.dat already provides the world title, skip the redundant levelname.txt file read. Preserve the previous fallback for incomplete or invalid NBT, including BOM and zero trimming.
+- Skip Blender path expansion for relative image paths that the texture audit intentionally does not check. Continue checking and reporting absolute paths and missing textures without altering the materials.
+- Add tests for large GUI messages, Bedrock world-name precedence and fallback, and texture-audit counts/path lookups.
+
 ## Faster world selection
 
 - Decode world thumbnails only when they first become visible in the world picker, rather than decoding the entire saved-world collection before the picker opens. Cache both successful and failed loads within each session; release images and cache state on refresh or closing the picker.

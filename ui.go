@@ -318,7 +318,7 @@ func createControls() {
 	uiLabel(uiSubtitle, "Choose a Java or Bedrock save directly from your Minecraft world library.", 3, theme.muted, theme.bg)
 	uiLabel(uiVersion, "VERSION "+appVersion(), 3, theme.accent, theme.bg)
 	uiButton(idTabExport, "Export world")
-	uiButton(idTabImport, "Import USD")
+	uiButton(idTabImport, "Import / optimize")
 	uiButton(idTabSettings, "Settings")
 	uiButton(idTabOptions, "Export options")
 

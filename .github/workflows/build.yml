@@ -24,6 +24,8 @@ jobs:
         run: python tools/verify_bedrock_assets.py
       - name: Validate_Blender_scene_performance
         run: python tools/test_blender_scene_performance.py
+      - name: Validate_Blender_texture_audit
+        run: python tools/test_blender_texture_audit.py
       - name: Validate_MiEx_shader_lookup
         run: python tools/test_miex_material_lookup.py
 

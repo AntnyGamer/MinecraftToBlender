@@ -9,7 +9,12 @@
 - Add explicit MiEx export-as-block entity selection, block-entity diagnostics, and generated material texture reference checks that prevent publishing a known-incomplete export.
 - Expand Windows/Go/Python validation for new behaviors.
 
+## Optional Minecraft-style water
+- Add an Off-by-default toggle in Export options for a simple translucent water material in Blender. It preserves water geometry, UVs, biome color and imported textures. No expensive geometry displacement or additional render passes are introduced by the app; transparency itself may reduce Blender viewport frame rates.
+- This is not Minecraft's rendering engine and does not offer identical refraction, underwater effects or animated flowing water.
+
 ## Performance
+- Speed Blender's MiEx material-node layout by replacing repeated linear name searches with a stable dictionary, retaining identical node positions; add a 200-node regression check.
 - Skip redundant dependency-graph evaluation when framing static, modifier-free meshes in Blender; retain evaluated bounds for instances, Geometry Nodes and other modifiers.
 - Report export and Blender preparation/import phase timings to distinguish slow snapshot copying, Java meshing, scene setup and saving.
 - MiEx already skips occluded neighboring block faces and runs its face optimizer; this change does not claim Minecraft-style chunk streaming or reduce scene fidelity.

@@ -59,14 +59,137 @@ func digestDirectory(ctx context.Context, root string) (string,error) {
 	return digestDirectoryFiltered(ctx, root, nil)
 }
 
-var blenderProjectName = regexp.MustCompile(`(?i)\.blend[0-9]*$`)
+var blenderProjectName = regexp.MustCompile(`(?i)\.blend[0-9]*//go:build windows
+
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+type resumeIdentity struct {
+	WorldPath string
+	Edition string
+	ExportName string
+	Dimension string
+	Size, X, Z, MinY, MaxY int
+	WorldPacks bool
+	Entities string
+	AppVersion string
+}
+
+type resumeCheckpoint struct {
+	Identity resumeIdentity
+	WorldHash string
+	ExportHash string
+}
+
+func makeResumeIdentity(world string,edition worldEdition,name string,options exportOptions,size,x,z,minY,maxY int,worldPacks bool) resumeIdentity {
+	full,err:=filepath.Abs(world)
+	if err!=nil {full=world}
+	return resumeIdentity{
+		WorldPath:filepath.Clean(full),Edition:string(edition),ExportName:name,
+		Dimension:options.Dimension,Size:size,X:x,Z:z,MinY:minY,MaxY:maxY,
+		WorldPacks:worldPacks,Entities:options.EntityList(),AppVersion:appVersion(),
+	}
+}
+
+// Calculate an exact digest before reusing work. File sizes or timestamps
+// alone cannot establish that a Minecraft LevelDB snapshot stayed unchanged.
+type cancelReader struct {
+	ctx context.Context
+	reader io.Reader
+}
+
+func (r cancelReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil { return 0, err }
+	return r.reader.Read(p)
+}
+
+func digestDirectory(ctx context.Context, root string) (string,error) {
+	return digestDirectoryFiltered(ctx, root, nil)
+}
+
+)
+var blenderTextureAuditName = regexp.MustCompile(`(?i)_texture_audit\.txt//go:build windows
+
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+type resumeIdentity struct {
+	WorldPath string
+	Edition string
+	ExportName string
+	Dimension string
+	Size, X, Z, MinY, MaxY int
+	WorldPacks bool
+	Entities string
+	AppVersion string
+}
+
+type resumeCheckpoint struct {
+	Identity resumeIdentity
+	WorldHash string
+	ExportHash string
+}
+
+func makeResumeIdentity(world string,edition worldEdition,name string,options exportOptions,size,x,z,minY,maxY int,worldPacks bool) resumeIdentity {
+	full,err:=filepath.Abs(world)
+	if err!=nil {full=world}
+	return resumeIdentity{
+		WorldPath:filepath.Clean(full),Edition:string(edition),ExportName:name,
+		Dimension:options.Dimension,Size:size,X:x,Z:z,MinY:minY,MaxY:maxY,
+		WorldPacks:worldPacks,Entities:options.EntityList(),AppVersion:appVersion(),
+	}
+}
+
+// Calculate an exact digest before reusing work. File sizes or timestamps
+// alone cannot establish that a Minecraft LevelDB snapshot stayed unchanged.
+type cancelReader struct {
+	ctx context.Context
+	reader io.Reader
+}
+
+func (r cancelReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil { return 0, err }
+	return r.reader.Read(p)
+}
+
+func digestDirectory(ctx context.Context, root string) (string,error) {
+	return digestDirectoryFiltered(ctx, root, nil)
+}
+
+)
 
 func isImportGeneratedFile(rel string) bool {
 	// Ignore only Blender-created root files; keep hashing every USD sidecar,
 	// material, texture, and chunk layer used by the importer.
 	if filepath.Dir(rel) != "." { return false }
 	name := filepath.Base(rel)
-	return strings.EqualFold(name, "Minecraft_Blender_Import.log") || blenderProjectName.MatchString(name)
+	return strings.EqualFold(name, "Minecraft_Blender_Import.log") || blenderProjectName.MatchString(name) || blenderTextureAuditName.MatchString(name)
 }
 
 func digestExportDirectory(ctx context.Context, root string) (string,error) {

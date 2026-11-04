@@ -33,6 +33,12 @@
 - Skip Blender path expansion for relative image paths that the texture audit intentionally does not check. Continue checking and reporting absolute paths and missing textures without altering the materials.
 - Add tests for large GUI messages, Bedrock world-name precedence and fallback, and texture-audit counts/path lookups.
 
+## Dead-code and packaging cleanup
+
+- Remove the unused GDI rounded-rectangle painter, group-box helper, and unreferenced Win32 bindings and constants.
+- Remove the unreachable Java face-optimizer patcher and its bundled Java/class artifacts. The exporter still explicitly disables face merging and uses the checksum-verified original MiEx JAR; optional binary USD Crate conversion remains available.
+- This cleanup reduces bundled files and eliminates an uncallable code path without changing the default export options.
+
 ## World discovery and compatibility
 
 - Avoid repeated file existence checks for Minecraft saves reached through overlapping Java launcher paths; retain the same case-insensitive deduplication and sorting. The original eager thumbnail loading remains in place to avoid introducing per-scroll image-decoding latency.

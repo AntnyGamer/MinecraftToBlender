@@ -96,7 +96,6 @@ const (
 	esAutoVScroll      = 0x0040
 	wsVScroll          = 0x00200000
 	bsPushbutton       = 0
-	bsGroupbox         = 0x00000007
 	swShow             = 5
 	mbWarn             = 0x30
 	mbError            = 0x10
@@ -281,7 +280,6 @@ func field(txt string, x, y, ww, id int) {
 func button(txt string, x, y, ww, id int) {
 	create("BUTTON", txt, wsTabStop|bsPushbutton, x, y, ww, 29, id)
 }
-func group(txt string, x, y, ww, hh int) { create("BUTTON", txt, bsGroupbox, x, y, ww, hh, 0) }
 
 func defaultWorkspace() string {
 	base := os.Getenv("LOCALAPPDATA")

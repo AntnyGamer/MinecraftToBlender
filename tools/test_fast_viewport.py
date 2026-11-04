@@ -6,7 +6,8 @@ from types import SimpleNamespace as NS
 
 tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
 names = {"terrain_mesh_batch_key", "batch_static_terrain_meshes",
-         "deduplicate_exact_material_slots", "is_minecraft_water_material"}
+         "deduplicate_exact_material_slots", "is_minecraft_water_material",
+         "is_conservatively_opaque_terrain_material"}
 funcs = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
 assert len(funcs) == len(names), "All required import-side helpers must exist"
 
@@ -154,6 +155,10 @@ assert key(raw_negative_chunk)[0] == (-1, -1)
 
 assert key(different) != key(terrain[0])  # different actual material
 assert key(water_mesh) is None
+glass_mesh = Obj("mesh_chunk_0_0_glass", Mesh([Mat("MAT_minecraft_block_glass_foo")]))
+assert key(glass_mesh) is None, "Transparent glass should never be joined"
+assert not scope["is_conservatively_opaque_terrain_material"](Mat("MAT_minecraft_block_ice_foo"))
+
 assert key(entity) is None
 assert key(complex_mesh) is None
 nested_entity = Obj("mesh_chunk_1_0_prototype", Mesh([stone], faces=5))

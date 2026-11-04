@@ -405,6 +405,14 @@ function Copy-WorldSnapshot([string]$source,[string]$destination) {
     }
 }
 function Abort([string]$reason) {throw $reason}
+$perfWatch = [System.Diagnostics.Stopwatch]::StartNew()
+$lastPerf = [TimeSpan]::Zero
+function Report-PerfPhase([string]$label) {
+    $now = $script:perfWatch.Elapsed
+    $seconds = ($now - $script:lastPerf).TotalSeconds
+    Write-Host ('[PERF] {0}: {1:N1} seconds; elapsed total: {2:N1} seconds' -f $label, $seconds, $now.TotalSeconds) -ForegroundColor DarkCyan
+    $script:lastPerf = $now
+}
 
 try {
     Write-Host ("$Edition world folder -> MiEx -> Blender USD") -ForegroundColor Cyan
@@ -532,6 +540,7 @@ try {
         Write-Host "Snapshot ready; world metadata SHA256: $actualWorldHash" -ForegroundColor Green
     }
 
+    Report-PerfPhase 'Read-only world snapshot and validation'
     if($UseWorldResourcePacks) { Assert-SafeResourcePackArchives $worldPath }
 
     if(-not (Test-Path -LiteralPath $jar)) {Get-WebFile $releaseUrl $jar}
@@ -789,6 +798,7 @@ try {
     } else {
         Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
     }
+    Report-PerfPhase 'MiEx assets, configuration and command preparation'
     # IMPORTANT: Java writes harmless warnings to stderr. Windows PowerShell 5.1
     # can turn those warnings into terminating errors when ErrorActionPreference
     # is Stop and stderr is merged with stdout using *>&1. Capture both streams
@@ -868,6 +878,7 @@ try {
         (Select-String -LiteralPath $stderrLog -Pattern $oomPattern -Quiet -ErrorAction SilentlyContinue))) {
         Abort "MiEx exhausted Java heap during export. Raytracing is disabled in this build; try a smaller region and inspect $stderrLog. Previous exports were preserved."
     }
+    Report-PerfPhase 'MiEx Java world export'
     Write-Host "MiEx Java process exited with code $code"
     if($PreviewOnly) {
         if(Test-Path -LiteralPath $exportDir) { Remove-Item -LiteralPath $exportDir -Recurse -Force -ErrorAction SilentlyContinue }
@@ -1013,6 +1024,7 @@ try {
     $verifiedGeneratedTextures = Assert-GeneratedTextureFiles $exportDir $ExportName $matText
     Write-Host ("Verified $verifiedGeneratedTextures generated material texture reference(s).")
     Publish-Export $exportDir $finalExportDir
+    Report-PerfPhase 'USD verification, optional compaction and publication'
     $exportDir = $finalExportDir
     $main = Join-Path $exportDir $exportFile
     Write-Host 'Fresh export published; previous chunk layers cannot be reused.' -ForegroundColor Green

@@ -16,8 +16,7 @@ param(
     [switch]$UseWorldResourcePacks,
     [ValidateSet('overworld','the_nether','the_end')][string]$Dimension = 'overworld',
     [string]$Entities = 'minecraft:item_frame,minecraft:glow_item_frame,minecraft:painting,minecraft:block_display,minecraft:item_display,minecraft:armor_stand',
-    [switch]$PreviewOnly,
-    [switch]$ResumeSafe
+    [switch]$PreviewOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest

@@ -487,7 +487,7 @@ def hide_distant_meshes(view_bounds):
     axes = tuple(sorted(range(3), key=lambda axis: dimensions[axis], reverse=True)[:2])
     span = max(dimensions[axis] for axis in axes)
     radius = max(160.0, min(320.0, span * 0.25))
-    if span <= 2 * radius:
+    if span <= max(512.0, 2 * radius):
         log('NEARBY VIEW: selected region is small; no mesh hiding necessary.')
         return 0
     hidden = 0

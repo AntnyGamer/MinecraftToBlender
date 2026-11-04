@@ -60,6 +60,19 @@ with tempfile.TemporaryDirectory() as folder:
     assert operations == ["clear", "dedup", "save"]
     assert len(mesh.data.polygons) == 4
 
+    # Optimizing compressed projects should retain their original save format,
+    # avoiding unexpectedly huge expanded .blend files.
+    output.unlink()
+    original.write_bytes(bytes((0x1f, 0x8b)) + b"synthetic compressed blend")
+    compress_modes = []
+    def save_compressed(filepath, compress):
+        compress_modes.append(compress)
+        Path(filepath).write_bytes(b"new project")
+    bpy.ops.wm.save_as_mainfile = save_compressed
+    optimize(output)
+    assert compress_modes == [True]
+    assert original.read_bytes().startswith(bytes((0x1f, 0x8b)))
+
     # Never overwrite a previously saved output or original file.
     for existing in (original, output):
         try:
@@ -70,6 +83,8 @@ with tempfile.TemporaryDirectory() as folder:
 
     output.unlink()
     operations.clear()
+    original.write_bytes(b"untouched original world")
+    bpy.ops.wm.save_as_mainfile = save_mainfile
     optimize(output, batch_meshes=True)
     assert operations == ["clear", "batch", "dedup", "save"]
     assert original.read_bytes() == b"untouched original world"

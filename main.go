@@ -415,6 +415,11 @@ func intField(id int, min, max int) (int, error) {
 	return n, nil
 }
 func guiLog(line string) {
+	// The UI displays at most 4000 bytes per line. Bound the queued copy
+	// before it enters the 4096-line channel; runProcess saves full output.
+	if len(line) > 4000 {
+		line = line[:4000] + "..."
+	}
 	select {
 	case app.logCh <- line:
 	default:

@@ -104,7 +104,7 @@ jobs:
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Copy-WorldSnapshot', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Copy-WorldSnapshot', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -172,6 +172,29 @@ jobs:
           Set-Content -LiteralPath $chunkFile -Value 'int[] faceVertexCounts = [4,4]' -Encoding ASCII
           if (-not (Test-ChunkTerrainGeometry $chunks)) { throw 'Valid USD chunk incorrectly failed terrain check' }
           if (-not (Test-ChunkTerrainGeometry $chunks $chunkList)) { throw 'Reused USD file list missed valid terrain' }
+          # Detect missing/zero-byte files referenced by the main USD before
+          # publishing it over a previously completed export.
+          $referenced = Join-Path $dir 'referenced_chunk_layers'
+          New-Item -ItemType Directory -Force -Path $referenced | Out-Null
+          $references = [regex]::Matches('payload = @./World_chunks/region_1_chunk_1_1.usd@; payload = @./World_chunks/region_1_chunk_1_1.usd@', 'payload\\s*=\\s*@\\./World_chunks/region_1_chunk_\\d+_\\d+\\.usd@')
+          try {
+            [void](Assert-ReferencedChunkLayers $referenced $references)
+            throw 'Missing referenced chunk incorrectly accepted'
+          } catch {
+            if($_.Exception.Message -eq 'Missing referenced chunk incorrectly accepted') { throw }
+          }
+          $layer = Join-Path $referenced 'region_1_chunk_1_1.usd'
+          [IO.File]::WriteAllText($layer, '')
+          try {
+            [void](Assert-ReferencedChunkLayers $referenced $references)
+            throw 'Empty referenced chunk incorrectly accepted'
+          } catch {
+            if($_.Exception.Message -eq 'Empty referenced chunk incorrectly accepted') { throw }
+          }
+          [IO.File]::WriteAllText($layer, '#usda 1.0')
+          if((Assert-ReferencedChunkLayers $referenced $references) -ne 1) {
+            throw 'USD chunk references were not validated/deduplicated correctly'
+          }
           # A pre-enumerated list avoids a second directory walk entirely.
           $unusedPath = Join-Path $dir 'missing_chunk_folder'
           if (-not (Test-ChunkTerrainGeometry $unusedPath $chunkList)) {

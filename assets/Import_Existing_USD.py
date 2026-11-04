@@ -66,6 +66,18 @@ def stage_report(src, variant):
 def load_patched_importer(src):
     """Patch two known weak points in the pinned official addon, in memory only."""
     contents = src.read_text(encoding='utf-8-sig')
+    # MiEx immediately replaces Blender's USD PreviewSurface node networks
+    # from the Minecraft JSON materials. Import the USD material datablocks
+    # and geometry bindings, but skip this redundant temporary shader build.
+    usd_import = "mtl_name_collision_mode='REFERENCE_EXISTING',import_proxy="
+    if contents.count(usd_import) != 1:
+        raise RuntimeError('Pinned MiEx USD material import changed; refusing unverified speedup.')
+    contents = contents.replace(
+        usd_import,
+        "mtl_name_collision_mode='REFERENCE_EXISTING',import_usd_preview=False,import_proxy=",
+        1,
+    )
+    log('PERF: Skipped redundant USD PreviewSurface shader conversion; MiEx Minecraft shaders still imported.')
     original = '                        node.image = bpy.data.images.load(imagePath)'
     safe = '''                        try:
                             node.image = bpy.data.images.load(imagePath, check_existing=True)

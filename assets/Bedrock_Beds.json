@@ -197,7 +197,6 @@
                                     1.5,
                                     10.25
                                 ],
-                                "rotation": 270,
                                 "texture": "'#texture'"
                             },
                             "down": {
@@ -207,7 +206,6 @@
                                     2.25,
                                     10.25
                                 ],
-                                "rotation": 90,
                                 "texture": "'#texture'"
                             }
                         }
@@ -267,7 +265,6 @@
                                     4.5,
                                     10.25
                                 ],
-                                "rotation": 180,
                                 "texture": "'#texture'"
                             },
                             "down": {
@@ -277,7 +274,6 @@
                                     5.25,
                                     10.25
                                 ],
-                                "rotation": 180,
                                 "texture": "'#texture'"
                             }
                         }
@@ -482,7 +478,6 @@
                                     4.5,
                                     11.75
                                 ],
-                                "rotation": 90,
                                 "texture": "'#texture'"
                             },
                             "down": {
@@ -492,7 +487,6 @@
                                     5.25,
                                     11.75
                                 ],
-                                "rotation": 270,
                                 "texture": "'#texture'"
                             }
                         }

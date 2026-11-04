@@ -133,6 +133,7 @@ def load_patched_importer(src):
     faster = '''                self.nodes : list[Node] = []
                 self.byName = {}
                 self.columnSizes = {}
+                self.columnMembers = {0: []}
                 self.minColumn = 0
                 self.maxColumn = 0'''
     if contents.count(original) != 1:
@@ -160,6 +161,7 @@ def load_patched_importer(src):
                 node2 = Node(node, 0, self.columnSizes.get(0, 0))
                 self.nodes.append(node2)
                 self.byName[node.name] = node2
+                self.columnMembers[0].append(node2)
                 self.columnSizes[0] = self.columnSizes.get(0, 0) + 1
                 return node2
 
@@ -169,6 +171,7 @@ def load_patched_importer(src):
                 node2 = Node(node, 0, self.columnSizes.get(0, 0))
                 self.nodes.append(node2)
                 self.byName[node.name] = node2
+                self.columnMembers[0].append(node2)
                 self.columnSizes[0] = self.columnSizes.get(0, 0) + 1
                 return node2'''
     if contents.count(original) != 1:
@@ -196,9 +199,12 @@ def load_patched_importer(src):
                 self.columnSizes[column] = newRow + 1
                 node.row = newRow
                 node.column = column
-                for node in self.nodes:
-                    if node.column == prevColumn and node.row > prevRow:
-                        node.row -= 1
+                oldMembers = self.columnMembers[prevColumn]
+                oldMembers.remove(node)
+                self.columnMembers.setdefault(column, []).append(node)
+                for other in oldMembers:
+                    if other.row > prevRow:
+                        other.row -= 1
                 self.minColumn = min(self.minColumn, column)
                 self.maxColumn = max(self.maxColumn, column)'''
     if contents.count(original) != 1:

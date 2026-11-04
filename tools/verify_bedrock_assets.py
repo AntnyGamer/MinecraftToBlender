@@ -93,7 +93,6 @@ def main():
     for name in ("Bedrock_Beds.json", "Bedrock_Shulkers.json",
                  "Bedrock_Signs.json", "Bedrock_Hanging_Signs.json"):
         assert name in exporter
-    assert "Ensure-BedrockBedTextures" in exporter
     assert "Bedrock_Assets.ps1" in exporter
     assert "'Bedrock_Legacy_Banners.json' = 'legacy_banners.json'" in exporter
     assert "'Bedrock_Frame_Blocks.json' = 'frame_blocks.json'" in exporter

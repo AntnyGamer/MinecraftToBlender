@@ -44,6 +44,9 @@ def main():
         assert "signText" in sign_text, name
         assert "thisBlock.state.Text" in sign_text, name
         assert "thisBlock.state.FrontText" in sign_text, name
+        # Legacy front text can coexist with a modern back-text compound.
+        # The fallback must not drop the other side of the sign.
+        assert "'BackText': thisBlock.state.BackText" in sign_text, name
 
     manifest = load("Bedrock_Bed_Textures.json")
     assert manifest["source"] == "Mojang/bedrock-samples"

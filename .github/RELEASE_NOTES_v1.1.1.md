@@ -5,7 +5,7 @@
 - Hide readiness and export subprocess console flashes; improve MiEx Java working-set reporting so unavailable measurements are not displayed as false zero GiB readings.
 - Fix version-label clipping and make the MINECRAFT / TO BLENDER header more consistent.
 - Improve legacy Bedrock support: undyed shulkers, standing/wall sign aliases, numeric sign orientations, legacy standing/wall banners, and frame block fallback to MiEx's actual item-frame entity model.
-- Preserve the Java-compatible bed texture atlas instead of installing Bedrock sheets over UV geometry built for Java assets. Remove only hash-verified obsolete managed files; leave user-custom textures intact.
+- Correct Bedrock bed body and four leg UV islands to match Mojang's official 64×64 Bedrock atlas. Re-enable 16 pinned, hash-verified Bedrock texture sheets for default exports, preserve valid custom sheets, and reject missing/corrupt textures rather than generating black beds. Switching to Java or explicitly enabled world resource packs removes only matching app-managed sheets.
 - Add explicit MiEx export-as-block entity selection, block-entity diagnostics, and generated material texture reference checks that prevent publishing a known-incomplete export.
 - Expand Windows/Go/Python validation for new behaviors.
 

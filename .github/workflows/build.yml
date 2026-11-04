@@ -110,7 +110,7 @@ jobs:
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -249,6 +249,25 @@ jobs:
           if(-not (Test-Path -LiteralPath (Join-Path $destWorld 'level.dat')) -or
              -not (Test-Path -LiteralPath (Join-Path $destWorld 'db/00001.ldb'))) {
               throw 'Snapshot copy dropped a file'
+          }
+          # A hard termination can leave the old complete USD in a
+          # .previous_GUID backup with no normal export directory. Recover it.
+          $recovered = Join-Path $dir 'Recovered'
+          $backup = $recovered + '.previous_' + ('a' * 32)
+          New-Item -ItemType Directory -Force -Path $backup, (Join-Path $backup 'Recovered_chunks') | Out-Null
+          Set-Content -LiteralPath (Join-Path $backup 'Recovered.usd') -Value '#usda 1.0'
+          Set-Content -LiteralPath (Join-Path $backup 'Recovered_materials.json') -Value '{}'
+          if (-not (Restore-InterruptedExport $recovered)) { throw 'Interrupted export backup was not recovered' }
+          if (-not (Test-Path -LiteralPath (Join-Path $recovered 'Recovered.usd')) -or (Test-Path -LiteralPath $backup)) {
+            throw 'Recovered export is incomplete or original backup remained in place'
+          }
+          $anotherBackup = $recovered + '.previous_' + ('b' * 32)
+          New-Item -ItemType Directory -Force -Path $anotherBackup, (Join-Path $anotherBackup 'Recovered_chunks') | Out-Null
+          Set-Content -LiteralPath (Join-Path $anotherBackup 'Recovered.usd') -Value 'should never overwrite'
+          Set-Content -LiteralPath (Join-Path $anotherBackup 'Recovered_materials.json') -Value '{}'
+          if (Restore-InterruptedExport $recovered) { throw 'Recovery unexpectedly replaced an existing export' }
+          if ((Get-Content -LiteralPath (Join-Path $recovered 'Recovered.usd') -Raw).Trim() -ne '#usda 1.0') {
+            throw 'Existing export was overwritten by a stale backup'
           }
           # Replacing generated USD must not mix stale chunk files or delete user notes.
           $original = Join-Path $dir 'World'

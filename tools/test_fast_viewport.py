@@ -110,6 +110,9 @@ class ObjectLayer:
     def __contains__(self, name):
         return any(obj.name == name for obj in all_objects)
 
+    def get(self, name):
+        return next((obj for obj in all_objects if obj.name == name), None)
+
 
 view_layer = ObjectLayer()
 records = []

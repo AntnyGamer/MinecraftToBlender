@@ -726,8 +726,12 @@ def optimize_existing_blend(target, batch_meshes=False):
         'joined objects:', joined, 'duplicate material slots:', slots)
     log('[PERF] Existing project optimization:', round(time.monotonic() - phase_start, 2), 'seconds')
 
+    # Keep the original project's compressed/uncompressed save format.
+    # Blender compressed .blend files are gzip streams, not BLENDER headers.
+    with source.open('rb') as handle:
+        compressed_source = handle.read(2) == bytes((0x1f, 0x8b))
     phase_start = time.monotonic()
-    bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=False)
+    bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=compressed_source)
     log('[PERF] Saving optimized Blender copy:', round(time.monotonic() - phase_start, 2), 'seconds')
     if not target.is_file() or target.stat().st_size == 0:
         raise RuntimeError('Blender did not save the optimized project.')

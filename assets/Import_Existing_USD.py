@@ -159,10 +159,12 @@ def audit_imported_textures(target):
     for image in bpy.data.images:
         if image.source != 'FILE' or image.packed_file:
             continue
-        path = Path(bpy.path.abspath(image.filepath))
+        # Relative images are deliberately not checked. Skip Blender's
+        # path expansion for them instead of resolving a path we discard.
         if not Path(image.filepath).is_absolute():
             relative += 1
             continue
+        path = Path(bpy.path.abspath(image.filepath))
         checked += 1
         if not path.is_file():
             missing.append(f'{image.name}: {path}')

@@ -36,7 +36,7 @@ def stage_report(src, variant):
             # potentially millions of faceVertexCounts values into Python
             # solely to call len() on them; preserve the full terrain checks.
             mesh = UsdGeom.Mesh(prim)
-            face_count = mesh.GetFaceCount()
+            face_count = mesh.GetFaceCount() if hasattr(mesh, 'GetFaceCount') else len(mesh.GetFaceVertexCountsAttr().Get() or ())
             stats['faces'] += face_count
             # Individual block prototypes are reusable source meshes, not
             # proof of actual solid terrain in the imported world.

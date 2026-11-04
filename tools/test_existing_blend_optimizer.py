@@ -41,6 +41,8 @@ with tempfile.TemporaryDirectory() as folder:
     def clear():
         operations.append("clear")
         return 0
+    def hide_relationships():
+        operations.append("hide_relationships")
     scope = {
         "bpy": bpy,
         "Path": Path,
@@ -49,6 +51,7 @@ with tempfile.TemporaryDirectory() as folder:
         "clear_bulk_import_selection": clear,
         "batch_static_terrain_meshes": batch,
         "deduplicate_exact_material_slots": dedup,
+        "hide_relationship_lines": hide_relationships,
     }
     exec(compile(ast.Module(body=[function], type_ignores=[]),
                  "<optimize>", "exec"), scope)
@@ -95,6 +98,15 @@ with tempfile.TemporaryDirectory() as folder:
     bpy.ops.wm.save_as_mainfile = save_mainfile
     optimize(output, batch_meshes=True)
     assert operations == ["clear", "batch", "dedup", "save"]
+    assert original.read_bytes() == b"untouched original world"
+
+    # Large saved models hide only relationship line overlays; all polygons
+    # remain, and no standalone migration tool is involved.
+    output.unlink()
+    operations.clear()
+    bpy.context.scene.objects = [mesh] * 128
+    optimize(output)
+    assert operations == ["clear", "hide_relationships", "dedup", "save"]
     assert original.read_bytes() == b"untouched original world"
 
     # Reject non-terrain scenes instead of reporting a false performance win.

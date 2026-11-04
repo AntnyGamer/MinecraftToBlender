@@ -38,11 +38,11 @@ func TestSampledPreviewUsesActualChunkColors(t *testing.T) {
 	if r>>8!=0x56 || g>>8!=0x34 || b>>8!=0x12 {
 		t.Fatalf("MiEx BGRA decode wrong: %x,%x,%x",r>>8,g>>8,b>>8)
 	}
-	r,g,b,_=img.At(1,0).RGBA()
+	r,g,b,_=img.At(16,0).RGBA()
 	if r>>8!=218 || g>>8!=218 || b>>8!=218 {
 		t.Fatalf("transparent sample should reveal gray grid: %d,%d,%d", r>>8, g>>8, b>>8)
 	}
-	r,g,b,_=img.At(2,0).RGBA()
+	r,g,b,_=img.At(32,0).RGBA()
 	blend:=func(source uint32)uint32{return (source*128+218*127+127)/255}
 	if r>>8!=blend(0x56) || g>>8!=blend(0x34) || b>>8!=blend(0x12) {
 		t.Fatalf("semi-transparent sample composite incorrect: %d,%d,%d", r>>8, g>>8, b>>8)

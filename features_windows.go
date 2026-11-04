@@ -150,13 +150,20 @@ func readiness(ctx context.Context, world localWorld, workspace, blender, dim st
 			warnings = append(warnings, "Under 8 GiB of physical RAM: large exports may run out of memory.")
 		}
 	}
-	if disk, err := availableDisk(workspace); err == nil {
-		info = append(info, fmt.Sprintf("Workspace free space: %.1f GiB", float64(disk)/(1<<30)))
-		if disk < 5<<30 {
-			warnings = append(warnings, "Under 5 GiB available in the workspace.")
+	if strings.TrimSpace(workspace) == "" {
+		warnings = append(warnings, "Choose a workspace folder before exporting.")
+	} else {
+		if pathsOverlap(world.path, toolsDir(workspace)) {
+			warnings = append(warnings, "Workspace and Minecraft save folders overlap. Move the workspace outside the world.")
 		}
-	} else if _, err := os.Stat(workspace); err == nil {
-		warnings = append(warnings, "Couldn't determine available workspace disk space.")
+		if disk, err := availableDisk(workspace); err == nil {
+			info = append(info, fmt.Sprintf("Workspace free space: %.1f GiB", float64(disk)/(1<<30)))
+			if disk < 5<<30 {
+				warnings = append(warnings, "Under 5 GiB available in the workspace.")
+			}
+		} else {
+			warnings = append(warnings, "Couldn't determine available workspace disk space.")
+		}
 	}
 	return strings.Join(info, "\n"), warnings
 }

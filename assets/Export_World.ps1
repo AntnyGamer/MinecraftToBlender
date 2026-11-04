@@ -672,19 +672,36 @@ try {
         }
     }
     if($PreviewOnly) {
-        # Sample actual chunk images from MiEx; 16x16 samples limit cost for huge regions.
+        # Every chunk is queried for reasonably sized regions so individual
+        # blocks can be drawn at their actual Minecraft X/Z coordinates.
+        # Only genuinely huge regions use a bounded, coarse color sampling.
         $probeChunks = @()
-        $previewSeen = @{}
-        for($row = 0; $row -lt 16; $row++) {
-            for($col = 0; $col -lt 16; $col++) {
-                $chunkX = [int][math]::Floor($minChunkX + ($maxChunkX - $minChunkX) * ($col / 15.0))
-                $chunkZ = [int][math]::Floor($minChunkZ + ($maxChunkZ - $minChunkZ) * ($row / 15.0))
-                $key = "$chunkX,$chunkZ"
-                if(-not $previewSeen.ContainsKey($key)) {
-                    $previewSeen[$key] = $true
+        $spanX = $maxChunkX - $minChunkX + 1
+        $spanZ = $maxChunkZ - $minChunkZ + 1
+        $previewLimit = 9216
+        $exactPreview = ([long]$spanX * [long]$spanZ) -le $previewLimit
+        if($exactPreview) {
+            for($chunkZ = $minChunkZ; $chunkZ -le $maxChunkZ; $chunkZ++) {
+                for($chunkX = $minChunkX; $chunkX -le $maxChunkX; $chunkX++) {
                     $probeChunks += @{chunkX=$chunkX;chunkZ=$chunkZ}
                 }
             }
+            Write-Host ("Preview: exact geographic placement; requesting all $($probeChunks.Count) chunks.")
+        } else {
+            $sampleCols = [int][math]::Min(96, $spanX)
+            $sampleRows = [int][math]::Min(96, $spanZ)
+            for($row = 0; $row -lt $sampleRows; $row++) {
+                $chunkZ = if($sampleRows -eq 1) { $minChunkZ } else {
+                    [int][math]::Floor($minChunkZ + ($maxChunkZ - $minChunkZ) * ($row / [double]($sampleRows - 1)))
+                }
+                for($col = 0; $col -lt $sampleCols; $col++) {
+                    $chunkX = if($sampleCols -eq 1) { $minChunkX } else {
+                        [int][math]::Floor($minChunkX + ($maxChunkX - $minChunkX) * ($col / [double]($sampleCols - 1)))
+                    }
+                    $probeChunks += @{chunkX=$chunkX;chunkZ=$chunkZ}
+                }
+            }
+            Write-Host ("Preview: large area ($spanX x $spanZ chunks); requesting $($probeChunks.Count) coarse color samples.")
         }
         $commands += @{command='getChunk';chunks=$probeChunks;image=$true}
     } else {

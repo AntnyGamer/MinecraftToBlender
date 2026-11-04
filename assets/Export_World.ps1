@@ -883,8 +883,9 @@ try {
         'Source world compatibility depends on MiEx support for this saved version.',
         'MiEx Java asset source may differ from Bedrock; vanilla texture parity is NOT verified.',
         ('Export region X=' + $minX + '..' + $maxX + ', Z=' + $minZ + '..' + $maxZ + ', Y=' + $MinY + '..' + $MaxY + ', LOD disabled'),
-        'Bedrock frame and glow-frame blockstate definitions and pinned vanilla frame-entity model corrected; visual item-frame verification still required.',
-        'Entity export requested: item_frame, glow_item_frame, painting, block_display, item_display, armor_stand.',
+        ('Bedrock frame-model overrides applied: ' + ($Edition -eq 'bedrock')),
+        'Frame and item appearance still require Blender visual verification.',
+        ('Entity export IDs requested: ' + $(if($entityList.Count -eq 0) { 'none' } else { $entityList -join ', ' })),
         'Entity timeline: static single frame (no simulation).',
         'Face optimizer enabled; geometry-subset batching disabled. Verify visually.',
         'IMPORTANT: Check actual frame meshes and item contents in Blender. Blockstate warnings alone cannot prove entity export failed or succeeded.',
@@ -907,7 +908,7 @@ try {
         'MiEx Bedrock block-state translation and model generation are not independently verified for all block variants.',
         'MiEx uses translated assets; exact Bedrock texture parity is not independently proven.',
         'MiEx Bedrock WorldBedrock.java initializes worldVersion=0 intentionally; this is not an error.',
-        'Frame block entities are requested via entityExport; corrected model output and item contents still require Blender inspection.',
+        'Only the entity types listed above were requested; corrected model output and item contents still require Blender inspection.',
         'Non-animated USD cannot exactly reproduce every runtime rendering effect; animations and lighting are excluded by user request.'
     )
     [System.IO.File]::WriteAllLines($reportPath, $report, [System.Text.Encoding]::UTF8)

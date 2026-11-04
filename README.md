@@ -23,7 +23,7 @@ A Windows app for exporting locally stored **Minecraft Bedrock and Java Edition*
 
 Use **Export options** in the sidebar to choose the Overworld, Nether or End, select whether to export item frames, paintings, armor stands and display entities, and control the optional safe resume checkpoint. All six previously supported entity types remain enabled by default.
 
-**Preview region** samples up to 16×16 actual chunk images through MiEx and displays a top-down map with gray placeholders where no chunk sample was available. This is a **sampled** preview, not a complete high-resolution survey. Click the map to update the export center X/Z. A preview takes a read-only world snapshot and may take time on a large world.
+**Preview region** samples up to 16×16 actual chunk images through MiEx. When the selected region fits within the sample grid, it scales the real block positions precisely; larger regions show an **approximate sampled** map, not a complete terrain survey. Unavailable chunks remain gray, including entirely unexplored regions. Click to update center X/Z. The preview takes a read-only world snapshot and may take time on large saves; temporary preview images are removed after closing the map.
 
 **Check readiness** reports installed Java/Blender versions, available RAM and workspace disk space, and basic region/dimension validity. Export also asks about detected warnings before starting. These are early warnings, not guarantees.
 

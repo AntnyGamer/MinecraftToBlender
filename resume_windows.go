@@ -59,68 +59,11 @@ func digestDirectory(ctx context.Context, root string) (string,error) {
 	return digestDirectoryFiltered(ctx, root, nil)
 }
 
-var blenderProjectName = regexp.MustCompile(`(?i)\.blend[0-9]*//go:build windows
-
-package main
-
-import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
-)
-
-type resumeIdentity struct {
-	WorldPath string
-	Edition string
-	ExportName string
-	Dimension string
-	Size, X, Z, MinY, MaxY int
-	WorldPacks bool
-	Entities string
-	AppVersion string
-}
-
-type resumeCheckpoint struct {
-	Identity resumeIdentity
-	WorldHash string
-	ExportHash string
-}
-
-func makeResumeIdentity(world string,edition worldEdition,name string,options exportOptions,size,x,z,minY,maxY int,worldPacks bool) resumeIdentity {
-	full,err:=filepath.Abs(world)
-	if err!=nil {full=world}
-	return resumeIdentity{
-		WorldPath:filepath.Clean(full),Edition:string(edition),ExportName:name,
-		Dimension:options.Dimension,Size:size,X:x,Z:z,MinY:minY,MaxY:maxY,
-		WorldPacks:worldPacks,Entities:options.EntityList(),AppVersion:appVersion(),
-	}
-}
-
-// Calculate an exact digest before reusing work. File sizes or timestamps
-// alone cannot establish that a Minecraft LevelDB snapshot stayed unchanged.
-type cancelReader struct {
-	ctx context.Context
-	reader io.Reader
-}
-
-func (r cancelReader) Read(p []byte) (int, error) {
-	if err := r.ctx.Err(); err != nil { return 0, err }
-	return r.reader.Read(p)
-}
-
-)
+var blenderProjectName = regexp.MustCompile(`(?i)\.blend[0-9]*$`)
 
 func isImportGeneratedFile(rel string) bool {
-	// Blender projects, numbered backups, and the importer log are not USD
-	// inputs. They may change (or be left partially written) on every retry.
+	// Ignore only Blender-created root files; keep hashing every USD sidecar,
+	// material, texture, and chunk layer used by the importer.
 	if filepath.Dir(rel) != "." { return false }
 	name := filepath.Base(rel)
 	return strings.EqualFold(name, "Minecraft_Blender_Import.log") || blenderProjectName.MatchString(name)
@@ -140,7 +83,7 @@ func digestDirectoryFiltered(ctx context.Context, root string, exclude func(stri
 		if d.Type()&os.ModeSymlink!=0 {return fmt.Errorf("cannot reuse a checkpoint with symlinks: %s",path)}
 		if !d.Type().IsRegular(){return fmt.Errorf("unexpected non-file in checkpoint: %s",path)}
 		rel,err:=filepath.Rel(root,path);if err!=nil{return err}
-		if exclude != nil && exclude(rel) {return nil}
+		if exclude != nil && exclude(rel) { return nil }
 		info,err:=d.Info();if err!=nil{return err}
 		_,_=fmt.Fprintf(hasher,"%s\x00%d\x00",filepath.ToSlash(rel),info.Size())
 		f,err:=os.Open(path);if err!=nil{return err}

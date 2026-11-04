@@ -218,6 +218,7 @@ function Publish-Export([string]$stage,[string]$destination) {
     }
 }
 function Assert-ReferencedChunkLayers([string]$folder, [System.Text.RegularExpressions.MatchCollection]$references) {
+    if($references.Count -eq 0) { throw 'Main USD has no terrain chunk payload references.' }
     $checked = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach($reference in $references) {
         $filename = [regex]::Match($reference.Value, 'region_1_chunk_\d+_\d+\.usd').Value
@@ -776,9 +777,6 @@ try {
     $refPattern = 'payload\s*=\s*@\./' + [regex]::Escape($ExportName + '_chunks') + '/region_1_chunk_\d+_\d+\.usd@'
     $refMatches = [regex]::Matches($usdText, $refPattern)
     $regionPayloadCount = $refMatches.Count
-    if($regionPayloadCount -eq 0) {
-        Abort 'Main USD has no terrain chunk payload references. Refusing to publish orphaned geometry layers.'
-    }
     $verifiedPayloadLayers = Assert-ReferencedChunkLayers $chunksDir $refMatches
     Write-Host ("Verified main USD references: $verifiedPayloadLayers distinct nonempty chunk layer(s).") -ForegroundColor Green
     $expectedSections = [int][math]::Ceiling($Size / (16.0 * $chunkSize))

@@ -21,7 +21,22 @@ BATCH_STATIC_TERRAIN = False
 
 
 def optimize_open_blend(batch=BATCH_STATIC_TERRAIN):
-    source = Path(__file__).resolve().with_name("Import_Existing_USD.py")
+    # External Text Editor scripts and runpy.run_path supply __file__. A
+    # Blender Text datablock may not, so fall back to its source filepath.
+    script_file = globals().get("__file__", "")
+    script_path = Path(script_file) if script_file else None
+    if script_path is None or not script_path.is_file():
+        text = getattr(bpy.context, "edit_text", None)
+        if text is None:
+            text = getattr(getattr(bpy.context, "space_data", None), "text", None)
+        text_path = getattr(text, "filepath", "")
+        script_path = Path(bpy.path.abspath(text_path)) if text_path else None
+    if script_path is None or not script_path.is_file():
+        raise RuntimeError(
+            "Open Optimize_Existing_Blend.py from disk in Blender's Text Editor "
+            "or execute it using runpy.run_path with its full file path."
+        )
+    source = script_path.resolve().with_name("Import_Existing_USD.py")
     if not source.is_file():
         raise FileNotFoundError(f"Blender helper is missing beside this script: {source}")
 
@@ -37,8 +52,9 @@ def optimize_open_blend(batch=BATCH_STATIC_TERRAIN):
 
     before = scene_counts()
     selected = helpers.clear_bulk_import_selection()
-    duplicates = helpers.deduplicate_exact_material_slots()
     merged = helpers.batch_static_terrain_meshes() if batch else 0
+    # A Join operation can create fresh repeated material slots.
+    duplicates = helpers.deduplicate_exact_material_slots()
     after = scene_counts()
     if before[1] != after[1]:
         raise RuntimeError(

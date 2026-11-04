@@ -493,12 +493,19 @@ def terrain_mesh_batch_key(ob):
             if parent.animation_data or parent.constraints or parent.hide_render:
                 return None
             parent = parent.parent
-    match = re.search(r'mesh_chunk_(-?\d+)_(-?\d+)(?:_|$)', ob.name, re.I)
+    # MiEx's Util.makeSafeName changes a negative '-' sign to '_'.
+    # Thus chunk X=-1 Z=-2 becomes mesh_chunk__1__2_<hash> in USD.
+    # Recognize both that upstream-safe form and raw signed names.
+    match = re.search(r'mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)', ob.name, re.I)
     if match is None:
         return None
+
+    def coordinate(text):
+        return -int(text[1:]) if text.startswith('_') else int(text)
+
     # These coordinates are MiEx export-chunk coordinates, not block values.
     # Batch at most nearby 2x2 chunks, not the entire 1024x1024 landscape.
-    area = (int(match.group(1)) // 2, int(match.group(2)) // 2)
+    area = (coordinate(match.group(1)) // 2, coordinate(match.group(2)) // 2)
     uv = tuple((layer.name, getattr(layer, 'active_render', False)) for layer in ob.data.uv_layers)
     colors = tuple((attr.name, attr.domain, attr.data_type) for attr in ob.data.color_attributes)
     return (area, mat.as_pointer(), uv, colors)

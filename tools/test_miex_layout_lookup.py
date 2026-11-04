@@ -26,8 +26,10 @@ for stmt in method.body:
             pairs["columns"] = (original, stmt.value.value)
         elif "def getColumn(self" in original:
             pairs["get_column"] = (original, stmt.value.value)
+        elif "def placeInColumns(" in original:
+            pairs["traversal"] = (original, stmt.value.value)
         original = None
-assert set(pairs) == {"nodes", "columns", "get_column"}, "Expected all optimized MiEx grid functions"
+assert set(pairs) == {"nodes", "columns", "get_column", "traversal"}, "Expected all optimized MiEx grid functions"
 
 class Node:
     def __init__(self, node, column, row):
@@ -92,4 +94,39 @@ assert "creation_index" in pairs["get_column"][1]
 assert sum(len(group) for group in fast.columnMembers.values()) == len(names)
 assert all(member.column == column
            for column, group in fast.columnMembers.items() for member in group)
+
+# In a shared directed-acyclic shader graph, the original recursion processes
+# the same upstream subtrees repeatedly. Check the new deepest-column cache
+# against the original traversal's exact node positions and ordering, including
+# a node first reached shallowly and subsequently reached deeper.
+def linked(parent):
+    return NS(is_linked=True, links=[NS(from_node=parent)])
+
+layers = [[NS(name=f"shader_{depth}_{index}", inputs=[])
+           for index in range(3)] for depth in range(8)]
+for level, next_level in zip(layers, layers[1:]):
+    for node in level:
+        node.inputs = [linked(child) for child in next_level]
+root = NS(name="MaterialOutput",
+          inputs=[linked(layers[-1][0])] + [linked(n) for n in layers[0]])
+
+def traverse(methods, source):
+    g = grid(methods)
+    calls = [0]
+    original_get = g.getNode
+    def counting_get(node):
+        calls[0] += 1
+        return original_get(node)
+    g.getNode = counting_get
+    env = {"bpy": NS(types=NS(Node=object, NodeLink=object)), "NodeGrid": type(g)}
+    exec(textwrap.dedent(source), env)
+    env["placeInColumns"](root, g, 0)
+    return g, calls[0]
+
+old_grid, old_calls = traverse({k: v[0] for k, v in pairs.items()}, pairs["traversal"][0])
+fast_grid, fast_calls = traverse({k: v[1] for k, v in pairs.items()}, pairs["traversal"][1])
+assert snapshot(old_grid) == snapshot(fast_grid)
+assert old_calls > fast_calls * 3, (old_calls, fast_calls)
+assert "seen_columns.get(name, -1) >= column" in pairs["traversal"][1]
+print(f"MiEx 8-layer shared shader graph positions match; traversal calls: {old_calls} original vs {fast_calls} cached.")
 print("MiEx original and accelerated 400-node, 1100-move shader layouts match, including exact node ordering per column.")

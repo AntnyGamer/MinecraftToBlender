@@ -357,10 +357,7 @@ def import_world(src, import_type, fast_viewport=False):
     Usd.Stage.SetGlobalVariantFallbacks({'MiEx_LOD': ['proxy' if import_type == 'proxy' else 'render']})
     result = bpy.ops.mieximport.world(filepath=str(src), import_type=import_type,
                                        max_animation_frames=1, flatten=False,
-                                       # Keep all background geometry available for
-                                       # final renders, but optionally hide those
-                                       # background objects only in the viewport.
-                                       hide_background='hide' if fast_viewport else 'show')
+                                       hide_background='show')
     log('MiEx operator result:', result, 'elapsed:', round(time.monotonic()-t0, 2), 'seconds')
     if 'FINISHED' not in result:
         raise RuntimeError('MiEx reported a cancelled import. See errors above.')
@@ -453,39 +450,75 @@ def frame_actual_scene(evaluate_instances=True):
                 space.region_3d.view_distance = focus_distance
                 space.clip_end = max(space.clip_end, 1000.0, size * 5)
     # IMPORTANT: Never set hide_viewport or hide_set False on hidden meshes here.
+    return center, dimensions
 
 
-def configure_fast_viewport():
-    """Reduce *interactive viewport* shading costs without touching scene data.
+def outside_nearby_radius(box_min, box_max, center, axes, radius):
+    """True only if the entire world-space bounding box is farther away.
 
-    Blender's Solid+Texture shading uses the active image texture/UVs but does
-    not evaluate full EEVEE material graphs, transparency, reflections or biome
-    tint mix nodes. Users can press Z -> Material Preview to inspect the
-    original full-fidelity materials; no mesh, UV or render setting is changed.
+    Use the two widest scene dimensions as horizontal axes. That works for
+    both Y-up and Z-up Minecraft USD imports and avoids clipping underground
+    chunks that lie underneath nearby surface blocks.
     """
-    changed = 0
-    for screen in bpy.data.screens:
-        for area in screen.areas:
-            if area.type != 'VIEW_3D':
-                continue
-            space = area.spaces.active
-            shading = space.shading
-            shading.type = 'SOLID'
-            shading.color_type = 'TEXTURE'
-            shading.light = 'STUDIO'
-            shading.show_cavity = False
-            shading.show_shadows = False
-            shading.show_specular_highlight = False
-            if hasattr(shading, 'use_dof'):
-                shading.use_dof = False
-            # Keep selection outlines and object editing available. Extras
-            # draw cameras/lights/empties on top of thousands of terrain meshes.
-            if hasattr(space.overlay, 'show_extras'):
-                space.overlay.show_extras = False
-            changed += 1
-    log('FAST VIEWPORT:', changed,
-        '3D view(s) use textured Solid shading without full material shaders.')
-    return changed
+    distance_sq = 0.0
+    for axis in axes:
+        coordinate = center[axis]
+        if coordinate < box_min[axis]:
+            difference = box_min[axis] - coordinate
+        elif coordinate > box_max[axis]:
+            difference = coordinate - box_max[axis]
+        else:
+            difference = 0.0
+        distance_sq += difference * difference
+    return distance_sq > radius * radius
+
+
+def hide_distant_meshes(view_bounds):
+    """Temporarily hide distant meshes in the viewport without deleting them.
+
+    Unlike choosing Solid shading again, this reduces the actual objects and
+    triangles submitted for viewport drawing. It is opt-in, *not* automatic
+    camera-following chunk streaming. Alt+H reveals everything again.
+    """
+    if view_bounds is None:
+        log('NEARBY VIEW: skipped; no visible world bounds were found.')
+        return 0
+    center, dimensions = view_bounds
+    axes = tuple(sorted(range(3), key=lambda axis: dimensions[axis], reverse=True)[:2])
+    span = max(dimensions[axis] for axis in axes)
+    radius = max(160.0, min(320.0, span * 0.25))
+    if span <= 2 * radius:
+        log('NEARBY VIEW: selected region is small; no mesh hiding necessary.')
+        return 0
+    hidden = 0
+    meshes = 0
+    for ob in bpy.context.scene.objects:
+        if ob.type != 'MESH' or ob.hide_render or ob.hide_get():
+            continue
+        if not ob.visible_get():
+            continue
+        corners = tuple(ob.bound_box)
+        if len(corners) != 8:
+            continue
+        bounds_min = [float('inf')] * 3
+        bounds_max = [float('-inf')] * 3
+        for corner in corners:
+            point = ob.matrix_world @ Vector(corner)
+            for axis in axes:
+                bounds_min[axis] = min(bounds_min[axis], point[axis])
+                bounds_max[axis] = max(bounds_max[axis], point[axis])
+        meshes += 1
+        if outside_nearby_radius(bounds_min, bounds_max, center, axes, radius):
+            ob.hide_set(True)
+            hidden += 1
+    log('NEARBY VIEW:', hidden, '/', meshes,
+        'visible mesh objects hidden beyond', round(radius, 1),
+        'Blender units. Alt+H in Object Mode reveals every hidden object.')
+    if hidden == 0:
+        log('NEARBY VIEW: no separate distant meshes were found. '
+            'If MiEx exported very large combined meshes, this option will '
+            'not improve viewport performance without a different export layout.')
+    return hidden
 
 
 def hide_relationship_lines():
@@ -546,15 +579,18 @@ def main():
     if scene['terrain_faces'] < stats['world_mesh_faces'] * 0.5:
         raise RuntimeError('Blender imported less than half of the terrain faces represented in the USD. No misleading success file saved.')
     phase_start = time.monotonic()
-    frame_actual_scene(scene['evaluate_bounds'])
+    bounds = frame_actual_scene(scene['evaluate_bounds'])
     log('[PERF] Scene framing:', round(time.monotonic() - phase_start, 2), 'seconds')
     hide_relationship_lines()
     if fast_viewport:
-        configure_fast_viewport()
+        phase_start = time.monotonic()
+        hide_distant_meshes(bounds)
+        log('[PERF] Viewport nearby-object culling:',
+            round(time.monotonic() - phase_start, 2), 'seconds')
     if scene['meshes'] > 1000:
         log('VIEWPORT NOTICE:', scene['meshes'],
-            'mesh objects may limit FPS in large scenes. Fast viewport mode can'
-            ' reduce shader costs but cannot remove object draw-call overhead.')
+            'mesh objects may limit FPS in large scenes. Nearby-only mode can'
+            ' reduce draw calls only when these meshes are independently bounded.')
     try:
         audit_imported_textures(target)
     except Exception as exc:

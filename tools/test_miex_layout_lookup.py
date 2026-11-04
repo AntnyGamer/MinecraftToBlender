@@ -1,5 +1,6 @@
 """Ensure optimized MiEx node layout lookup preserves original node order."""
 import ast
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -34,7 +35,7 @@ def grid(source):
             "        self.byName = {}\n"
             "    def getColumn(self, column):\n"
             "        return [n for n in self.nodes if n.column == column]\n"
-            + source + "\n")
+            + textwrap.indent(textwrap.dedent(source), "    ") + "\n")
     scope = {"Node": Node, "bpy": NS(types=NS(Node=object))}
     exec(code, scope)
     return scope["Grid"]()

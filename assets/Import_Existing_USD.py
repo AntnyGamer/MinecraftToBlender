@@ -46,9 +46,14 @@ def stage_report(src, variant):
         elif prim.IsA(UsdGeom.PointInstancer):
             stats['instancers'] += 1
             inst = UsdGeom.PointInstancer(prim)
-            indices = inst.GetProtoIndicesAttr().Get()
-            if indices is not None:
-                stats['instances'] += len(indices)
+            # Count prototype instances in native USD without copying the
+            # potentially large protoIndices array into Python.
+            if hasattr(inst, 'GetInstanceCount'):
+                stats['instances'] += inst.GetInstanceCount()
+            else:
+                indices = inst.GetProtoIndicesAttr().Get()
+                if indices is not None:
+                    stats['instances'] += len(indices)
     log('USD variant:', variant, 'layers:', len(stage.GetUsedLayers()))
     log('USD mesh definitions:', stats['meshes'], 'mesh faces:', stats['faces'])
     log('USD point instancers:', stats['instancers'], 'instanced positions:', stats['instances'])

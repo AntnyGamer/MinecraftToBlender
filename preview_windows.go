@@ -53,7 +53,7 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 		_ = os.Remove(output)
 		return result{what:"Region preview",err:err,logFile:logFile}
 	}
-	guiLog(fmt.Sprintf("Preview ready: %d of 256 sampled tiles. Grey tiles mean unavailable chunks.",loaded))
+	guiLog(fmt.Sprintf("Preview ready: %d distinct Minecraft chunks rendered. Gray areas are unsampled or unavailable.",loaded))
 	return result{what:"Region preview",output:output,logFile:logFile,minX:x-size/2,minZ:z-size/2,size:size}
 }
 
@@ -126,6 +126,7 @@ func openPreviewWindow(path string,minX,minZ,size int) {
 		large,small:=appIcons(module)
 		klass:=wndClass{Size:uint32(unsafe.Sizeof(wndClass{})),WndProc:regionPreviewCallback,Instance:module,Icon:large,IconSm:small,Cursor:cursor,Background:colorWindow+1,ClassName:name}
 		if ok,_,_:=pRegisterClass.Call(uintptr(unsafe.Pointer(&klass)));ok==0 {
+			_ = os.Remove(path)
 			alert("Preview unavailable","Windows could not initialize the region preview window.",mbError)
 			return
 		}
@@ -134,12 +135,14 @@ func openPreviewWindow(path string,minX,minZ,size int) {
 	regionPreview.minX,regionPreview.minZ,regionPreview.size=minX,minZ,size
 	startup:=gdipStartupInput{Version:1}
 	if status,_,_:=pGdiplusStartup.Call(uintptr(unsafe.Pointer(&regionPreview.token)),uintptr(unsafe.Pointer(&startup)),0);status!=0 {
+		_ = os.Remove(path)
 		alert("Preview unavailable","Could not initialize Windows image rendering.",mbError)
 		return
 	}
 	if status,_,_:=pGdipLoadImage.Call(ptr(path),uintptr(unsafe.Pointer(&regionPreview.bitmap)));status!=0 {
 		pGdiplusShutdown.Call(regionPreview.token)
 		regionPreview.token=0
+		_ = os.Remove(path)
 		alert("Preview unavailable","Could not open the generated PNG.",mbError)
 		return
 	}
@@ -150,6 +153,7 @@ func openPreviewWindow(path string,minX,minZ,size int) {
 		pGdipDisposeImage.Call(regionPreview.bitmap)
 		pGdiplusShutdown.Call(regionPreview.token)
 		regionPreview.bitmap,regionPreview.token=0,0
+		_ = os.Remove(path)
 		alert("Preview unavailable","Windows could not open the region map.",mbError)
 		return
 	}

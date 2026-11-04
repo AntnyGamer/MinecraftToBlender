@@ -25,4 +25,10 @@ func TestGuiLogBoundsLargeMessagesBeforeQueuing(t *testing.T) {
 			t.Fatalf("UI retained an oversized diagnostic of %d bytes", len(got))
 		}
 	}
+	guiLog(strings.Repeat(" ", 1024*1024))
+	select {
+	case message := <-app.logCh:
+		t.Fatalf("oversized whitespace-only log should remain invisible: %q", message)
+	default:
+	}
 }

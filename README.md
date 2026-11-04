@@ -2,7 +2,7 @@
 
 <p align="center"><img src="branding/logo.svg" alt="MinecraftToBlender logo" width="112" height="112"></p>
 
-**Version:** v1.1.0  
+**Version:** v1.1.1  
 **Platform:** Windows 10/11 (64-bit)  
 **Languages:** Go (Win32 interface), PowerShell, Python
 

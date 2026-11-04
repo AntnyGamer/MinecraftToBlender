@@ -829,6 +829,9 @@ func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 // An export is already checked by runExport. Avoid parsing its large material
 // manifest and enumerating its USD chunk directory a second time.
 func doImportValidated(ctx context.Context, src, blender, tools string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if blender == "" {
 		return "", errors.New("Blender was not detected. Select blender.exe in the application.")
 	}
@@ -848,6 +851,9 @@ func doImportValidated(ctx context.Context, src, blender, tools string) (string,
 	args := []string{"--background", "--factory-startup", "--python", filepath.Join(tools, "Import_Existing_USD.py"), "--", src, importer, target}
 	if err := runProcess(ctx, blender, args, logFile); err != nil {
 		return "", fmt.Errorf("Blender import failed: %w; details: %s", err, logFile)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 	out, err := os.Stat(target)
 	if err != nil || out.Size() == 0 {

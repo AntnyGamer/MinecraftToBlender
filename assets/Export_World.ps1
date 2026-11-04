@@ -371,64 +371,9 @@ try {
     try {Test-Hash $jar $releaseSha256}
     catch {Remove-Item -LiteralPath $jar -Force -ErrorAction SilentlyContinue;Get-WebFile $releaseUrl $jar;Test-Hash $jar $releaseSha256}
 
-    # Apply the fourth-vertex color-check fix in a NEW JAR, not
-    # the checksummed official original. This must succeed before
-    # export; do not silently fall back to a different implementation.
+    # The pinned MiEx JAR is run unchanged. Face merging stays disabled
+    # because it has not been proven to preserve all exported terrain.
     $runJar = $jar
-    if($enableFaceOptimization) {
-        $runJar = Join-Path $miexDir 'MiEx_Optimized.jar'
-        $patcherClass = Join-Path $base 'PatchMiExFaceOptimizer.class'
-        $patcherHelper = Join-Path $base 'PatchMiExFaceOptimizer$ClassView.class'
-        if(-not (Test-Path -LiteralPath $patcherClass) -or -not (Test-Path -LiteralPath $patcherHelper)) {
-            Abort 'Missing Java patcher class files. Extract the entire release ZIP before running.'
-        }
-        $patchMarker = Join-Path $miexDir 'MiEx_Optimized.sha256.txt'
-        # Include the patcher itself in the cache key, not just the resulting JAR.
-        # A new patch implementation must not silently reuse an older patched JAR.
-        $patcherHash = ((Get-FileHash -LiteralPath $patcherClass -Algorithm SHA256).Hash.ToLowerInvariant() + ':' + 
-                        (Get-FileHash -LiteralPath $patcherHelper -Algorithm SHA256).Hash.ToLowerInvariant())
-        $patchFresh = $false
-        if((Test-Path -LiteralPath $runJar) -and (Test-Path -LiteralPath $patchMarker)) {
-            $savedHash = (Get-Content -LiteralPath $patchMarker -Raw).Trim().ToLowerInvariant()
-            $jarHash = (Get-FileHash -LiteralPath $runJar -Algorithm SHA256).Hash.ToLowerInvariant()
-            $patchFresh = ($savedHash -eq ($jarHash + ':' + $patcherHash))
-        }
-        if(-not $patchFresh) {
-            $patchLog = Join-Path $work 'Face_Patch_Log.txt'
-            $javaExe = (Get-Command java.exe -ErrorAction Stop).Source
-            $patchArgs = '-cp "{0}" PatchMiExFaceOptimizer "{1}" "{2}"' -f $base, $jar, $runJar
-            $patchProcessInfo = New-Object System.Diagnostics.ProcessStartInfo
-            $patchProcessInfo.FileName = $javaExe
-            $patchProcessInfo.Arguments = $patchArgs
-            $patchProcessInfo.WorkingDirectory = $base
-            $patchProcessInfo.UseShellExecute = $false
-            $patchProcessInfo.CreateNoWindow = $true
-            $patchProcessInfo.RedirectStandardOutput = $true
-            $patchProcessInfo.RedirectStandardError = $true
-            Write-Host 'Applying face optimizer patch to a separate JAR...' -ForegroundColor Cyan
-            $patchProcess = New-Object System.Diagnostics.Process
-            $patchProcess.StartInfo = $patchProcessInfo
-            try {
-                [void]$patchProcess.Start()
-                $patchStdout = $patchProcess.StandardOutput.ReadToEnd()
-                $patchStderr = $patchProcess.StandardError.ReadToEnd()
-                $patchProcess.WaitForExit()
-                $patchCode = $patchProcess.ExitCode
-                [System.IO.File]::WriteAllText($patchLog, ($patchStdout + [Environment]::NewLine + $patchStderr), [System.Text.Encoding]::UTF8)
-                if($patchStdout) { Write-Host $patchStdout.Trim() }
-                if($patchStderr) { Write-Host $patchStderr.Trim() -ForegroundColor Yellow }
-            } finally { $patchProcess.Dispose() }
-            if($patchCode -ne 0 -or -not (Test-Path -LiteralPath $runJar)) {
-                Abort "Face optimizer patch failed (exit code $patchCode). Original MiEx.jar remains intact. Details: $patchLog"
-            }
-            $optimizedSha = (Get-FileHash -LiteralPath $runJar -Algorithm SHA256).Hash.ToLowerInvariant()
-            if($optimizedSha -eq $releaseSha256) {Abort 'Patched MiEx JAR is unexpectedly identical to the original. Refusing export.'}
-            [System.IO.File]::WriteAllText($patchMarker, ($optimizedSha + ':' + $patcherHash + [Environment]::NewLine), [System.Text.Encoding]::ASCII)
-            Write-Host ('Verified separate optimized JAR: ' + $optimizedSha) -ForegroundColor Green
-        }else {
-            Write-Host 'Reusing previously validated, checksummed patched MiEx JAR.' -ForegroundColor Green
-        }
-    }
 
     # Official MiEx example resource pack for Blender EEVEE materials only.
     # It does not contain custom block textures and is not the world's custom pack.
@@ -622,9 +567,6 @@ try {
     $env:MIEX_SKIP_WORLD_RESOURCEPACK_CHECK = if($UseWorldResourcePacks) { '0' } else { '1' }
     $log = Join-Path $work 'miex_console.log'
     Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
-    if($enableFaceOptimization) {
-        Write-Warning 'Check UV tiling, water, foliage, transparent blocks, biome tint and ambient occlusion after importing. Face merging and geometry subsets are not certified visually lossless.'
-    }
     # IMPORTANT: Java writes harmless warnings to stderr. Windows PowerShell 5.1
     # can turn those warnings into terminating errors when ErrorActionPreference
     # is Stop and stderr is merged with stdout using *>&1. Capture both streams

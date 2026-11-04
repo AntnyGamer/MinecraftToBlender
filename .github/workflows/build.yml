@@ -110,11 +110,24 @@ jobs:
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Copy-WorldSnapshot', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
           }
+          $packRoot = Join-Path $env:RUNNER_TEMP 'preview_pack_cleanup'
+          $ownedName = 'MinecraftToBlender_Preview_' + ('a' * 32)
+          $userName = 'UserResourcePack'
+          New-Item -ItemType Directory -Force -Path (Join-Path $packRoot $ownedName), (Join-Path $packRoot $userName) | Out-Null
+          try {
+            Remove-ManagedPreviewPack $packRoot $userName
+            throw 'Cleanup erroneously accepted a user pack'
+          } catch {
+            if ($_.Exception.Message -eq 'Cleanup erroneously accepted a user pack') { throw }
+          }
+          Remove-ManagedPreviewPack $packRoot $ownedName
+          if (Test-Path -LiteralPath (Join-Path $packRoot $ownedName)) { throw 'Temporary preview pack was not cleaned up' }
+          if (-not (Test-Path -LiteralPath (Join-Path $packRoot $userName))) { throw 'Preview cleanup modified an unrelated resource pack' }
           $dir = Join-Path $env:RUNNER_TEMP 'MinecraftToBlender_%literal%'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $capture = Start-CapturedProcess (Join-Path $PSHOME 'powershell.exe') '-NoProfile -Command "exit 7"' $dir (Join-Path $dir 'stdout.log') (Join-Path $dir 'stderr.log')

@@ -21,8 +21,6 @@ var (
 	pGdipDeleteGraphics = gdiplus.NewProc("GdipDeleteGraphics")
 	pGdipDrawImage      = gdiplus.NewProc("GdipDrawImageRectI")
 	pDestroyWindow      = user32.NewProc("DestroyWindow")
-	pGetCursorPos       = user32.NewProc("GetCursorPos")
-	pScreenToClient     = user32.NewProc("ScreenToClient")
 	pPickerSaveDC       = syscall.NewLazyDLL("gdi32.dll").NewProc("SaveDC")
 	pPickerRestoreDC    = syscall.NewLazyDLL("gdi32.dll").NewProc("RestoreDC")
 	pPickerClipRect     = syscall.NewLazyDLL("gdi32.dll").NewProc("IntersectClipRect")

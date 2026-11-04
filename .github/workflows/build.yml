@@ -20,6 +20,14 @@ jobs:
       - name: Vet_Go
         run: go vet ./...
       - run: go test ./... -count=1
+      - name: Validate_Bedrock_resources
+        run: python tools/verify_bedrock_assets.py
+      - name: Validate_Blender_scene_performance
+        run: python tools/test_blender_scene_performance.py
+      - name: Validate_Blender_texture_audit
+        run: python tools/test_blender_texture_audit.py
+      - name: Validate_MiEx_shader_lookup
+        run: python tools/test_miex_material_lookup.py
 
   windows_build:
     runs-on: windows-latest
@@ -30,7 +38,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Run_tests
-        run: go test ./... -count=1
+        run: go test ./... -count=1 -timeout 3m
       - name: Validate_PowerShell
         shell: powershell
         run: |
@@ -38,8 +46,65 @@ jobs:
           $parseErrors = $null
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
+          $bedrockErrors = $null
+          $bedrockTokens = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Bedrock_Assets.ps1'), [ref]$bedrockTokens, [ref]$bedrockErrors)
+          if ($bedrockErrors.Count -gt 0) { $bedrockErrors | ForEach-Object { Write-Error $_ }; exit 1 }
+          . (Resolve-Path 'assets/Bedrock_Assets.ps1')
+          $sample = Join-Path $env:RUNNER_TEMP 'verified_git_blob_sample.txt'
+          [IO.File]::WriteAllBytes($sample, [Text.Encoding]::UTF8.GetBytes("hello world`n"))
+          if (-not (Test-GitBlobSha1 $sample '3b18e512dba79e4c8300dd08aeb37f8e728b8dad')) {
+            throw 'Git blob SHA1 verifier incorrectly rejected known bytes'
+          }
+          if (Test-GitBlobSha1 $sample ('0' * 40)) { throw 'Git blob verifier accepted a mismatched hash' }
+          $testBedDir = Join-Path $env:RUNNER_TEMP 'asset_cleanup/resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
+          New-Item -ItemType Directory -Force -Path $testBedDir | Out-Null
+          $testBedFile = Join-Path $testBedDir 'red.png'
+          $testManifest = Join-Path $env:RUNNER_TEMP 'asset_cleanup_manifest.json'
+          @{ textures = @(@{ to = 'red.png'; git_blob_sha1 = '3b18e512dba79e4c8300dd08aeb37f8e728b8dad' }) } |
+            ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $testManifest -Encoding UTF8
+          [IO.File]::WriteAllBytes($testBedFile, [Text.Encoding]::UTF8.GetBytes("hello world`n"))
+          Remove-ManagedBedrockBedTextures (Join-Path $env:RUNNER_TEMP 'asset_cleanup') $testManifest
+          if (Test-Path -LiteralPath $testBedFile) { throw 'Managed Bedrock fallback texture was not cleaned up' }
+          [IO.File]::WriteAllText($testBedFile, 'user custom texture')
+          Remove-ManagedBedrockBedTextures (Join-Path $env:RUNNER_TEMP 'asset_cleanup') $testManifest
+          if (-not (Test-Path -LiteralPath $testBedFile)) { throw 'Cleanup deleted a user-created texture' }
+          # Existing custom textures must survive a later Bedrock export.
+          # Mock the downloader to verify both the no-overwrite path and the
+          # original download behavior, without any network dependency.
+          $installDir = Join-Path $env:RUNNER_TEMP 'asset_install'
+          $bedNames = @('white','orange','magenta','light_blue','yellow','lime','pink','gray','light_gray','cyan','purple','blue','brown','green','red','black')
+          $installManifest = Join-Path $env:RUNNER_TEMP 'asset_install_manifest.json'
+          @{ source='Mojang/bedrock-samples'; revision=('a' * 40); folder='resource_pack/textures/entity/bed';
+             textures=@($bedNames | ForEach-Object { @{from=($_ + '.png');to=($_ + '.png');git_blob_sha1='3b18e512dba79e4c8300dd08aeb37f8e728b8dad'} }) } |
+            ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $installManifest -Encoding UTF8
+          $installBedDir = Join-Path $installDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
+          New-Item -ItemType Directory -Force -Path $installBedDir | Out-Null
+          foreach ($name in $bedNames) { [IO.File]::WriteAllText((Join-Path $installBedDir ($name + '.png')), 'user custom texture') }
+          $script:assetDownloads = 0
+          function Invoke-WebRequest {
+            [CmdletBinding()]
+            param([switch]$UseBasicParsing,[string]$Uri,[string]$OutFile,[int]$TimeoutSec)
+            $script:assetDownloads++
+            [IO.File]::WriteAllBytes($OutFile, [Text.Encoding]::UTF8.GetBytes("hello world`n"))
+          }
+          Ensure-BedrockBedTextures $installDir $installManifest
+          if ($script:assetDownloads -ne 0) { throw 'Installer downloaded over a user custom texture' }
+          foreach ($name in $bedNames) {
+            if ([IO.File]::ReadAllText((Join-Path $installBedDir ($name + '.png'))) -ne 'user custom texture') {
+              throw ('Installer overwrote user customization: ' + $name)
+            }
+          }
+          $missingBed = Join-Path $installBedDir 'red.png'
+          Remove-Item -LiteralPath $missingBed -Force
+          Ensure-BedrockBedTextures $installDir $installManifest
+          if ($script:assetDownloads -ne 1 -or
+              -not (Test-GitBlobSha1 $missingBed '3b18e512dba79e4c8300dd08aeb37f8e728b8dad')) {
+            throw 'Missing managed bed texture was not installed and verified'
+          }
+          Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -62,6 +127,31 @@ jobs:
               $diagnostics.Returned -ne 3 -or $diagnostics.Readable -ne 2) {
             throw ('MiEx diagnostic parsing failed: ' + ($diagnostics | Out-String))
           }
+
+          # The final accuracy report must preserve the same log classifications
+          # while reading an enormous MiEx log only once.
+          $auditLog = Join-Path $dir 'audit_cases.log'
+          $auditLines = [System.Collections.Generic.List[string]]::new()
+          $auditLines.Add('[COMMAND] {"status":"success"}')
+          $auditLines.Add('Missing blockstate: minecraft:bed')
+          $auditLines.Add('Missing blockstate: minecraft:bed')
+          $auditLines.Add('Missing blockstate: minecraft:banner')
+          $auditLines.Add('Before: No model file found')
+          $auditLines.Add('  [MSG] Error: invalid texture   ')
+          for ($i=0; $i -lt 40; $i++) { $auditLines.Add(('Missing texture sample {0}' -f $i)) }
+          [IO.File]::WriteAllLines($auditLog, $auditLines)
+          $accuracy = Read-MiExAuditLog $auditLog
+          if (-not $accuracy.Success -or @($accuracy.Missing).Count -ne 2 -or
+              (@($accuracy.Missing) -notcontains 'minecraft:bed') -or
+              (@($accuracy.Missing) -notcontains 'minecraft:banner') -or
+              @($accuracy.Errors).Count -ne 35 -or
+              $accuracy.Errors[0] -ne 'Before: No model file found' -or
+              $accuracy.Errors[1] -ne '[MSG] Error: invalid texture') {
+            throw ('Streaming audit changed missing-blockstate or error classifications: ' + ($accuracy | Out-String))
+          }
+          $emptyAccuracy = Read-MiExAuditLog (Join-Path $dir 'nonexistent_audit.log')
+          if ($emptyAccuracy.Success -or @($emptyAccuracy.Missing).Count -ne 0 -or
+              @($emptyAccuracy.Errors).Count -ne 0) { throw 'Missing MiEx log no longer yields empty audit' }
           if (Test-UnsupportedBedrockChunk $diagnosticLog $diagnosticErr) { throw 'Invented unsupported-chunk warning' }
           [IO.File]::WriteAllText($diagnosticErr, 'Chunk section format not supported')
           if (-not (Test-UnsupportedBedrockChunk $diagnosticLog $diagnosticErr)) { throw 'Missed unsupported chunk error' }
@@ -70,9 +160,17 @@ jobs:
           New-Item -ItemType Directory -Force -Path $chunks | Out-Null
           $chunkFile = Join-Path $chunks 'region_1_chunk_0_0_render.usd'
           Set-Content -LiteralPath $chunkFile -Value 'int[] faceVertexCounts = []' -Encoding ASCII
+          $chunkList = @(Get-ChildItem -LiteralPath $chunks -Filter '*.usd' -File -Recurse -ErrorAction Stop)
           if (Test-ChunkTerrainGeometry $chunks) { throw 'Empty USD chunk incorrectly passed terrain check' }
+          if (Test-ChunkTerrainGeometry $chunks $chunkList) { throw 'Reused USD file list incorrectly passed empty terrain' }
           Set-Content -LiteralPath $chunkFile -Value 'int[] faceVertexCounts = [4,4]' -Encoding ASCII
           if (-not (Test-ChunkTerrainGeometry $chunks)) { throw 'Valid USD chunk incorrectly failed terrain check' }
+          if (-not (Test-ChunkTerrainGeometry $chunks $chunkList)) { throw 'Reused USD file list missed valid terrain' }
+          # A pre-enumerated list avoids a second directory walk entirely.
+          $unusedPath = Join-Path $dir 'missing_chunk_folder'
+          if (-not (Test-ChunkTerrainGeometry $unusedPath $chunkList)) {
+            throw 'Pre-enumerated USD validation unexpectedly scanned its folder'
+          }
           # World resource-pack archives must not write files outside the pack directory.
           $packWorld = Join-Path $dir 'pack_world'
           $packFolder = Join-Path $packWorld 'resource_packs'
@@ -140,18 +238,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Publish_v1_0_5_release
+      - name: Publish_v1_0_6_release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.5 >/dev/null 2>&1; then
-            echo "Release v1.0.5 already exists; leaving it unchanged."
+          if gh release view v1.0.6 >/dev/null 2>&1; then
+            echo "Release v1.0.6 already exists; leaving it unchanged."
             exit 0
           fi
           mkdir -p release
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
           test -s release/MinecraftToBlender_v1.exe
           (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
-          gh release create v1.0.5 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.5" \
-            --notes-file .github/RELEASE_NOTES_v1.0.5.md
+          gh release create v1.0.6 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.6" \
+            --notes-file .github/RELEASE_NOTES_v1.0.6.md

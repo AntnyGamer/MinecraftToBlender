@@ -131,6 +131,34 @@ function Read-MiExDiagnostics([string]$logPath) {
     }
     return $result
 }
+function Read-MiExAuditLog([string]$path) {
+    # Parse the same audit evidence in one forward-only pass instead of
+    # opening a potentially large MiEx output log three separate times.
+    $missingValues = New-Object 'System.Collections.Generic.List[string]'
+    $errorValues = New-Object 'System.Collections.Generic.List[string]'
+    $missingPattern = [regex]::new('Missing blockstate:\s*([^\r\n]+)', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $errorPattern = [regex]::new('\[MSG\] Error:|No blockstate file|Missing texture|No texture found|Missing model|No model file|Unknown block|Exception|\[MSG\] Error|\[ERROR\]', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $success = $false
+    if(Test-Path -LiteralPath $path -PathType Leaf) {
+        foreach($line in [System.IO.File]::ReadLines($path)) {
+            foreach($match in $missingPattern.Matches($line)) {
+                $missingValues.Add($match.Groups[1].Value.Trim())
+            }
+            if($errorValues.Count -lt 35 -and $errorPattern.IsMatch($line)) {
+                $errorValues.Add($line.Trim())
+            }
+            if(-not $success -and
+               $line.IndexOf('[COMMAND] {"status":"success"}', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $success = $true
+            }
+        }
+    }
+    return [pscustomobject]@{
+        Missing = @($missingValues | Sort-Object -Unique)
+        Errors = @($errorValues)
+        Success = $success
+    }
+}
 function Test-UnsupportedBedrockChunk([string]$stdout,[string]$stderr) {
     foreach($path in @($stdout, $stderr)) {
         if((Test-Path -LiteralPath $path) -and (Select-String -LiteralPath $path -Pattern 'Chunk section format not supported' -Quiet -ErrorAction SilentlyContinue)) {
@@ -173,11 +201,14 @@ function Publish-Export([string]$stage,[string]$destination) {
         catch { Write-Warning ("Previous export backup could not be removed: " + $backup) }
     }
 }
-function Test-ChunkTerrainGeometry([string]$folder) {
+function Test-ChunkTerrainGeometry([string]$folder, [System.IO.FileInfo[]]$files = $null) {
     # MiEx's ASCII chunk layers contain nonempty faceVertexCounts for mesh
     # geometry. A directory full of empty USD layer shells is not terrain.
-    # Read in bounded pieces: face arrays may occupy very long USD lines.
-    $files = @(Get-ChildItem -LiteralPath $folder -Filter '*.usd' -File -Recurse -ErrorAction Stop)
+    # Reuse the export's existing chunk-file list instead of walking it twice.
+    # A direct call can still enumerate the folder for independent validation.
+    if($null -eq $files) {
+        $files = @(Get-ChildItem -LiteralPath $folder -Filter '*.usd' -File -Recurse -ErrorAction Stop)
+    }
     $pattern = 'faceVertexCounts\s*=\s*\[\s*[1-9]'
     $buffer = New-Object char[] 65536
     foreach($file in $files) {
@@ -340,64 +371,9 @@ try {
     try {Test-Hash $jar $releaseSha256}
     catch {Remove-Item -LiteralPath $jar -Force -ErrorAction SilentlyContinue;Get-WebFile $releaseUrl $jar;Test-Hash $jar $releaseSha256}
 
-    # Apply the fourth-vertex color-check fix in a NEW JAR, not
-    # the checksummed official original. This must succeed before
-    # export; do not silently fall back to a different implementation.
+    # The pinned MiEx JAR is run unchanged. Face merging stays disabled
+    # because it has not been proven to preserve all exported terrain.
     $runJar = $jar
-    if($enableFaceOptimization) {
-        $runJar = Join-Path $miexDir 'MiEx_Optimized.jar'
-        $patcherClass = Join-Path $base 'PatchMiExFaceOptimizer.class'
-        $patcherHelper = Join-Path $base 'PatchMiExFaceOptimizer$ClassView.class'
-        if(-not (Test-Path -LiteralPath $patcherClass) -or -not (Test-Path -LiteralPath $patcherHelper)) {
-            Abort 'Missing Java patcher class files. Extract the entire release ZIP before running.'
-        }
-        $patchMarker = Join-Path $miexDir 'MiEx_Optimized.sha256.txt'
-        # Include the patcher itself in the cache key, not just the resulting JAR.
-        # A new patch implementation must not silently reuse an older patched JAR.
-        $patcherHash = ((Get-FileHash -LiteralPath $patcherClass -Algorithm SHA256).Hash.ToLowerInvariant() + ':' + 
-                        (Get-FileHash -LiteralPath $patcherHelper -Algorithm SHA256).Hash.ToLowerInvariant())
-        $patchFresh = $false
-        if((Test-Path -LiteralPath $runJar) -and (Test-Path -LiteralPath $patchMarker)) {
-            $savedHash = (Get-Content -LiteralPath $patchMarker -Raw).Trim().ToLowerInvariant()
-            $jarHash = (Get-FileHash -LiteralPath $runJar -Algorithm SHA256).Hash.ToLowerInvariant()
-            $patchFresh = ($savedHash -eq ($jarHash + ':' + $patcherHash))
-        }
-        if(-not $patchFresh) {
-            $patchLog = Join-Path $work 'Face_Patch_Log.txt'
-            $javaExe = (Get-Command java.exe -ErrorAction Stop).Source
-            $patchArgs = '-cp "{0}" PatchMiExFaceOptimizer "{1}" "{2}"' -f $base, $jar, $runJar
-            $patchProcessInfo = New-Object System.Diagnostics.ProcessStartInfo
-            $patchProcessInfo.FileName = $javaExe
-            $patchProcessInfo.Arguments = $patchArgs
-            $patchProcessInfo.WorkingDirectory = $base
-            $patchProcessInfo.UseShellExecute = $false
-            $patchProcessInfo.CreateNoWindow = $true
-            $patchProcessInfo.RedirectStandardOutput = $true
-            $patchProcessInfo.RedirectStandardError = $true
-            Write-Host 'Applying face optimizer patch to a separate JAR...' -ForegroundColor Cyan
-            $patchProcess = New-Object System.Diagnostics.Process
-            $patchProcess.StartInfo = $patchProcessInfo
-            try {
-                [void]$patchProcess.Start()
-                $patchStdout = $patchProcess.StandardOutput.ReadToEnd()
-                $patchStderr = $patchProcess.StandardError.ReadToEnd()
-                $patchProcess.WaitForExit()
-                $patchCode = $patchProcess.ExitCode
-                [System.IO.File]::WriteAllText($patchLog, ($patchStdout + [Environment]::NewLine + $patchStderr), [System.Text.Encoding]::UTF8)
-                if($patchStdout) { Write-Host $patchStdout.Trim() }
-                if($patchStderr) { Write-Host $patchStderr.Trim() -ForegroundColor Yellow }
-            } finally { $patchProcess.Dispose() }
-            if($patchCode -ne 0 -or -not (Test-Path -LiteralPath $runJar)) {
-                Abort "Face optimizer patch failed (exit code $patchCode). Original MiEx.jar remains intact. Details: $patchLog"
-            }
-            $optimizedSha = (Get-FileHash -LiteralPath $runJar -Algorithm SHA256).Hash.ToLowerInvariant()
-            if($optimizedSha -eq $releaseSha256) {Abort 'Patched MiEx JAR is unexpectedly identical to the original. Refusing export.'}
-            [System.IO.File]::WriteAllText($patchMarker, ($optimizedSha + ':' + $patcherHash + [Environment]::NewLine), [System.Text.Encoding]::ASCII)
-            Write-Host ('Verified separate optimized JAR: ' + $optimizedSha) -ForegroundColor Green
-        }else {
-            Write-Host 'Reusing previously validated, checksummed patched MiEx JAR.' -ForegroundColor Green
-        }
-    }
 
     # Official MiEx example resource pack for Blender EEVEE materials only.
     # It does not contain custom block textures and is not the world's custom pack.
@@ -435,6 +411,45 @@ try {
         Abort 'MiEx exporter resource-pack configuration did not validate.'
     }
     Write-Host 'Applied reusable exporter configuration in BlenderEEVEE/miex_config.json.' -ForegroundColor Green
+    $bedrockAssetHelper = Join-Path $base 'Bedrock_Assets.ps1'
+    if(-not (Test-Path -LiteralPath $bedrockAssetHelper -PathType Leaf)) {
+        Abort 'Bedrock asset helper is missing.'
+    }
+    . $bedrockAssetHelper
+    $bedTextureManifest = Join-Path $base 'Bedrock_Bed_Textures.json'
+    if($Edition -eq 'bedrock' -and -not $UseWorldResourcePacks) {
+        Ensure-BedrockBedTextures $miexDir $bedTextureManifest
+    } else {
+        Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest
+    }
+    $blockOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/blockstates'
+    $bedrockBlockOverrides = @{
+        'Bedrock_Beds.json' = 'bed.json'
+        'Bedrock_Shulkers.json' = 'shulker_box.json'
+        'Bedrock_Signs.json' = 'sign.json'
+        'Bedrock_Hanging_Signs.json' = 'hanging_sign.json'
+    }
+    if($Edition -eq 'bedrock') {
+        New-Item -ItemType Directory -Force -Path $blockOverrideDir | Out-Null
+        foreach($entry in $bedrockBlockOverrides.GetEnumerator()) {
+            $source = Join-Path $base $entry.Key
+            if(-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+                Abort ("Bedrock model override is missing: " + $source)
+            }
+            $parsed = Get-Content -LiteralPath $source -Raw | ConvertFrom-Json
+            if(-not $parsed.blocks -or -not $parsed.handler) {
+                Abort ("Bedrock model override did not validate: " + $source)
+            }
+            Copy-Item -LiteralPath $source -Destination (Join-Path $blockOverrideDir $entry.Value) -Force -ErrorAction Stop
+        }
+        Write-Host 'Enabled Bedrock-specific beds, shulker orientation, and legacy sign text models.' -ForegroundColor Green
+    } else {
+        # Remove any overrides created for an earlier Bedrock export in this workspace.
+        foreach($name in $bedrockBlockOverrides.Values) {
+            $target = Join-Path $blockOverrideDir $name
+            if(Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction Stop }
+        }
+    }
     $frameStateFolder = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/blockstates'
     $frameOverridePath = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities/item_frame.json'
     if($Edition -eq 'bedrock') {
@@ -548,12 +563,10 @@ try {
     $commands | ConvertTo-Json -Depth 15 | Set-Content -LiteralPath $cmdFile -Encoding UTF8
     Write-Host 'Enabling vanilla item-frame, glow-frame, painting, display and armor-stand models (single static frame).' -ForegroundColor Cyan
     $env:MIEX_PORTABLE_EXPORTS='1'
+    $env:MIEX_STORE_GEN_TEX_IN_EXPORT='1'
     $env:MIEX_SKIP_WORLD_RESOURCEPACK_CHECK = if($UseWorldResourcePacks) { '0' } else { '1' }
     $log = Join-Path $work 'miex_console.log'
     Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
-    if($enableFaceOptimization) {
-        Write-Warning 'Check UV tiling, water, foliage, transparent blocks, biome tint and ambient occlusion after importing. Face merging and geometry subsets are not certified visually lossless.'
-    }
     # IMPORTANT: Java writes harmless warnings to stderr. Windows PowerShell 5.1
     # can turn those warnings into terminating errors when ErrorActionPreference
     # is Stop and stderr is merged with stdout using *>&1. Capture both streams
@@ -627,7 +640,7 @@ try {
     $materialsUsdFound = (Test-Path -LiteralPath $materialsUsd)
     $chunkFiles = @()
     if(Test-Path -LiteralPath $chunksDir) {
-        $chunkFiles = @(Get-ChildItem -LiteralPath $chunksDir -Filter '*.usd' -Recurse -File -ErrorAction SilentlyContinue)
+        $chunkFiles = @(Get-ChildItem -LiteralPath $chunksDir -Filter '*.usd' -Recurse -File -ErrorAction Stop)
     }
     $chunkCount = $chunkFiles.Count
     $entityUsdFiles = @(Get-ChildItem -LiteralPath $exportDir -Recurse -Filter '*entit*.usd' -File -ErrorAction SilentlyContinue)
@@ -652,7 +665,7 @@ try {
     # The root USD can contain valid render/proxy payload references even if
     # every referenced chunk is empty. Catch that before replacing a previous
     # export or launching Blender, which cannot reconstruct missing terrain.
-    if(-not (Test-ChunkTerrainGeometry $chunksDir)) {
+    if(-not (Test-ChunkTerrainGeometry $chunksDir $chunkFiles)) {
         $diagnosis = if($unsupportedChunk) {
             'MiEx rejected the saved Bedrock chunk format; inspect miex_console.log for the exact unsupported Data version.'
         } elseif($probeReported -and $probeLoaded -gt 0) {
@@ -730,15 +743,11 @@ try {
     $main = Join-Path $exportDir $exportFile
     Write-Host 'Fresh export published; previous chunk layers cannot be reused.' -ForegroundColor Green
     $reportPath = Join-Path $work 'Export_Accuracy_Audit.txt'
-    $missing = @()
-    $errors = @()
+    $audit = Read-MiExAuditLog $log
+    $missing = @($audit.Missing)
+    $errors = @($audit.Errors)
     $exceptions = @()
-    $logSuccess = $false
-    if(Test-Path -LiteralPath $log) {
-        $missing = @(Select-String -LiteralPath $log -Pattern 'Missing blockstate:\s*([^\r\n]+)' -AllMatches | ForEach-Object { $_.Matches | ForEach-Object {$_.Groups[1].Value.Trim()} } | Sort-Object -Unique)
-        $errors = @(Select-String -LiteralPath $log -Pattern '(?i)\[MSG\] Error:|No blockstate file|Missing texture|No texture found|Missing model|No model file|Unknown block|Exception|\[MSG\] Error|\[ERROR\]' | Select-Object -First 35 | ForEach-Object {$_.Line.Trim()})
-        $logSuccess = [bool](Select-String -LiteralPath $log -SimpleMatch '[COMMAND] {"status":"success"}' -Quiet)
-    }
+    $logSuccess = $audit.Success
     if(Test-Path -LiteralPath $stderrLog) {
         $exceptions = @(Select-String -LiteralPath $stderrLog -Pattern 'Exception|Error:|OutOfMemory|fatal' | Select-Object -First 35 | ForEach-Object {$_.Line.Trim()})
     }
@@ -754,6 +763,7 @@ try {
         ('Face merging enabled (MiEx FaceOptimiser): ' + $enableFaceOptimization),
         'Raytracing geometry removal disabled (preserve all visible model surfaces).',
         ('Fill export-region boundary faces: ' + $fillWorldBorders),
+        'Generated textures (banners, layered entity materials) stored with the export.',
         ('MiEx JAR used: ' + $runJar),
         ('MiEx status success: ' + $logSuccess),
         ('USD binary Crate compaction: ' + $binarySummary),

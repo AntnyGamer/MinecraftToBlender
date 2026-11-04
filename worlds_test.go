@@ -172,3 +172,61 @@ func TestPlayerPositionFloorsNegativeCoordinates(t *testing.T) {
 		}
 	}
 }
+
+func TestOverlappingLauncherRootsPreserveSingleWorld(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("APPDATA", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("LOCALAPPDATA", root)
+	saves := filepath.Join(root, ".minecraft", "saves")
+	world := filepath.Join(saves, "Example")
+	writeFixtureWorld(t, world, javaEdition, "Overlapping root", 1750000000)
+	found := discoverWorlds(javaEdition, saves)
+	if len(found) != 1 || found[0].path != world || found[0].name != "Overlapping root" {
+		t.Fatalf("overlapping launcher folders should produce one intact entry: %+v", found)
+	}
+}
+
+func TestBedrockWorldNamePrecedenceAndFallback(t *testing.T) {
+	dir := t.TempDir()
+	writeFixtureWorld(t, dir, bedrockEdition, "NBT world title", 1750000000)
+	levelname := filepath.Join(dir, "levelname.txt")
+	if err := os.WriteFile(levelname, []byte("Fallback title"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := readWorldInfo(dir, bedrockEdition)
+	if got.name != "NBT world title" {
+		t.Fatalf("level.dat world title must take precedence: %+v", got)
+	}
+	// This fallback may be inaccessible while the game updates the file.
+	// A complete, valid NBT name must not require opening it.
+	if err := os.Remove(levelname); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(levelname, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if got := readWorldInfo(dir, bedrockEdition); got.name != "NBT world title" {
+		t.Fatalf("levelname.txt was unnecessarily required: %+v", got)
+	}
+	if err := os.Remove(levelname); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(levelname, []byte("\ufeffFallback title\x00\x00"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "level.dat"), []byte("invalid Bedrock NBT"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got = readWorldInfo(dir, bedrockEdition)
+	if got.name != "Fallback title" || got.exactDate {
+		t.Fatalf("unreadable NBT must still use levelname.txt: %+v", got)
+	}
+	if err := os.Remove(levelname); err != nil {
+		t.Fatal(err)
+	}
+	got = readWorldInfo(dir, bedrockEdition)
+	if got.name != filepath.Base(dir) {
+		t.Fatalf("both missing titles should use folder name: %+v", got)
+	}
+}

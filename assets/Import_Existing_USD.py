@@ -29,7 +29,7 @@ def stage_report(src, variant):
     for prim in stage.Traverse():
         if prim.IsA(UsdGeom.Mesh):
             stats['meshes'] += 1
-            path_parts = str(prim.GetPath()).split('/')
+            path_parts = str(prim.GetPath()).split('/', 3)
             group = path_parts[2] if len(path_parts) > 2 else 'other'
             examples[group] += 1
             faces = UsdGeom.Mesh(prim).GetFaceVertexCountsAttr().Get()
@@ -83,6 +83,26 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('MiEx material handler is unfamiliar. No unverified patch attempted.')
     contents = contents.replace(original, safe, 1)
+    # Blender's node collection provides name lookup. Avoid a linear scan
+    # for every connection in large material graphs, retaining name truncation
+    # and the original missing-node error.
+    original = '''    def get_Node_By_Name(self, name:str):
+        if(len(name) > 63):
+            name = name[:63]
+        for node in self.mat.node_tree.nodes:
+            if node.name == name:
+                return node
+        raise Exception("Node not found: " + name)'''
+    faster = '''    def get_Node_By_Name(self, name:str):
+        if(len(name) > 63):
+            name = name[:63]
+        node = self.mat.node_tree.nodes.get(name)
+        if node is not None:
+            return node
+        raise Exception("Node not found: " + name)'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx material node lookup changed; cannot apply verified optimization.')
+    contents = contents.replace(original, faster, 1)
     module = types.ModuleType('miex_import_compat')
     module.__file__ = str(src)
     sys.modules[module.__name__] = module
@@ -92,28 +112,82 @@ def load_patched_importer(src):
 
 
 def scene_report():
-    counts = Counter(o.type for o in bpy.context.scene.objects)
-    meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
-    clouds = [o for o in bpy.context.scene.objects if o.type == 'POINTCLOUD']
-    faces = sum(len(o.data.polygons) for o in meshes)
     def is_prototype(o):
         while o:
-            name = o.name.split('.')[0].lower()
+            name = o.name.partition('.')[0].lower()
             if name in ('prototypes', 'individualblocksbasemeshes'):
                 return True
             o = o.parent
         return False
-    terrain_faces = sum(len(o.data.polygons) for o in meshes if not is_prototype(o))
-    verts = sum(len(o.data.vertices) for o in meshes)
-    points = sum(len(o.data.points) for o in clouds)
-    geonodes = sum(sum(mod.type == 'NODES' for mod in o.modifiers) for o in clouds)
+
+    counts = Counter()
+    mesh_count = faces = terrain_faces = verts = cloud_count = points = geonodes = 0
+    # Avoid materializing and revisiting every scene object several times.
+    for o in bpy.context.scene.objects:
+        counts[o.type] += 1
+        if o.type == 'MESH':
+            mesh_count += 1
+            mesh_faces = len(o.data.polygons)
+            faces += mesh_faces
+            verts += len(o.data.vertices)
+            if not is_prototype(o):
+                terrain_faces += mesh_faces
+        elif o.type == 'POINTCLOUD':
+            cloud_count += 1
+            points += len(o.data.points)
+            geonodes += sum(mod.type == 'NODES' for mod in o.modifiers)
+
     log('BLENDER scene object types:', dict(counts))
-    log('BLENDER mesh objects:', len(meshes), 'vertices:', verts, 'faces:', faces)
+    log('BLENDER mesh objects:', mesh_count, 'vertices:', verts, 'faces:', faces)
     log('BLENDER mesh faces outside prototype branches:', terrain_faces)
-    log('BLENDER point-cloud objects:', len(clouds), 'point positions:', points)
+    log('BLENDER point-cloud objects:', cloud_count, 'point positions:', points)
     log('BLENDER geometry-node modifiers on point clouds:', geonodes)
     log('BLENDER placeholder missing-texture image:', '_MiEx_Unreadable_Texture' in bpy.data.images)
-    return {'meshes': len(meshes), 'faces': faces, 'terrain_faces': terrain_faces, 'clouds': len(clouds), 'points': points}
+    return {'meshes': mesh_count, 'faces': faces, 'terrain_faces': terrain_faces, 'clouds': cloud_count, 'points': points}
+
+
+def audit_imported_textures(target):
+    """Report missing external source images without modifying the scene."""
+    image_nodes = sum(
+        node.type == 'TEX_IMAGE'
+        for material in bpy.data.materials if material.use_nodes
+        for node in material.node_tree.nodes
+    )
+    missing = []
+    relative = 0
+    checked = 0
+    for image in bpy.data.images:
+        if image.source != 'FILE' or image.packed_file:
+            continue
+        # Blender uses // for project-relative image paths. pathlib can
+        # interpret this prefix as an absolute or UNC path, so detect the
+        # documented Blender prefix before using native path semantics.
+        if image.filepath.startswith('//') or not Path(image.filepath).is_absolute():
+            relative += 1
+            continue
+        path = Path(bpy.path.abspath(image.filepath))
+        checked += 1
+        if not path.is_file():
+            missing.append(f'{image.name}: {path}')
+    fallback = '_MiEx_Unreadable_Texture' in bpy.data.images
+    summary = (
+        f'Image texture nodes: {image_nodes}; checked external images: {checked}; '
+        f'missing: {len(missing)}; relative (not checked): {relative}; '
+        f'unreadable-image fallback: {fallback}'
+    )
+    log('TEXTURE AUDIT:', summary)
+    if missing:
+        for sample in missing[:25]:
+            log('MISSING TEXTURE:', sample)
+    if fallback:
+        log('WARNING: MiEx could not load at least one texture; see MIEX_TEXTURE_LOAD_FAILURE lines.')
+    audit_path = target.with_name(target.stem + '_texture_audit.txt')
+    try:
+        audit_path.write_text(summary + '\n' + '\n'.join(missing) + '\n', encoding='utf-8')
+        log('Texture audit saved:', audit_path)
+    except OSError as exc:
+        log('WARNING: Could not write optional texture audit:', repr(exc))
+
 
 
 def clear_objects():
@@ -146,6 +220,9 @@ def frame_actual_scene():
     bounds_max = Vector((float('-inf'),) * 3)
     encountered = 0
     true_instances = 0
+    # A prototype may appear thousands of times. Its local bounding box is
+    # unchanged between instances, so reuse its eight corner vectors.
+    instance_corners = {}
     try:
         for instance in dg.object_instances:
             ob = instance.object
@@ -160,8 +237,17 @@ def frame_actual_scene():
                     pass
             else:
                 true_instances += 1
-            for p in ob.bound_box:
-                world_p = instance.matrix_world @ Vector(p)
+            if instance.is_instance:
+                key = ob.as_pointer()
+                corners = instance_corners.get(key)
+                if corners is None:
+                    corners = tuple(Vector(p) for p in ob.bound_box)
+                    if len(instance_corners) < 512:
+                        instance_corners[key] = corners
+            else:
+                corners = (Vector(p) for p in ob.bound_box)
+            for p in corners:
+                world_p = instance.matrix_world @ p
                 for axis in range(3):
                     bounds_min[axis] = min(bounds_min[axis], world_p[axis])
                     bounds_max[axis] = max(bounds_max[axis], world_p[axis])
@@ -248,6 +334,10 @@ def main():
         raise RuntimeError('Blender imported less than half of the terrain faces represented in the USD. No misleading success file saved.')
     frame_actual_scene()
     hide_relationship_lines()
+    try:
+        audit_imported_textures(target)
+    except Exception as exc:
+        log('WARNING: Optional texture audit failed; continuing with the intact Blender scene:', repr(exc))
     bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=False)
     if not target.is_file() or target.stat().st_size == 0:
         raise RuntimeError('Blender did not create the output file.')

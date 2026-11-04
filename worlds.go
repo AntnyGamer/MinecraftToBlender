@@ -127,11 +127,11 @@ func discoverWorlds(edition worldEdition, extraRoot string) []localWorld {
 			}
 		}
 		for _, p := range candidates {
-			if !validWorldDir(p, edition) {
-				continue
-			}
 			key := strings.ToLower(filepath.Clean(p))
 			if seen[key] {
+				continue
+			}
+			if !validWorldDir(p, edition) {
 				continue
 			}
 			seen[key] = true
@@ -149,11 +149,6 @@ func discoverWorlds(edition worldEdition, extraRoot string) []localWorld {
 func readWorldInfo(p string, edition worldEdition) localWorld {
 	v := localWorld{path: p, edition: edition, name: filepath.Base(p)}
 	if edition == bedrockEdition {
-		if b, e := os.ReadFile(filepath.Join(p, "levelname.txt")); e == nil {
-			if x := strings.TrimSpace(strings.TrimPrefix(string(bytes.TrimRight(b, "\x00")), "\ufeff")); x != "" {
-				v.name = x
-			}
-		}
 		v.icon = filepath.Join(p, "world_icon.jpeg")
 	} else {
 		v.icon = filepath.Join(p, "icon.png")
@@ -165,9 +160,11 @@ func readWorldInfo(p string, edition worldEdition) localWorld {
 	if info, e := os.Stat(level); e == nil {
 		v.played = info.ModTime()
 	}
+	gotMetadataName := false
 	if metadata, e := readLevelDat(level, edition); e == nil {
 		if metadata.Name != "" {
 			v.name = metadata.Name
+			gotMetadataName = true
 		}
 		if !metadata.LastPlayed.IsZero() {
 			v.played = metadata.LastPlayed
@@ -175,6 +172,15 @@ func readWorldInfo(p string, edition worldEdition) localWorld {
 		}
 		if metadata.HasCenter {
 			v.x, v.z, v.hasCenter = metadata.X, metadata.Z, true
+		}
+	}
+	// level.dat takes precedence over levelname.txt. Read the fallback only
+	// when it can actually affect the displayed Bedrock world name.
+	if edition == bedrockEdition && !gotMetadataName {
+		if b, e := os.ReadFile(filepath.Join(p, "levelname.txt")); e == nil {
+			if x := strings.TrimSpace(strings.TrimPrefix(string(bytes.TrimRight(b, "\x00")), "\ufeff")); x != "" {
+				v.name = x
+			}
 		}
 	}
 	return v

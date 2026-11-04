@@ -14,7 +14,6 @@ var (
 	dwm              = syscall.NewLazyDLL("dwmapi.dll")
 	pCreateFont      = gdi.NewProc("CreateFontW")
 	pCreateBrush     = gdi.NewProc("CreateSolidBrush")
-	pCreatePen       = gdi.NewProc("CreatePen")
 	pSelectObject    = gdi.NewProc("SelectObject")
 	pDeleteObject    = gdi.NewProc("DeleteObject")
 	pRoundRect       = gdi.NewProc("RoundRect")
@@ -37,7 +36,6 @@ var (
 	pGetScrollInfo   = user32.NewProc("GetScrollInfo")
 	pSetFocus        = user32.NewProc("SetFocus")
 	pDwmSetAttribute = dwm.NewProc("DwmSetWindowAttribute")
-	pIsWindowEnabled = user32.NewProc("IsWindowEnabled")
 	pTrackMouseEvent = user32.NewProc("TrackMouseEvent")
 )
 
@@ -69,9 +67,6 @@ const (
 	odStateSelected = 0x0001
 	odStateDisabled = 0x0004
 	odStateFocus    = 0x0010
-	wsSizeBox       = 0x00040000
-	wsMaximizeBox   = 0x00010000
-	psSolid         = 0
 )
 
 func color(r, g, b uint32) uint32 { return r | (g << 8) | (b << 16) }
@@ -617,18 +612,6 @@ func refreshButtons() {
 		}
 	}
 }
-func paintRounded(dc uintptr, r rect, fill, border uint32, round int) {
-	brush, _, _ := pCreateBrush.Call(uintptr(fill))
-	pen, _, _ := pCreatePen.Call(psSolid, 1, uintptr(border))
-	oldB, _, _ := pSelectObject.Call(dc, brush)
-	oldP, _, _ := pSelectObject.Call(dc, pen)
-	pRoundRect.Call(dc, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right), uintptr(r.Bottom), uintptr(round), uintptr(round))
-	pSelectObject.Call(dc, oldB)
-	pSelectObject.Call(dc, oldP)
-	pDeleteObject.Call(brush)
-	pDeleteObject.Call(pen)
-}
-
 // paintPill draws a filled rounded button with no border, stroke or focus outline.
 // We retain a standard BUTTON control (with OwnerDraw) for keyboard, tab and
 // accessibility behavior, while the appearance is fully painted here.
@@ -1043,15 +1026,25 @@ func updateLog() {
 	chunk := chunkBuilder.String()
 	app.logShown = len(app.logLines)
 	if !ui.rich {
-		// Standard Edit fallback. Restore visible line when a user has scrolled up.
+		// Standard EDIT can append new log text without retrieving and rewriting
+		// everything displayed so far. Respect its 16 MiB EM_LIMITTEXT cap:
+		// above that threshold, retain the original WM_SETTEXT behavior.
 		oldFirst := send(h, 0x00CE, 0, 0) // EM_GETFIRSTVISIBLELINE
-		setText(h, getText(idLog)+chunk)
-		if app.followLog {
-			send(h, 0x00B1, ^uintptr(0), ^uintptr(0))
-			send(h, 0x00B7, 0, 0)
+		currentLength := send(h, 0x000E, 0, 0) // WM_GETTEXTLENGTH
+		if app.followLog && currentLength+uintptr(len(chunk)) < 16*1024*1024 {
+			send(h, 0x00B1, ^uintptr(0), ^uintptr(0)) // EM_SETSEL
+			send(h, emReplaceSel, 0, ptr(chunk))
+			send(h, 0x00B7, 0, 0) // EM_SCROLLCARET
 		} else {
-			now := send(h, 0x00CE, 0, 0)
-			send(h, 0x00B6, uintptr(int32(oldFirst)-int32(now)), 0) // EM_LINESCROLL
+			// This path also preserves scroll position while follow is paused.
+			setText(h, getText(idLog)+chunk)
+			if app.followLog {
+				send(h, 0x00B1, ^uintptr(0), ^uintptr(0))
+				send(h, 0x00B7, 0, 0)
+			} else {
+				now := send(h, 0x00CE, 0, 0)
+				send(h, 0x00B6, uintptr(int32(oldFirst)-int32(now)), 0) // EM_LINESCROLL
+			}
 		}
 		return
 	}

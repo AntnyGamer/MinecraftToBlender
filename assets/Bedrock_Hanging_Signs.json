@@ -1,0 +1,107 @@
+{
+    "blocks": [
+        "minecraft:acacia_hanging_sign",
+        "minecraft:bamboo_hanging_sign",
+        "minecraft:birch_hanging_sign",
+        "minecraft:cherry_hanging_sign",
+        "minecraft:crimson_hanging_sign",
+        "minecraft:dark_oak_hanging_sign",
+        "minecraft:jungle_hanging_sign",
+        "minecraft:mangrove_hanging_sign",
+        "minecraft:oak_hanging_sign",
+        "minecraft:spruce_hanging_sign",
+        "minecraft:warped_hanging_sign",
+        "minecraft:pale_oak_hanging_sign",
+        "minecraft:acacia_wall_hanging_sign",
+        "minecraft:bamboo_wall_hanging_sign",
+        "minecraft:birch_wall_hanging_sign",
+        "minecraft:cherry_wall_hanging_sign",
+        "minecraft:crimson_wall_hanging_sign",
+        "minecraft:dark_oak_wall_hanging_sign",
+        "minecraft:jungle_wall_hanging_sign",
+        "minecraft:mangrove_wall_hanging_sign",
+        "minecraft:oak_wall_hanging_sign",
+        "minecraft:spruce_wall_hanging_sign",
+        "minecraft:warped_wall_hanging_sign",
+        "minecraft:pale_oak_wall_hanging_sign"
+    ],
+    "defaultTexture": "minecraft:block/oak_planks",
+    "handler": [
+        {
+            "variables": [
+                "type = thisBlock.name.substring(thisBlock.name.indexOf(':') + 1)",
+                "rotY = thisBlock.state.rotation != null ? (22.5 * thisBlock.state.rotation) : 0.0",
+                "isWall = false",
+                "attached = thisBlock.state.attached == true",
+                "rotModelI = thisBlock.state.rotation != null ? (0 + thisBlock.state.rotation) : 0",
+                "rotModelI = rotModelI > 3 ? (rotModelI - 4) : rotModelI",
+                "rotModelI = rotModelI > 3 ? (rotModelI - 4) : rotModelI",
+                "rotModelI = rotModelI > 3 ? (rotModelI - 4) : rotModelI",
+                "rotModelI = rotModelI > 3 ? (rotModelI - 4) : rotModelI",
+                "rotYModel = 0",
+                "rotYModel = rotY > 80 ? 90 : rotYModel",
+                "rotYModel = rotY > 170 ? 180 : rotYModel",
+                "rotYModel = rotY > 260 ? 270 : rotYModel",
+                "attachedName = attached ? '_attached' : ''",
+                "modelName = 'minecraft:block/' + type + attachedName + '_rot_' + rotModelI"
+            ]
+        },
+        {
+            "condition": "thisBlock.name.endsWith('_wall_hanging_sign')",
+            "variables": [
+                "rotY = 0",
+                "rotY = thisBlock.state.facing == 'north' ? 180.0 : rotY",
+                "rotY = thisBlock.state.facing == 'east' ? 270.0 : rotY",
+                "rotY = thisBlock.state.facing == 'south' ? 0.0 : rotY",
+                "rotY = thisBlock.state.facing == 'west' ? 90.0 : rotY",
+                "isWall = true",
+                "rotYModel = rotY",
+                "modelName = 'minecraft:block/' + type"
+            ]
+        },
+        {
+            "transform": {
+                "rotate": [
+                    0,
+                    "rotYModel",
+                    0
+                ]
+            },
+            "generators": [
+                {
+                    "type": "model",
+                    "args": {
+                        "model": "modelName"
+                    }
+                }
+            ]
+        },
+        {
+            "transform": {
+                "rotate": [
+                    0,
+                    "rotY",
+                    0
+                ]
+            },
+            "children": [
+                {
+                    "generators": [
+                        {
+                            "type": "signText",
+                            "args": {
+                                "state": "(thisBlock.state.FrontText == null) && (thisBlock.state.Text != null) ? {'FrontText': {'Text': thisBlock.state.Text, 'SignTextColor': thisBlock.state.SignTextColor, 'IgnoreLighting': thisBlock.state.IgnoreLighting, 'HideGlowOutline': thisBlock.state.HideGlowOutline}, 'BackText': thisBlock.state.BackText} : thisBlock.state",
+                                "textOffsetX": 8,
+                                "textOffsetY": 5.1333,
+                                "textOffsetZ": 9.02,
+                                "textOffsetZBack": 6.98,
+                                "textScale": 1.75,
+                                "lineDistance": 2
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

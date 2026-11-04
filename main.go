@@ -63,7 +63,6 @@ var (
 	pGetOpenFile    = comdlg32.NewProc("GetOpenFileNameW")
 	pBrowseFolder   = shell32.NewProc("SHBrowseForFolderW")
 	pGetFolderPath  = shell32.NewProc("SHGetPathFromIDListW")
-	pFreeFolder     = kernel32.NewProc("GlobalFree")
 	pCoTaskMemFree  = syscall.NewLazyDLL("ole32.dll").NewProc("CoTaskMemFree")
 	pInitCommon     = comctl32.NewProc("InitCommonControlsEx")
 	pGetStockObject = syscall.NewLazyDLL("gdi32.dll").NewProc("GetStockObject")
@@ -97,9 +96,7 @@ const (
 	esAutoVScroll      = 0x0040
 	wsVScroll          = 0x00200000
 	bsPushbutton       = 0
-	bsGroupbox         = 0x00000007
 	swShow             = 5
-	mbOK               = 0
 	mbWarn             = 0x30
 	mbError            = 0x10
 	mbYesNo            = 0x04
@@ -108,8 +105,6 @@ const (
 	defaultGuiFont     = 17
 	pbsMarquee         = 0x08
 	pbmSetMarquee      = 0x040A
-	pbmSetRange32      = 0x0406
-	pbmSetPos          = 0x0402
 	ofnExplorer        = 0x00080000
 	ofnFileMustExist   = 0x00001000
 	ofnPathMustExist   = 0x00000800
@@ -285,7 +280,6 @@ func field(txt string, x, y, ww, id int) {
 func button(txt string, x, y, ww, id int) {
 	create("BUTTON", txt, wsTabStop|bsPushbutton, x, y, ww, 29, id)
 }
-func group(txt string, x, y, ww, hh int) { create("BUTTON", txt, bsGroupbox, x, y, ww, hh, 0) }
 
 func defaultWorkspace() string {
 	base := os.Getenv("LOCALAPPDATA")
@@ -415,6 +409,16 @@ func intField(id int, min, max int) (int, error) {
 	return n, nil
 }
 func guiLog(line string) {
+	// The UI displays at most 4000 bytes per line. Bound the queued copy
+	// before it enters the 4096-line channel; runProcess saves full output.
+	if len(line) > 4000 {
+		// appendLog historically discards whitespace-only lines before
+		// truncation. Preserve that behavior for oversized messages too.
+		if strings.TrimSpace(line) == "" {
+			return
+		}
+		line = line[:4000] + "..."
+	}
 	select {
 	case app.logCh <- line:
 	default:
@@ -424,6 +428,11 @@ func guiLog(line string) {
 func appendLog(s string) {
 	if strings.TrimSpace(s) == "" {
 		return
+	}
+	// Only the first 4000 bytes are shown; don't lowercase huge MiEx JSON
+	// responses solely to detect short, human-readable progress messages.
+	if len(s) > 4000 {
+		s = s[:4000] + "..."
 	}
 	// Log-based stages are real milestones, not guessed completion percentages.
 	if app.busy {
@@ -454,9 +463,6 @@ func appendLog(s string) {
 		case strings.Contains(lower, "output .blend saved"):
 			state("Blender project saved. Checking final output...")
 		}
-	}
-	if len(s) > 4000 {
-		s = s[:4000] + "..."
 	}
 	app.logLines = append(app.logLines, s)
 	if len(app.logLines) > 10000 {
@@ -543,22 +549,24 @@ func usdFiles(src string) error {
 	if err != nil || materialInfo.IsDir() || materialInfo.Size() == 0 {
 		return fmt.Errorf("missing or empty %s", filepath.Base(materialsPath))
 	}
-	// A present but truncated JSON file previously passed validation.
-	f, err := os.Open(materialsPath)
+	// Validate the full JSON object without creating a copy of every
+	// material and node definition. A large model may contain many materials.
+	materialsData, err := os.ReadFile(materialsPath)
 	if err != nil {
 		return err
 	}
-	var materials map[string]json.RawMessage
-	decoder := json.NewDecoder(f)
-	decodeErr := decoder.Decode(&materials)
-	if decodeErr == nil {
-		var extra json.RawMessage
-		if trailing := decoder.Decode(&extra); trailing != io.EOF {
-			decodeErr = fmt.Errorf("unexpected trailing JSON: %v", trailing)
+	trimmed := bytes.TrimSpace(materialsData)
+	if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
+		// Keep the original decoder's detailed error on invalid files.
+		var materials map[string]json.RawMessage
+		decoder := json.NewDecoder(bytes.NewReader(materialsData))
+		decodeErr := decoder.Decode(&materials)
+		if decodeErr == nil {
+			var extra json.RawMessage
+			if trailing := decoder.Decode(&extra); trailing != io.EOF {
+				decodeErr = fmt.Errorf("unexpected trailing JSON: %v", trailing)
+			}
 		}
-	}
-	f.Close()
-	if decodeErr != nil || materials == nil {
 		return fmt.Errorf("MiEx materials JSON is not valid: %v", decodeErr)
 	}
 	chunkDir := filepath.Join(dir, name+"_chunks")
@@ -566,24 +574,32 @@ func usdFiles(src string) error {
 	if err != nil || !chunkInfo.IsDir() {
 		return fmt.Errorf("missing chunk folder: %s", chunkDir)
 	}
-	entries, err := os.ReadDir(chunkDir)
+	chunkFolder, err := os.Open(chunkDir)
 	if err != nil {
 		return err
 	}
-	foundChunk := false
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".usd") {
-			continue
+	defer chunkFolder.Close()
+	// Read directory entries in bounded batches. Large exports can contain
+	// thousands of USD layers; loading and sorting every name is unnecessary
+	// when validation only needs one non-empty layer.
+	for {
+		entries, readErr := chunkFolder.ReadDir(128)
+		if readErr != nil && readErr != io.EOF {
+			return readErr
 		}
-		if chunk, infoErr := entry.Info(); infoErr == nil && chunk.Size() > 0 {
-			foundChunk = true
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".usd") {
+				continue
+			}
+			if chunk, infoErr := entry.Info(); infoErr == nil && chunk.Size() > 0 {
+				return nil
+			}
+		}
+		if readErr == io.EOF {
 			break
 		}
 	}
-	if !foundChunk {
-		return errors.New("chunk folder contains no non-empty USD layer files")
-	}
-	return nil
+	return errors.New("chunk folder contains no non-empty USD layer files")
 }
 
 // Use only the pinned official MiEx importer in the application-managed tools
@@ -660,16 +676,31 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 		defer wg.Done()
 		scanner := bufio.NewScanner(r)
 		scanner.Buffer(make([]byte, 65536), 8*1024*1024)
+		// Batch disk writes on verbose exports, without buffering the full log.
+		logWriter := bufio.NewWriterSize(f, 256*1024)
+		var writeErr error
 		for scanner.Scan() {
 			line := scanner.Text()
-			fmt.Fprintln(f, line)
+			if writeErr == nil {
+				if _, writeErr = logWriter.WriteString(line); writeErr == nil {
+					writeErr = logWriter.WriteByte('\n')
+				}
+			}
 			guiLog(line)
 		}
-		if readErr := scanner.Err(); readErr != nil {
+		if err := logWriter.Flush(); writeErr == nil {
+			writeErr = err
+		}
+		readErr := scanner.Err()
+		if readErr != nil {
 			// Stop the pipe writer too, so an oversized line cannot leave the
 			// child blocked forever while the parent waits for it to exit.
-			guiLog("Process log read error: " + readErr.Error())
 			_ = r.CloseWithError(readErr)
+		} else {
+			readErr = writeErr
+		}
+		if readErr != nil {
+			guiLog("Process log read error: " + readErr.Error())
 			readErrors <- readErr
 		}
 	}()
@@ -725,6 +756,12 @@ func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 	if err := usdFiles(src); err != nil {
 		return "", err
 	}
+	return doImportValidated(ctx, src, blender, tools)
+}
+
+// An export is already checked by runExport. Avoid parsing its large material
+// manifest and enumerating its USD chunk directory a second time.
+func doImportValidated(ctx context.Context, src, blender, tools string) (string, error) {
 	if blender == "" {
 		return "", errors.New("Blender was not detected. Select blender.exe in the application.")
 	}
@@ -800,7 +837,7 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 	}
 	guiLog("Exported world: " + usd)
 	if alsoImport {
-		target, e := doImport(ctx, usd, blender, tools)
+		target, e := doImportValidated(ctx, usd, blender, tools)
 		return result{what: "Export + import", output: target, err: e, logFile: file}
 	}
 	return result{what: "Export", output: usd, logFile: file}

@@ -78,13 +78,13 @@ func availableDisk(path string) (uint64, error) {
 	return free, nil
 }
 
-func physicalRAM() uint64 {
+func physicalRAM() (uint64, uint64) {
 	m := memoryStatus{Size: uint32(unsafe.Sizeof(memoryStatus{}))}
 	ok, _, _ := pMemoryStatus.Call(uintptr(unsafe.Pointer(&m)))
 	if ok == 0 {
-		return 0
+		return 0, 0
 	}
-	return m.TotalPhys
+	return m.TotalPhys, m.AvailPhys
 }
 
 func readiness(ctx context.Context, world localWorld, workspace, blender, dim string, size, x, z int, alsoImport, deep bool) (string, []string) {
@@ -144,10 +144,13 @@ func readiness(ctx context.Context, world localWorld, workspace, blender, dim st
 			info = append(info, "Blender executable found (version check available under Check readiness).")
 		}
 	}
-	if ram := physicalRAM(); ram != 0 {
-		info = append(info, fmt.Sprintf("Physical memory: %.1f GiB", float64(ram)/(1<<30)))
+	if ram, available := physicalRAM(); ram != 0 {
+		info = append(info, fmt.Sprintf("Physical memory: %.1f GiB total, %.1f GiB available", float64(ram)/(1<<30), float64(available)/(1<<30)))
 		if ram < 8<<30 {
 			warnings = append(warnings, "Under 8 GiB of physical RAM: large exports may run out of memory.")
+		}
+		if available < 2<<30 {
+			warnings = append(warnings, "Less than 2 GiB of RAM currently available. Close memory-heavy programs before a large export.")
 		}
 	}
 	if strings.TrimSpace(workspace) == "" {
@@ -194,6 +197,12 @@ func showPreflight() {
 	z, ez := intField(idZ, -30000000, 30000000)
 	if es != nil || ex != nil || ez != nil || size%16 != 0 {
 		alert("Invalid region", "Enter a valid block area and center coordinates in Export world first.", mbWarn)
+		return
+	}
+	minY, eMin := intField(idMinY, -256, 2048)
+	maxY, eMax := intField(idMaxY, -256, 2048)
+	if eMin != nil || eMax != nil || minY > maxY {
+		alert("Invalid height range", "Minimum Y must not exceed maximum Y; use -256 through 2048.", mbWarn)
 		return
 	}
 	world := *app.selectedWorld

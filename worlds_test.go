@@ -230,3 +230,19 @@ func TestBedrockWorldNamePrecedenceAndFallback(t *testing.T) {
 		t.Fatalf("both missing titles should use folder name: %+v", got)
 	}
 }
+
+func TestNetherAndEndOnlyJavaWorlds(t *testing.T) {
+	for _, dir := range []string{"DIM-1", "DIM1"} {
+		path := filepath.Join(t.TempDir(), "world")
+		writeFixtureWorld(t, path, javaEdition, "Dimension-only", 1750000000)
+		if err := os.Remove(filepath.Join(path, "region")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(path, dir, "region"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if !validWorldDir(path, javaEdition) {
+			t.Fatalf("Java world containing only %s should remain selectable", dir)
+		}
+	}
+}

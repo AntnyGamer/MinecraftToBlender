@@ -38,7 +38,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Run_tests
-        run: go test ./... -count=1
+        run: go test ./... -count=1 -timeout 3m
       - name: Validate_PowerShell
         shell: powershell
         run: |

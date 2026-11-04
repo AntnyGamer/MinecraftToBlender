@@ -161,6 +161,8 @@ def load_patched_importer(src):
                 node2 = Node(node, 0, self.columnSizes.get(0, 0))
                 self.nodes.append(node2)
                 self.byName[node.name] = node2
+                # Match the original full-grid enumeration order exactly.
+                node2.creation_index = len(self.nodes) - 1
                 self.columnMembers[0].append(node2)
                 self.columnSizes[0] = self.columnSizes.get(0, 0) + 1
                 return node2
@@ -171,6 +173,8 @@ def load_patched_importer(src):
                 node2 = Node(node, 0, self.columnSizes.get(0, 0))
                 self.nodes.append(node2)
                 self.byName[node.name] = node2
+                # Match the original full-grid enumeration order exactly.
+                node2.creation_index = len(self.nodes) - 1
                 self.columnMembers[0].append(node2)
                 self.columnSizes[0] = self.columnSizes.get(0, 0) + 1
                 return node2'''
@@ -209,6 +213,25 @@ def load_patched_importer(src):
                 self.maxColumn = max(self.maxColumn, column)'''
     if contents.count(original) != 1:
         raise RuntimeError('MiEx layout column movement changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
+    # MiEx originally walks every shader node each time it requests a
+    # column. With cached per-column membership, only relevant nodes need
+    # visiting. Sort by creation index to reproduce its exact list-insert
+    # ordering, including nodes moved between columns.
+    original = '''            def getColumn(self, column: int) -> list[Node]:
+                res : list[Node] = []
+                for node in self.nodes:
+                    if node.column == column:
+                        res.insert(node.row, node)
+                return res'''
+    faster = '''            def getColumn(self, column: int) -> list[Node]:
+                res : list[Node] = []
+                members = self.columnMembers.get(column, ())
+                for node in sorted(members, key=lambda item: item.creation_index):
+                    res.insert(node.row, node)
+                return res'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx material grid column lookup changed; refusing unverified patch.')
     contents = contents.replace(original, faster, 1)
     module = types.ModuleType('miex_import_compat')
     module.__file__ = str(src)

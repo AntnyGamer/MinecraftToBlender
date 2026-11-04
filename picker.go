@@ -40,7 +40,6 @@ type pickerState struct {
 	roots                              string
 	worlds                             []localWorld
 	images                             []uintptr
-	imageAttempted                     []bool
 	scroll, hover, selected            int
 	w, h                               int
 	gdipToken                          uintptr
@@ -84,32 +83,14 @@ func pickerLoadImages() {
 			return
 		}
 	}
-	// Reserve image slots without decoding every world icon at startup.
 	picker.images = make([]uintptr, len(picker.worlds))
-	picker.imageAttempted = make([]bool, len(picker.worlds))
-}
-
-func pickerVisibleRange(scroll, listHeight, total int) (int, int) {
-	step := pickerCardH + pickerCardGap
-	first := max(0, scroll/step-1)
-	last := min(total, (scroll+listHeight)/step+2)
-	return first, last
-}
-
-func pickerLoadVisibleImages(first, last int) {
-	if picker.gdipToken == 0 {
-		return
-	}
-	for i := first; i < last; i++ {
-		if picker.imageAttempted[i] {
+	for i, item := range picker.worlds {
+		if item.icon == "" {
 			continue
 		}
-		picker.imageAttempted[i] = true
-		if icon := picker.worlds[i].icon; icon != "" {
-			var h uintptr
-			if status, _, _ := pGdipLoadImage.Call(ptr(icon), uintptr(unsafe.Pointer(&h))); status == 0 {
-				picker.images[i] = h
-			}
+		var h uintptr
+		if status, _, _ := pGdipLoadImage.Call(ptr(item.icon), uintptr(unsafe.Pointer(&h))); status == 0 {
+			picker.images[i] = h
 		}
 	}
 }
@@ -129,7 +110,6 @@ func pickerRelease() {
 	}
 	picker.hwnd = 0
 	picker.images = nil
-	picker.imageAttempted = nil
 }
 func pickerListHeight() int { return max(1, picker.h-pickerListTop-pickerFooterH) }
 func pickerMaxScroll() int {
@@ -252,7 +232,6 @@ func pickerReleaseImages() {
 		}
 	}
 	picker.images = nil
-	picker.imageAttempted = nil
 }
 func pickerProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 	switch m {
@@ -410,8 +389,8 @@ func pickerPaint(hwnd uintptr) {
 		pGdipCreateGraphics.Call(dc, uintptr(unsafe.Pointer(&gdipGraphics)))
 	}
 	step := pickerCardH + pickerCardGap
-	first, last := pickerVisibleRange(picker.scroll, pickerListHeight(), len(picker.worlds))
-	pickerLoadVisibleImages(first, last)
+	first := max(0, picker.scroll/step-1)
+	last := min(len(picker.worlds), (picker.scroll+pickerListHeight())/step+2)
 	for i := first; i < last; i++ {
 		v := picker.worlds[i]
 		y := pickerListTop + i*step - picker.scroll

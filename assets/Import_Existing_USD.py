@@ -521,47 +521,56 @@ def batch_static_terrain_meshes(max_faces=75000, max_objects=8):
 
     joined = 0
     combined_faces = 0
-    old_active = bpy.context.view_layer.objects.active
-    old_selected = tuple(bpy.context.selected_objects)
+    active_obj = bpy.context.view_layer.objects.active
+    active_name = active_obj.name if active_obj is not None else None
+    selected_names = tuple(ob.name for ob in bpy.context.selected_objects)
     try:
         bpy.ops.object.select_all(action='DESELECT')
+
+        def flush(batch, face_count):
+            nonlocal joined, combined_faces
+            if len(batch) < 2:
+                return
+            for ob in batch:
+                ob.select_set(True)
+            active = batch[0]
+            bpy.context.view_layer.objects.active = active
+            outcome = bpy.ops.object.join()
+            if 'FINISHED' not in outcome:
+                raise RuntimeError('Blender declined a selected terrain mesh join')
+            if len(active.data.polygons) != face_count:
+                raise RuntimeError('Terrain batching changed polygon count; refusing the Blender file')
+            joined += len(batch) - 1
+            combined_faces += face_count
+            active.select_set(False)
+
         for group in groups.values():
             # Bound individual joins to avoid expensive huge meshes that hurt
             # Blender's frustum culling despite having fewer draw calls.
-            ordered = sorted(group, key=lambda ob: ob.name)
-            for start in range(0, len(ordered), max_objects):
-                remaining = ordered[start:start + max_objects]
-                if len(remaining) < 2:
-                    continue
-                batch = []
-                faces = 0
-                for ob in remaining:
-                    count = len(ob.data.polygons)
-                    if batch and faces + count > max_faces:
-                        break
-                    batch.append(ob)
-                    faces += count
-                if len(batch) < 2:
-                    continue
-                for ob in batch:
-                    ob.select_set(True)
-                active = batch[0]
-                bpy.context.view_layer.objects.active = active
-                outcome = bpy.ops.object.join()
-                if 'FINISHED' not in outcome:
-                    raise RuntimeError('Blender declined a selected terrain mesh join')
-                if len(active.data.polygons) != faces:
-                    raise RuntimeError('Terrain batching changed polygon count; refusing the Blender file')
-                joined += len(batch) - 1
-                combined_faces += faces
-                active.select_set(False)
+            batch = []
+            faces = 0
+            for ob in sorted(group, key=lambda obj: obj.name):
+                count = len(ob.data.polygons)
+                if batch and (len(batch) >= max_objects or faces + count > max_faces):
+                    flush(batch, faces)
+                    batch = []
+                    faces = 0
+                batch.append(ob)
+                faces += count
+            flush(batch, faces)
     finally:
         bpy.ops.object.select_all(action='DESELECT')
-        for ob in old_selected:
-            if ob.name in bpy.context.view_layer.objects:
+        # Keep names, not object pointers: Blender invalidates the original
+        # object references after joining, and the imported scene can start
+        # with many selected objects.
+        for name in selected_names:
+            ob = bpy.context.view_layer.objects.get(name)
+            if ob is not None:
                 ob.select_set(True)
-        if old_active is not None and old_active.name in bpy.context.view_layer.objects:
-            bpy.context.view_layer.objects.active = old_active
+        if active_name:
+            active = bpy.context.view_layer.objects.get(active_name)
+            if active is not None:
+                bpy.context.view_layer.objects.active = active
     log('MESH BATCHING:', joined, 'static terrain objects merged,',
         combined_faces, 'faces preserved in bounded batches from',
         before, 'eligible objects; original USD unchanged.')

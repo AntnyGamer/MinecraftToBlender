@@ -2,7 +2,10 @@
 
 package main
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 func TestPickerVisibleRange(t *testing.T) {
 	tests := []struct {
@@ -26,6 +29,9 @@ func TestPickerVisibleRange(t *testing.T) {
 }
 
 func TestPickerImagesLoadOnlyWhenVisible(t *testing.T) {
+	// Keep native GDI+ startup, image loads and shutdown on one thread.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	original := picker
 	picker = pickerState{
 		worlds: []localWorld{

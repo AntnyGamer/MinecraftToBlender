@@ -16,6 +16,7 @@ const previewClass = "MinecraftToBlenderRegionPreview"
 
 var regionPreview struct {
 	window, bitmap, token uintptr
+	imagePath string
 	minX, minZ, size int
 }
 var regionPreviewCallback uintptr
@@ -40,9 +41,18 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 	work:=filepath.Join(workspace,"AppTools","MiEx_Work")
 	outDir:=filepath.Join(work,"previews")
 	if err:=os.MkdirAll(outDir,0755);err!=nil {return result{what:"Region preview",err:err}}
-	output:=filepath.Join(outDir,fmt.Sprintf("Preview_%s_%d_%d_%d.png",dimension,x,z,size))
+	imageFile, err := os.CreateTemp(outDir, "Preview_*.png")
+	if err != nil {return result{what:"Region preview",err:err,logFile:logFile}}
+	output := imageFile.Name()
+	if err := imageFile.Close(); err != nil {
+		_ = os.Remove(output)
+		return result{what:"Region preview",err:err,logFile:logFile}
+	}
 	loaded,err:=renderSampledPreview(filepath.Join(work,"miex_console.log"),output,x,z,size)
-	if err!=nil {return result{what:"Region preview",err:err,logFile:logFile}}
+	if err!=nil {
+		_ = os.Remove(output)
+		return result{what:"Region preview",err:err,logFile:logFile}
+	}
 	guiLog(fmt.Sprintf("Preview ready: %d of 256 sampled tiles. Grey tiles mean unavailable chunks.",loaded))
 	return result{what:"Region preview",output:output,logFile:logFile,minX:x-size/2,minZ:z-size/2,size:size}
 }
@@ -91,9 +101,13 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 	case wmDestroy:
 		if regionPreview.bitmap!=0 {pGdipDisposeImage.Call(regionPreview.bitmap)}
 		if regionPreview.token!=0 {pGdiplusShutdown.Call(regionPreview.token)}
+		if regionPreview.imagePath != "" {
+			_ = os.Remove(regionPreview.imagePath)
+		}
 		regionPreview.window=0
 		regionPreview.bitmap=0
 		regionPreview.token=0
+		regionPreview.imagePath = ""
 		return 0
 	}
 	r,_,_:=pDefWndProc.Call(hwnd,uintptr(m),wp,lp)
@@ -140,6 +154,7 @@ func openPreviewWindow(path string,minX,minZ,size int) {
 		return
 	}
 	regionPreview.window=hwnd
+	regionPreview.imagePath=path
 	pShowWindow.Call(hwnd,swShow)
 	pInvalidate.Call(hwnd,0,1)
 }

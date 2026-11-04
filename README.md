@@ -4,14 +4,14 @@
 
 **Version:** v1  
 **Platform:** Windows 10/11 (64-bit)  
-**Languages:** Go (Win32 interface), PowerShell, Python, Java patch utility
+**Languages:** Go (Win32 interface), PowerShell, Python
 
 A Windows app for exporting locally stored **Minecraft Bedrock and Java Edition** worlds through MiEx and importing the resulting USD into Blender. It can discover local worlds, show their thumbnails and last-played or last-saved dates, and copy a selected world to a working snapshot without manually creating a ZIP.
 
 ## Getting started
 
 1. Close Minecraft to avoid copying a save while it is being written.
-2. Download a built Windows executable from the repository's Actions artifacts (when CI has run), or build it from source below.
+2. Download the Windows executable from the [latest GitHub release](https://github.com/AntnyGamer/MinecraftToBlender/releases/latest), or build it from source below.
 3. Run `MinecraftToBlender_v1.exe`.
 4. Choose **Select Bedrock World** or **Select Java World**. If the save is not listed, use **Choose folder** in the picker.
 5. Select a world. Center X and Center Z default to **0, 0** for every selection; you can change them manually. Verify the height range and region size.
@@ -58,10 +58,10 @@ The metadata-parser tests also run on Linux and macOS using `go test ./...`, but
 
 - The executable embeds the workflow files under `assets/` and extracts them to a per-user workspace on demand.
 - The importer and resources are downloaded from a pinned MiEx revision. The MiEx JAR and Blender Python importer are checked against pinned SHA-256 hashes before use. Only the verified app-managed importer is executed; nearby `MiExImport.py` files are ignored.
-- Each export uses a working snapshot of the selected save. A fresh temporary export directory prevents old USD chunks from contaminating the next export; the previous completed export is kept if publication fails. The original Minecraft world is not intentionally modified.
-- Re-exporting the same world keeps previously saved `.blend` projects and Blender's `.blend1`/numbered backups inside the export folder, while replacing outdated USD chunks. Saved Blender projects are moved, not copied.
+- Each export uses a working snapshot of the selected save. On Windows, the snapshot copy uses Robocopy with up to eight copy threads (falling back to PowerShell copying if unavailable); this may reduce preparation time for saves with many files. Close Minecraft first to avoid capturing changes during copying. A fresh temporary export directory prevents old USD chunks from contaminating the next export; the previous completed export is kept if publication fails. The original Minecraft world is not intentionally modified.
+- Re-exporting the same world preserves `.blend` projects, Blender's numbered backups, and unrelated user files inside the export folder, while replacing regenerated USD files and chunk layers. Files are moved rather than copied.
 - Export-region boundary faces are enabled so terrain blocks at the sides and the bottom of the selection render as solid stone, deepslate, and other real blocks, instead of being hidden by blocks outside the region. Real cave openings remain open; this does not invent new blocks. Export boundary geometry may be slightly larger.
-- The converter disables MiEx geometry-subset batching, face merging, and individual-block point instancing by default. In pinned MiEx experimental-34, subset batching writes merged meshes under names that do not match the root-mesh index used by USD conversion, yielding terrain-free layers. Disabling batching may increase object counts; real-world performance has not yet been benchmarked.
+- The converter enables MiEx's face optimizer, while disabling raytracing optimization, geometry-subset batching, and individual-block point instancing. A raytracing-enabled 1024 × 1024 Bedrock export exhausted a 24 GB Java heap, so this release avoids that path. Geometry-subset batching can also cause terrain-free layers with pinned MiEx experimental-34. This configuration has not been proven correct for every world: inspect the imported scene.
 - When auto-open is enabled (the default), a completed Blender project opens in the selected Blender installation. The **Open project** button still works if auto-open is disabled or launching Blender fails. The setting is saved at `%LOCALAPPDATA%\MinecraftToBlender\preferences.json`; **USD only** never launches Blender.
 - Blender projects are named for the selected world by default, e.g. `Night_Blades_Survival.blend`, and `Night_Blades_Survival_2.blend` if the first file exists. A custom **Export Name** becomes the filename; importing an existing USD uses its filename. Existing `.blend` files are preserved.
 - World resource packs are **off by default**. When opted in, MiEx discovers and extracts supported resources from the world snapshot into the app workspace. An isolated pack name avoids accidentally using outdated packs; this may increase workspace storage. It does not modify the original save and cannot supply missing packs that aren't available to MiEx. Resource-pack ZIP/JAR entries are checked for unsafe paths before MiEx extracts them. The importer prefers the render variant when actual terrain meshes exist, falling back to proxy only when needed.

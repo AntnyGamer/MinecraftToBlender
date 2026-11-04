@@ -726,10 +726,12 @@ def optimize_existing_blend(target, batch_meshes=False):
         'joined objects:', joined, 'duplicate material slots:', slots)
     log('[PERF] Existing project optimization:', round(time.monotonic() - phase_start, 2), 'seconds')
 
-    # Keep the original project's compressed/uncompressed save format.
-    # Blender compressed .blend files are gzip streams, not BLENDER headers.
+    # Preserve compressed vs uncompressed projects. Blender 3+ writes Zstd;
+    # older Blender versions used gzip for compressed .blend files.
     with source.open('rb') as handle:
-        compressed_source = handle.read(2) == bytes((0x1f, 0x8b))
+        signature = handle.read(4)
+    compressed_source = (signature == bytes((0x28, 0xb5, 0x2f, 0xfd))
+                         or signature[:2] == bytes((0x1f, 0x8b)))
     phase_start = time.monotonic()
     bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=compressed_source)
     log('[PERF] Saving optimized Blender copy:', round(time.monotonic() - phase_start, 2), 'seconds')

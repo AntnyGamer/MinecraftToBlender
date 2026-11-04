@@ -243,6 +243,14 @@ jobs:
           if (!(Test-Path rsrc_windows_amd64.syso)) { throw 'Windows icon resource was not produced' }
       - name: Build_executable
         run: go build -ldflags="-H=windowsgui -s -w" -o MinecraftToBlender_v1.exe .
+      - name: Verify_Windows_version_information
+        shell: pwsh
+        run: |
+          $expected = (Get-Content VERSION -Raw).Trim() + '.0'
+          $versionInfo = (Get-Item 'MinecraftToBlender_v1.exe').VersionInfo
+          if ($versionInfo.FileVersion -ne $expected -or $versionInfo.ProductVersion -ne $expected) {
+            throw "Compiled EXE version does not match VERSION ($expected): file=$($versionInfo.FileVersion), product=$($versionInfo.ProductVersion)"
+          }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: MinecraftToBlender_v1_Windows

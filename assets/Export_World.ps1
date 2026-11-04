@@ -944,7 +944,6 @@ try {
         ('Source ZIP SHA256 or direct world level.dat SHA256: ' + $actualWorldHash),
         ('Source world edition: ' + $Edition),
         ('Dimension: ' + $Dimension),
-        ('Requested exported entities: ' + ($entityList -join ', ')),
         'Source world compatibility depends on MiEx support for this saved version.',
         'MiEx Java asset source may differ from Bedrock; vanilla texture parity is NOT verified.',
         ('Export region X=' + $minX + '..' + $maxX + ', Z=' + $minZ + '..' + $maxZ + ', Y=' + $MinY + '..' + $MaxY + ', LOD disabled'),

@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# The same branch is built on both push and pull_request. Cancel superseded
+# builds instead of queueing duplicate Windows jobs on every review fix.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   metadata_tests:
     runs-on: ubuntu-latest

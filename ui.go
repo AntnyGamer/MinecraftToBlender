@@ -279,9 +279,9 @@ const (
 
 func fastViewportLabel() string {
 	if app.fastViewport {
-		return "Fast viewport: On"
+		return "Nearby-only: On"
 	}
-	return "Fast viewport: Off"
+	return "Nearby-only: Off"
 }
 
 func minecraftWaterLabel() string {

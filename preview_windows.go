@@ -23,6 +23,9 @@ var regionPreviewCallback uintptr
 var regionPreviewRegistered bool
 
 func runPreview(ctx context.Context, world localWorld, workspace, dimension string, useWorldPacks bool, size, x, z int) result {
+	if err := ctx.Err(); err != nil {
+		return result{what:"Region preview",err:err}
+	}
 	if !validWorldDir(world.path,world.edition) {
 		return result{what:"Region preview",err:fmt.Errorf("Minecraft world is no longer available")}
 	}
@@ -38,6 +41,9 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 	if err:=runProcess(ctx,"powershell.exe",args,logFile);err!=nil {
 		return result{what:"Region preview",err:fmt.Errorf("MiEx preview failed: %w; see %s",err,logFile),logFile:logFile}
 	}
+	if err := ctx.Err(); err != nil {
+		return result{what:"Region preview",err:err,logFile:logFile}
+	}
 	work:=filepath.Join(workspace,"AppTools","MiEx_Work")
 	outDir:=filepath.Join(work,"previews")
 	if err:=os.MkdirAll(outDir,0755);err!=nil {return result{what:"Region preview",err:err}}
@@ -50,6 +56,10 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 	}
 	loaded,err:=renderSampledPreview(filepath.Join(work,"miex_console.log"),output,x,z,size)
 	if err!=nil {
+		_ = os.Remove(output)
+		return result{what:"Region preview",err:err,logFile:logFile}
+	}
+	if err := ctx.Err(); err != nil {
 		_ = os.Remove(output)
 		return result{what:"Region preview",err:err,logFile:logFile}
 	}

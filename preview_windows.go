@@ -67,6 +67,11 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 		pEndPaint.Call(hwnd,uintptr(unsafe.Pointer(&ps)))
 		return 0
 	case wmLButtonDown:
+		// A preview may remain open while an export is running; never change
+		// coordinates after the export settings have already been captured.
+		if app.busy {
+			return 0
+		}
 		x,y:=int(int16(uint16(lp))),int(int16(uint16(lp>>16)))
 		if x>=32 && x<544 && y>=70 && y<582 && regionPreview.size>0 {
 			worldX:=regionPreview.minX+((x-32)*regionPreview.size)/512

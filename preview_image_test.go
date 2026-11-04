@@ -102,3 +102,12 @@ func TestPreviewRejectsCorruptLoadedChunkImage(t *testing.T) {
 		}
 	}
 }
+
+func TestPreviewRejectsExplicitMiExFailure(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir,"miex.log")
+	payload := "[COMMAND] {\"status\":\"error\",\"chunks\":[]}\n"
+	if err:=os.WriteFile(log,[]byte(payload),0600);err!=nil {t.Fatal(err)}
+	_,err:=renderSampledPreview(log,filepath.Join(dir,"map.png"),0,0,512)
+	if err==nil { t.Fatal("MiEx failure incorrectly rendered as an empty valid region") }
+}

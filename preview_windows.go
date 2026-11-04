@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -17,6 +18,7 @@ const previewClass = "MinecraftToBlenderRegionPreview"
 var regionPreview struct {
 	window, bitmap, token uintptr
 	imagePath string
+	worldPath string
 	minX, minZ, size int
 }
 var regionPreviewCallback uintptr
@@ -64,7 +66,11 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 		return result{what:"Region preview",err:err,logFile:logFile}
 	}
 	guiLog(fmt.Sprintf("Preview ready: %d distinct Minecraft chunks rendered. Gray areas are unsampled or unavailable.",loaded))
-	return result{what:"Region preview",output:output,logFile:logFile,minX:x-size/2,minZ:z-size/2,size:size}
+	return result{what:"Region preview",output:output,logFile:logFile,sourceWorld:world.path,minX:x-size/2,minZ:z-size/2,size:size}
+}
+
+func previewWorldMatches(source string) bool {
+	return app.selectedWorld != nil && strings.EqualFold(filepath.Clean(app.selectedWorld.path), filepath.Clean(source))
 }
 
 func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
@@ -95,6 +101,11 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 		if app.busy {
 			return 0
 		}
+		if !previewWorldMatches(regionPreview.worldPath) {
+			alert("Preview belongs to another world", "The selected Minecraft world has changed. Generate a new preview for this world.", mbWarn)
+			pDestroyWindow.Call(hwnd)
+			return 0
+		}
 		x,y:=int(int16(uint16(lp))),int(int16(uint16(lp>>16)))
 		if x>=32 && x<544 && y>=70 && y<582 && regionPreview.size>0 {
 			worldX:=regionPreview.minX+((x-32)*regionPreview.size)/512
@@ -121,13 +132,14 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 		regionPreview.bitmap=0
 		regionPreview.token=0
 		regionPreview.imagePath = ""
+		regionPreview.worldPath = ""
 		return 0
 	}
 	r,_,_:=pDefWndProc.Call(hwnd,uintptr(m),wp,lp)
 	return r
 }
 
-func openPreviewWindow(path string,minX,minZ,size int) {
+func openPreviewWindow(path string,minX,minZ,size int,worldPath string) {
 	if regionPreview.window!=0 {
 		pDestroyWindow.Call(regionPreview.window)
 	}
@@ -172,6 +184,7 @@ func openPreviewWindow(path string,minX,minZ,size int) {
 	}
 	regionPreview.window=hwnd
 	regionPreview.imagePath=path
+	regionPreview.worldPath=worldPath
 	pShowWindow.Call(hwnd,swShow)
 	pInvalidate.Call(hwnd,0,1)
 }

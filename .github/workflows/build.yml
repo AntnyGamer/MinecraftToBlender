@@ -201,34 +201,37 @@ jobs:
              -not (Test-Path -LiteralPath (Join-Path $destWorld 'db/00001.ldb'))) {
               throw 'Snapshot copy dropped a file'
           }
-          # A completed export replaces old data without mixing stale chunks.
+          # Replacing generated USD must not mix stale chunk files or delete user notes.
           $original = Join-Path $dir 'World'
           $stage = Join-Path $dir '.staging_world'
-          New-Item -ItemType Directory -Force -Path $original, $stage | Out-Null
-          Set-Content -LiteralPath (Join-Path $original 'old.usd') -Value 'old'
-          Set-Content -LiteralPath (Join-Path $stage 'new.usd') -Value 'new'
+          New-Item -ItemType Directory -Force -Path $original, $stage, (Join-Path $original 'World_chunks'), (Join-Path $stage 'World_chunks') | Out-Null
+          Set-Content -LiteralPath (Join-Path $original 'World_chunks/old.usd') -Value 'old'
+          Set-Content -LiteralPath (Join-Path $stage 'World_chunks/new.usd') -Value 'new'
+          Set-Content -LiteralPath (Join-Path $stage 'World.usd') -Value 'root'
           Publish-Export $stage $original
-          if (-not (Test-Path -LiteralPath (Join-Path $original 'new.usd')) -or (Test-Path -LiteralPath (Join-Path $original 'old.usd'))) {
-            throw 'Published export mixed new and old files'
+          if (-not (Test-Path -LiteralPath (Join-Path $original 'World_chunks/new.usd')) -or
+              (Test-Path -LiteralPath (Join-Path $original 'World_chunks/old.usd'))) {
+            throw 'Published export mixed old and new chunk layers'
           }
-          # Preserve completed .blend files and Blender's numbered backups
-          # across a replacement without retaining stale USD chunk layers.
           Set-Content -LiteralPath (Join-Path $original 'Saved.blend') -Value 'blender project'
           Set-Content -LiteralPath (Join-Path $original 'Saved.blend1') -Value 'blender backup'
+          Set-Content -LiteralPath (Join-Path $original 'notes.txt') -Value 'user files must survive'
           $nextStage = Join-Path $dir '.next_world'
-          New-Item -ItemType Directory -Force -Path $nextStage | Out-Null
-          Set-Content -LiteralPath (Join-Path $nextStage 'newer.usd') -Value 'newer'
+          New-Item -ItemType Directory -Force -Path $nextStage, (Join-Path $nextStage 'World_chunks') | Out-Null
+          Set-Content -LiteralPath (Join-Path $nextStage 'World_chunks/newer.usd') -Value 'newer'
+          Set-Content -LiteralPath (Join-Path $nextStage 'World.usd') -Value 'next root'
           Publish-Export $nextStage $original
-          foreach ($name in @('Saved.blend', 'Saved.blend1', 'newer.usd')) {
+          foreach ($name in @('Saved.blend', 'Saved.blend1', 'notes.txt', 'World.usd')) {
             if (-not (Test-Path -LiteralPath (Join-Path $original $name))) { throw "Export lost $name" }
           }
-          if (Test-Path -LiteralPath (Join-Path $original 'new.usd')) {
-            throw 'Export retained stale USD after replacing the world'
+          if ((Test-Path -LiteralPath (Join-Path $original 'World_chunks/new.usd')) -or
+              -not (Test-Path -LiteralPath (Join-Path $original 'World_chunks/newer.usd'))) {
+            throw 'Export retained stale USD chunks after replacing the world'
           }
           # If publication fails, restore the previously published output.
           try { Publish-Export (Join-Path $dir 'missing_stage') $original; throw 'Expected promotion failure' }
           catch { if ($_.Exception.Message -eq 'Expected promotion failure') { throw } }
-          foreach ($name in @('Saved.blend', 'Saved.blend1', 'newer.usd')) {
+          foreach ($name in @('Saved.blend', 'Saved.blend1', 'notes.txt', 'World.usd')) {
             if (-not (Test-Path -LiteralPath (Join-Path $original $name))) { throw "Failed publication lost $name" }
           }
       - name: Validate_Blender_importer

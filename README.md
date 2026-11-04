@@ -2,7 +2,7 @@
 
 <p align="center"><img src="branding/logo.svg" alt="MinecraftToBlender logo" width="112" height="112"></p>
 
-**Version:** v1.0.7  
+**Version:** v1.1.0  
 **Platform:** Windows 10/11 (64-bit)  
 **Languages:** Go (Win32 interface), PowerShell, Python
 
@@ -19,7 +19,7 @@ A Windows app for exporting locally stored **Minecraft Bedrock and Java Edition*
 7. Export to USD, or choose **Export to Blender** to create a `.blend` and open it automatically after a successful import. In **Settings**, toggle **Auto-open Blender** off if you prefer to open it manually. The preference is saved between launches.
 8. Inspect the Blender scene for missing terrain, materials, item frames, or other details. A successful import is *not* a guarantee of exact visual fidelity.
 
-### Export options (feature branch)
+### Export options (v1.1.0)
 
 Use **Export options** in the sidebar to choose the Overworld, Nether or End, select whether to export item frames, paintings, armor stands and display entities, and control the optional safe resume checkpoint. All six previously supported entity types remain enabled by default.
 

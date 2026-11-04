@@ -74,8 +74,8 @@ class Mesh:
 def imported_functions(bpy, messages):
     module = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
     functions = [node for node in module.body if isinstance(node, ast.FunctionDef)
-                 and node.name in ("scene_report", "frame_actual_scene", "stage_report", "needs_evaluated_bounds")]
-    assert len(functions) == 4
+                 and node.name in ("scene_report", "frame_actual_scene", "stage_report", "needs_evaluated_bounds", "initial_view_distance")]
+    assert len(functions) == 5
     namespace = {
         "Counter": Counter, "Vector": Vec, "bpy": bpy,
         "log": lambda *args: messages.append(args),
@@ -119,9 +119,19 @@ def test_repeated_instance_bounds():
     assert proto.bbox_reads == 1, "Repeated instances should reuse the same eight bounds"
     center = space.region_3d.view_location.values
     assert center == [7.5, -0.5, -0.5], center
-    assert abs(space.region_3d.view_distance - 25.65) < 0.00001
+    assert abs(space.region_3d.view_distance - 12.0) < 0.00001
     assert space.clip_end == 1000
     assert any("Evaluated mesh elements:" in x and 3 in x and 2 in x for x in messages)
+
+
+def test_initial_view_starts_close_to_large_terrain():
+    initial_distance = imported_functions(NS(), [])["initial_view_distance"]
+    assert initial_distance(1) == 12.0
+    assert abs(initial_distance(256) - 76.8) < 0.001
+    assert initial_distance(1024) == 180.0
+    assert initial_distance(8192) == 180.0
+    # A 1024-block export used to open 1382.4 units away.
+    assert initial_distance(1024) < 1024 * 0.2
 
 
 def test_static_scene_avoids_depsgraph():
@@ -199,6 +209,7 @@ def test_usd_stage_mesh_grouping():
 if __name__ == "__main__":
     test_scene_report()
     test_repeated_instance_bounds()
+    test_initial_view_starts_close_to_large_terrain()
     test_static_scene_avoids_depsgraph()
     test_usd_stage_mesh_grouping()
     print("Blender scene, USD grouping and repeated-instance framing checks passed.")

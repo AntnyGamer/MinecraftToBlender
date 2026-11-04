@@ -74,64 +74,100 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	for y := 0; y < 256; y++ {
 		for x := 0; x < 256; x++ {
 			col := uint8(232)
-			if ((x/16)+(y/16))%2 == 0 { col = 218 }
+			if ((x/16)+(y/16))%2 == 0 {
+				col = 218
+			}
 			out.SetNRGBA(x, y, imgcolor.NRGBA{R: col, G: col, B: col, A: 255})
 		}
 	}
 	minX := centerX - size/2
 	minZ := centerZ - size/2
-	firstChunkX := int(math.Floor(float64(minX)/16))
-	firstChunkZ := int(math.Floor(float64(minZ)/16))
-	lastChunkX := int(math.Floor(float64(minX+size-1)/16))
-	lastChunkZ := int(math.Floor(float64(minZ+size-1)/16))
-	paintPixel := func(x,y int,data []byte,offset int) {
+	firstChunkX := int(math.Floor(float64(minX) / 16))
+	firstChunkZ := int(math.Floor(float64(minZ) / 16))
+	lastChunkX := int(math.Floor(float64(minX+size-1) / 16))
+	lastChunkZ := int(math.Floor(float64(minZ+size-1) / 16))
+	spanX := lastChunkX - firstChunkX + 1
+	spanZ := lastChunkZ - firstChunkZ + 1
+	// Match the 9,216-chunk upper bound used by Export_World.ps1.
+	// Within that limit every source chunk is queried, so draw every pixel
+	// at its real Minecraft block coordinate rather than stretching 16
+	// noncontiguous samples into a deceptively continuous terrain map.
+	exact := spanX*spanZ <= 9216
+	paintPixel := func(x, y int, data []byte, offset int) {
 		alpha := data[offset+3]
 		if alpha == 0 {
 			return
 		}
 		pixel := imgcolor.NRGBA{R: data[offset+2], G: data[offset+1], B: data[offset], A: 255}
 		if alpha < 255 {
-			bg := out.NRGBAAt(x,y)
+			bg := out.NRGBAAt(x, y)
 			blend := func(source, background uint8) uint8 {
 				return uint8((uint32(source)*uint32(alpha) + uint32(background)*uint32(255-alpha) + 127) / 255)
 			}
-			pixel.R = blend(pixel.R,bg.R)
-			pixel.G = blend(pixel.G,bg.G)
-			pixel.B = blend(pixel.B,bg.B)
+			pixel.R = blend(pixel.R, bg.R)
+			pixel.G = blend(pixel.G, bg.G)
+			pixel.B = blend(pixel.B, bg.B)
 		}
-		out.SetNRGBA(x,y,pixel)
+		out.SetNRGBA(x, y, pixel)
 	}
-	// When all chunks fit within the 16x16 sample grid, display their exact
-	// Minecraft positions. Repeating one tiny chunk 256 times made a false
-	// tiled overview instead of a correctly enlarged map of those blocks.
-	if lastChunkX-firstChunkX < 16 && lastChunkZ-firstChunkZ < 16 {
-		for y:=0;y<256;y++ {
-			worldZ:=minZ+y*size/256
-			chunkZ:=int(math.Floor(float64(worldZ)/16))
-			localZ:=((worldZ%16)+16)%16
-			for x:=0;x<256;x++ {
-				worldX:=minX+x*size/256
-				chunkX:=int(math.Floor(float64(worldX)/16))
-				data,ok:=tiles[[2]int{chunkX,chunkZ}]
-				if !ok {continue}
-				localX:=((worldX%16)+16)%16
-				paintPixel(x,y,data,(localZ*16+localX)*4)
+	if exact {
+		for y := 0; y < 256; y++ {
+			worldZ := minZ + y*size/256
+			chunkZ := int(math.Floor(float64(worldZ) / 16))
+			localZ := ((worldZ % 16) + 16) % 16
+			for x := 0; x < 256; x++ {
+				worldX := minX + x*size/256
+				chunkX := int(math.Floor(float64(worldX) / 16))
+				data, ok := tiles[[2]int{chunkX, chunkZ}]
+				if !ok {
+					continue // Missing or unloaded chunks remain visibly gray.
+				}
+				localX := ((worldX % 16) + 16) % 16
+				paintPixel(x, y, data, (localZ*16+localX)*4)
 			}
 		}
 	} else {
-		// Larger regions use a coarse 16x16 sample preview, never a claim of
-		// full terrain coverage. Each cell displays the corresponding sampled
-		// chunk image; genuinely unavailable chunks retain the gray grid.
-		for row := 0; row < 16; row++ {
-			for col := 0; col < 16; col++ {
-				chunkX := int(math.Floor(float64(firstChunkX)+float64(lastChunkX-firstChunkX)*float64(col)/15))
-				chunkZ := int(math.Floor(float64(firstChunkZ)+float64(lastChunkZ-firstChunkZ)*float64(row)/15))
-				data, ok := tiles[[2]int{chunkX, chunkZ}]
-				if !ok {continue}
-				for py:=0;py<16;py++ {
-					for px:=0;px<16;px++ {
-						paintPixel(col*16+px,row*16+py,data,(py*16+px)*4)
-					}
+		// Very large regions cannot cheaply fetch every chunk. Show a coarse
+		// color overview instead of falsely stitching distant 16x16 block
+		// textures together and suggesting non-existent rivers or buildings.
+		average := make(map[[2]int]imgcolor.NRGBA, len(tiles))
+		for key, data := range tiles {
+			var red, green, blue, weight uint64
+			for i := 0; i < len(data); i += 4 {
+				a := uint64(data[i+3])
+				red += uint64(data[i+2]) * a
+				green += uint64(data[i+1]) * a
+				blue += uint64(data[i]) * a
+				weight += a
+			}
+			if weight > 0 {
+				average[key] = imgcolor.NRGBA{
+					R: uint8(red / weight),
+					G: uint8(green / weight),
+					B: uint8(blue / weight),
+					A: 255,
+				}
+			}
+		}
+		nearestSample := func(chunk, first, last int) int {
+			samples := min(96, last-first+1)
+			if samples <= 1 {
+				return first
+			}
+			index := int(math.Round(float64(chunk-first) * float64(samples-1) / float64(last-first)))
+			index = max(0, min(samples-1, index))
+			return first + int(math.Floor(float64(last-first)*float64(index)/float64(samples-1)))
+		}
+		for y := 0; y < 256; y++ {
+			worldZ := minZ + y*size/256
+			chunkZ := int(math.Floor(float64(worldZ) / 16))
+			sampleZ := nearestSample(chunkZ, firstChunkZ, lastChunkZ)
+			for x := 0; x < 256; x++ {
+				worldX := minX + x*size/256
+				chunkX := int(math.Floor(float64(worldX) / 16))
+				sampleX := nearestSample(chunkX, firstChunkX, lastChunkX)
+				if pixel, ok := average[[2]int{sampleX, sampleZ}]; ok {
+					out.SetNRGBA(x, y, pixel)
 				}
 			}
 		}

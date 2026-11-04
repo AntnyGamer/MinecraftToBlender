@@ -90,7 +90,7 @@
                         {
                             "type": "signText",
                             "args": {
-                                "state": "(thisBlock.state.FrontText == null) && (thisBlock.state.Text != null) ? {'FrontText': {'Text': thisBlock.state.Text, 'SignTextColor': thisBlock.state.SignTextColor, 'IgnoreLighting': thisBlock.state.IgnoreLighting, 'HideGlowOutline': thisBlock.state.HideGlowOutline}} : thisBlock.state",
+                                "state": "(thisBlock.state.FrontText == null) && (thisBlock.state.Text != null) ? {'FrontText': {'Text': thisBlock.state.Text, 'SignTextColor': thisBlock.state.SignTextColor, 'IgnoreLighting': thisBlock.state.IgnoreLighting, 'HideGlowOutline': thisBlock.state.HideGlowOutline}, 'BackText': thisBlock.state.BackText} : thisBlock.state",
                                 "textOffsetX": 8,
                                 "textOffsetY": 5.1333,
                                 "textOffsetZ": 9.02,

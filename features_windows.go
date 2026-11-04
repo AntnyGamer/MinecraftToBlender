@@ -96,15 +96,16 @@ func readiness(world localWorld, workspace, blender, dim string, size, x, z int,
 	}
 	info = append(info, fmt.Sprintf("Dimension: %s; region %dx%d, center (%d,%d)", dimensionLabel(dim), size, size, x, z))
 	if world.edition == javaEdition {
-		dir := world.path
-		if dim == "the_nether" { dir = filepath.Join(dir, "DIM-1") }
-		if dim == "the_end" { dir = filepath.Join(dir, "DIM1") }
-		regionDir := filepath.Join(dir, "region")
-		if _, err := os.Stat(regionDir); err != nil {
-			warnings = append(warnings, "Selected Java dimension has no region folder yet.")
+		hasChunks, err := javaRegionHasSavedChunks(world.path, dim, size, x, z)
+		if err != nil {
+			warnings = append(warnings, "Cannot inspect saved Java chunks: "+err.Error())
+		} else if !hasChunks {
+			warnings = append(warnings, "No saved Java chunks were found in this selected region and dimension.")
+		} else {
+			info = append(info, "Saved Java chunks found inside the selected region.")
 		}
-	} else if dim != "overworld" {
-		info = append(info, "MiEx will check Bedrock dimension records during export.")
+	} else {
+		info = append(info, "Bedrock chunk contents will be sampled by MiEx during preview/export.")
 	}
 	if !worldCenterOutsideRegion(x, z, size, world.x, world.z) && world.hasCenter && dim == "overworld" {
 		info = append(info, "The selection contains the recorded player/spawn center.")

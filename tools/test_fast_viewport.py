@@ -147,6 +147,11 @@ exec(compile(ast.Module(body=funcs, type_ignores=[]),
 key = scope["terrain_mesh_batch_key"]
 assert key(terrain[0]) == key(terrain[1])
 assert key(terrain[0]) != key(terrain[4])  # adjacent 2x2 groups only
+negative_chunk = Obj("mesh_chunk__1__2_material", Mesh([stone], faces=9))
+assert key(negative_chunk)[0] == (-1, -1), "MiEx encodes negative '-' with '_'"
+raw_negative_chunk = Obj("mesh_chunk_-1_-2_material", Mesh([stone], faces=9))
+assert key(raw_negative_chunk)[0] == (-1, -1)
+
 assert key(different) != key(terrain[0])  # different actual material
 assert key(water_mesh) is None
 assert key(entity) is None

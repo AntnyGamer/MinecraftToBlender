@@ -21,6 +21,9 @@ func TestSampledPreviewUsesActualChunkColors(t *testing.T) {
 		pixels[i+2]=0x56
 		pixels[i+3]=0xff
 	}
+	// Unrendered and semi-transparent colors must not turn into opaque black.
+	pixels[7] = 0
+	pixels[11] = 128
 	line := fmt.Sprintf("[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"layerCount\":1,\"image\":\"%s\"}]}\n",base64.StdEncoding.EncodeToString(pixels))
 	if err:=os.WriteFile(logPath,[]byte(line),0600);err!=nil {t.Fatal(err)}
 	n,err:=renderSampledPreview(logPath,output,8,8,16)
@@ -31,5 +34,14 @@ func TestSampledPreviewUsesActualChunkColors(t *testing.T) {
 	r,g,b,_:=img.At(0,0).RGBA()
 	if r>>8!=0x56 || g>>8!=0x34 || b>>8!=0x12 {
 		t.Fatalf("MiEx BGRA decode wrong: %x,%x,%x",r>>8,g>>8,b>>8)
+	}
+	r,g,b,_=img.At(1,0).RGBA()
+	if r>>8!=218 || g>>8!=218 || b>>8!=218 {
+		t.Fatalf("transparent sample should reveal gray grid: %d,%d,%d", r>>8, g>>8, b>>8)
+	}
+	r,g,b,_=img.At(2,0).RGBA()
+	blend:=func(source uint32)uint32{return (source*128+218*127+127)/255}
+	if r>>8!=blend(0x56) || g>>8!=blend(0x34) || b>>8!=blend(0x12) {
+		t.Fatalf("semi-transparent sample composite incorrect: %d,%d,%d", r>>8, g>>8, b>>8)
 	}
 }

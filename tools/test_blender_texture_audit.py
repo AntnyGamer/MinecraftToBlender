@@ -30,6 +30,7 @@ def test_texture_audit_path_resolution():
             name=name, filepath=str(path), source="FILE", packed_file=packed)
         images = Images([
             image("relative", "textures/stone.png"),
+            image("blender_relative", "//textures/entity/bed/red.png"),
             image("available", existing),
             image("missing", missing),
             image("embedded", folder / "packed.png", packed=True),
@@ -44,7 +45,10 @@ def test_texture_audit_path_resolution():
                 ])),
                 NS(use_nodes=False, node_tree=None),
             ]),
-            path=NS(abspath=lambda p: calls.append(p) or p),
+            path=NS(
+                is_rel=lambda p: p.startswith("//"),
+                abspath=lambda p: calls.append(p) or p,
+            ),
         )
         namespace = dict(bpy=bpy, Path=Path, log=lambda *a: logs.append(a))
         exec(compile(ast.Module(body=selected, type_ignores=[]), "texture_audit", "exec"), namespace)
@@ -55,7 +59,7 @@ def test_texture_audit_path_resolution():
         assert "Image texture nodes: 2" in audit
         assert "checked external images: 2" in audit
         assert "missing: 1" in audit
-        assert "relative (not checked): 1" in audit
+        assert "relative (not checked): 2" in audit
         assert "unreadable-image fallback: True" in audit
         assert f"missing: {missing}" in audit
         assert all("relative" not in str(a) or "relative (not checked)" in str(a) for a in logs)

@@ -173,7 +173,31 @@ function Test-UnsupportedBedrockChunk([string]$stdout,[string]$stderr) {
     }
     return $false
 }
+function Restore-InterruptedExport([string]$destination) {
+    # A hard termination between rename-to-backup and rename-of-staging can
+    # leave the previous completed export under its .previous_GUID name.
+    # Restore only when the normal destination is absent; never overwrite it.
+    if(Test-Path -LiteralPath $destination) { return $false }
+    $parent = Split-Path -Parent $destination
+    if(-not (Test-Path -LiteralPath $parent -PathType Container)) { return $false }
+    $name = [IO.Path]::GetFileName($destination)
+    $pattern = '^' + [regex]::Escape($name) + '\.previous_[0-9a-f]{32}$'
+    $candidates = @(
+        Get-ChildItem -LiteralPath $parent -Directory -ErrorAction Stop |
+        Where-Object { $_.Name -cmatch $pattern -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName ($name + '.usd')) -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName ($name + '_materials.json')) -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName ($name + '_chunks')) -PathType Container) } |
+        Sort-Object LastWriteTimeUtc -Descending
+    )
+    if($candidates.Count -eq 0) { return $false }
+    Move-Item -LiteralPath $candidates[0].FullName -Destination $destination -ErrorAction Stop
+    Write-Host ('Restored a previously completed export after interrupted publication: ' + $destination) -ForegroundColor Green
+    return $true
+}
 function Publish-Export([string]$stage,[string]$destination) {
+    # Recover an interrupted previous rename before replacing that export.
+    [void](Restore-InterruptedExport $destination)
     # Preserve completed Blender projects when replacing generated USD chunks.
     $backup = $destination + '.previous_' + [guid]::NewGuid().ToString('N')
     $hadPrevious = Test-Path -LiteralPath $destination

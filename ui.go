@@ -45,7 +45,6 @@ const (
 	wmMouseLeave    = 0x02A3
 	wmVScroll       = 0x0115
 	wmKeyDown       = 0x0100
-	wmSetRedraw     = 0x000B
 	swHide          = 0
 	wsClipChildren  = 0x02000000
 	bsOwnerDraw     = 0x0000000B
@@ -272,7 +271,6 @@ const (
 	uiPacksHint      = 223
 	uiAutoOpenHint   = 224
 	uiActivityTitle  = 221
-	uiActivityHint   = 222
 )
 
 func autoOpenBlenderLabel() string {
@@ -355,10 +353,8 @@ func createControls() {
 	uiLabel(uiPrefsNote, "Java 21+ and Blender required. Original world saves stay unchanged.", 3, theme.muted, theme.card)
 
 	uiLabel(uiActivityTitle, "Activity", 2, theme.white, theme.card)
-	uiLabel(uiActivityHint, "Detailed conversion log", 3, theme.muted, theme.card)
 	uiButton(idFollow, "Following")
 	uiLabel(idStatus, "Ready to export or import.", 3, theme.muted, theme.card)
-	create("msctls_progress32", "", pbsMarquee, 0, 0, 100, 5, idProgress)
 	pLoadLibrary.Call(ptr("Msftedit.dll"))
 	logWnd := create("RICHEDIT50W", "", wsVScroll|esMultiline|esReadOnly|esAutoVScroll, 0, 0, 200, 110, idLog)
 	if logWnd == 0 {
@@ -555,13 +551,10 @@ func layoutUI() {
 
 	a := ui.activityTop
 	move(uiActivityTitle, x, a+11, 122, 26)
-	move(uiActivityHint, x+114, a+16, w-270, 19)
 	move(idFollow, contentR-137, a+9, 115, 31)
 	move(idCancel, contentR-255, a+9, 108, 31)
 	show(idCancel, app.busy)
 	move(idStatus, x, a+46, w, 23)
-	show(idProgress, false)
-	move(idProgress, x, a+76, w, 7)
 	logTop := a + 91
 	logH := ui.activityH - 98
 	if logH < 24 {

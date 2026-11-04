@@ -27,11 +27,12 @@ class Input:
     def __init__(self, value, links=()):
         self.default_value = value
         self.links = list(links)
+        self.is_linked = bool(links)
 
 
-def make_material(name, node_type="BSDF_PRINCIPLED"):
+def make_material(name, node_type="BSDF_PRINCIPLED", linked_alpha=True):
     color = Input([0.12, 0.20, 0.75, 1.0], links=["biome tinted color"])
-    alpha = Input(1.0, links=["old alpha link"])
+    alpha = Input(1.0, links=["existing texture alpha"] if linked_alpha else [])
     rough = Input(0.5)
     specular = Input(0.5)
     shader = NS(type=node_type, inputs={
@@ -40,6 +41,9 @@ def make_material(name, node_type="BSDF_PRINCIPLED"):
     })
     links = Links()
     material = NS(name=name, use_nodes=True,
+                  surface_render_method="DITHERED",
+                  use_transparency_overlap=True,
+                  blend_method="HASHED",
                   node_tree=NS(nodes={"MAT": shader}, links=links))
     return material, shader, links
 
@@ -54,20 +58,29 @@ def main():
     assert not is_water("MAT_minecraft_block_water_bucket_333")
     assert not is_water("MAT_minecraft_block_lava_still_333")
     water, shader, links = make_material("MAT_minecraft_block_water_still_abcdef")
+    flowing, flow_shader, _ = make_material("MAT_minecraft_block_water_flow_abc", linked_alpha=False)
     transparent, _, _ = make_material("MAT_minecraft_block_water_flow", "BSDF_GLASS")
     grass, grass_shader, grass_links = make_material("MAT_minecraft_block_grass_block")
     helpers["apply_minecraft_water_materials"].__globals__["bpy"] = NS(
-        data=NS(materials=[water, transparent, grass]))
-    assert helpers["apply_minecraft_water_materials"]() == 1
+        data=NS(materials=[water, flowing, transparent, grass]))
+    assert helpers["apply_minecraft_water_materials"]() == 2
+    assert water.surface_render_method == "BLENDED"
+    assert flowing.surface_render_method == "BLENDED"
+    assert water.use_transparency_overlap is False
+    assert flowing.use_transparency_overlap is False
+    assert water.blend_method == "HASHED"  # Modern API supersedes this deprecated attribute.
+    assert grass.surface_render_method == "DITHERED"
     assert shader.inputs["Base Color"].links == ["biome tinted color"]
     assert shader.inputs["Base Color"].default_value == [0.12, 0.20, 0.75, 1.0]
-    assert shader.inputs["Alpha"].default_value == 0.68
-    assert links.removed == ["old alpha link"]
-    assert shader.inputs["Roughness"].default_value == 0.20
-    assert shader.inputs["Specular IOR Level"].default_value == 0.24
+    assert shader.inputs["Alpha"].default_value == 1.0
+    assert shader.inputs["Alpha"].links == ["existing texture alpha"]
+    assert flow_shader.inputs["Alpha"].default_value == 0.80
+    assert links.removed == []  # Original material connections must never be broken.
+    assert shader.inputs["Roughness"].default_value == 0.24
+    assert shader.inputs["Specular IOR Level"].default_value == 0.3
     assert grass_shader.inputs["Alpha"].default_value == 1.0
     assert grass_links.removed == []
-    print("Optional water transparency preserves texture/biome materials and skips unrelated shaders.")
+    print("Blended water preserves texture/biome alpha and leaves unrelated materials unchanged.")
 
 
 if __name__ == "__main__":

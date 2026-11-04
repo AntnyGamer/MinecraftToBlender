@@ -20,6 +20,7 @@ func TestReleaseVersionMatchesBuildAndDocumentation(t *testing.T) {
 		{".github/workflows/build.yml", "gh release create v" + version + " "},
 		{".github/workflows/build.yml", "--notes-file .github/RELEASE_NOTES_v" + version + ".md"},
 		{"README.md", "**Version:** v" + version},
+		{".github/RELEASE_NOTES_v" + version + ".md", "# MinecraftToBlender v" + version},
 	}
 	for _, tc := range cases {
 		data, err := os.ReadFile(tc.path)

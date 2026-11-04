@@ -111,6 +111,15 @@ def load_patched_importer(src):
     log('MiEx importer: loaded the existing official script with in-memory guards; original file unchanged.')
 
 
+def needs_evaluated_bounds(ob):
+    """Whether an object's visible extents can differ from its stored bounds."""
+    if ob.instance_type != 'NONE':
+        return True
+    if len(ob.modifiers):
+        return True
+    return ob.type == 'POINTCLOUD' and len(ob.data.points) > 0
+
+
 def scene_report():
     def is_prototype(o):
         while o:
@@ -122,9 +131,11 @@ def scene_report():
 
     counts = Counter()
     mesh_count = faces = terrain_faces = verts = cloud_count = points = geonodes = 0
+    evaluate_bounds = False
     # Avoid materializing and revisiting every scene object several times.
     for o in bpy.context.scene.objects:
         counts[o.type] += 1
+        evaluate_bounds = evaluate_bounds or needs_evaluated_bounds(o)
         if o.type == 'MESH':
             mesh_count += 1
             mesh_faces = len(o.data.polygons)
@@ -143,7 +154,7 @@ def scene_report():
     log('BLENDER point-cloud objects:', cloud_count, 'point positions:', points)
     log('BLENDER geometry-node modifiers on point clouds:', geonodes)
     log('BLENDER placeholder missing-texture image:', '_MiEx_Unreadable_Texture' in bpy.data.images)
-    return {'meshes': mesh_count, 'faces': faces, 'terrain_faces': terrain_faces, 'clouds': cloud_count, 'points': points}
+    return {'meshes': mesh_count, 'faces': faces, 'terrain_faces': terrain_faces, 'clouds': cloud_count, 'points': points, 'evaluate_bounds': evaluate_bounds}
 
 
 def audit_imported_textures(target):
@@ -209,51 +220,53 @@ def import_world(src, import_type):
     return scene_report()
 
 
-def frame_actual_scene():
+def frame_actual_scene(evaluate_instances=True):
     """Frame real visible geometry, including Geometry Nodes instances.
 
     Do not unhide hidden prototype meshes; the previous repair tool did that
     and could make disconnected objects appear to float in otherwise blank space.
     """
-    dg = bpy.context.evaluated_depsgraph_get()
     bounds_min = Vector((float('inf'),) * 3)
     bounds_max = Vector((float('-inf'),) * 3)
     encountered = 0
     true_instances = 0
-    # A prototype may appear thousands of times. Its local bounding box is
-    # unchanged between instances, so reuse its eight corner vectors.
-    instance_corners = {}
-    try:
-        for instance in dg.object_instances:
-            ob = instance.object
-            if ob.type != 'MESH':
-                continue
-            if not instance.is_instance:
-                original = getattr(ob, 'original', ob)
-                try:
-                    if not original.visible_get():
-                        continue
-                except Exception:
-                    pass
-            else:
-                true_instances += 1
-            if instance.is_instance:
-                key = ob.as_pointer()
-                corners = instance_corners.get(key)
-                if corners is None:
-                    corners = tuple(Vector(p) for p in ob.bound_box)
-                    if len(instance_corners) < 512:
-                        instance_corners[key] = corners
-            else:
-                corners = (Vector(p) for p in ob.bound_box)
-            for p in corners:
-                world_p = instance.matrix_world @ p
-                for axis in range(3):
-                    bounds_min[axis] = min(bounds_min[axis], world_p[axis])
-                    bounds_max[axis] = max(bounds_max[axis], world_p[axis])
-            encountered += 1
-    except Exception as exc:
-        log('WARNING: Evaluated Geometry Nodes bounds were incomplete:', repr(exc))
+    if evaluate_instances:
+        dg = bpy.context.evaluated_depsgraph_get()
+        # A prototype may appear thousands of times. Reuse its eight corners.
+        instance_corners = {}
+        try:
+            for instance in dg.object_instances:
+                ob = instance.object
+                if ob.type != 'MESH':
+                    continue
+                if not instance.is_instance:
+                    original = getattr(ob, 'original', ob)
+                    try:
+                        if not original.visible_get():
+                            continue
+                    except Exception:
+                        pass
+                else:
+                    true_instances += 1
+                if instance.is_instance:
+                    key = ob.as_pointer()
+                    corners = instance_corners.get(key)
+                    if corners is None:
+                        corners = tuple(Vector(p) for p in ob.bound_box)
+                        if len(instance_corners) < 512:
+                            instance_corners[key] = corners
+                else:
+                    corners = (Vector(p) for p in ob.bound_box)
+                for p in corners:
+                    world_p = instance.matrix_world @ p
+                    for axis in range(3):
+                        bounds_min[axis] = min(bounds_min[axis], world_p[axis])
+                        bounds_max[axis] = max(bounds_max[axis], world_p[axis])
+                encountered += 1
+        except Exception as exc:
+            log('WARNING: Evaluated Geometry Nodes bounds were incomplete:', repr(exc))
+    else:
+        log('PHASE: Using stored mesh bounds; skipping redundant scene-wide dependency graph evaluation.')
     if not encountered:
         for ob in bpy.context.scene.objects:
             if ob.type != 'MESH' or not ob.visible_get():
@@ -332,7 +345,7 @@ def main():
     # positions. Point clouds alone were what the broken output displayed.
     if scene['terrain_faces'] < stats['world_mesh_faces'] * 0.5:
         raise RuntimeError('Blender imported less than half of the terrain faces represented in the USD. No misleading success file saved.')
-    frame_actual_scene()
+    frame_actual_scene(scene['evaluate_bounds'])
     hide_relationship_lines()
     try:
         audit_imported_textures(target)

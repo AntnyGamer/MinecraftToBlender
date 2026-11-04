@@ -244,7 +244,7 @@ type appState struct {
 }
 
 var app = appState{ctrls: map[int]uintptr{}, logCh: make(chan string, 4096), doneCh: make(chan result, 8),
-	dimension: "overworld", entityFrames: true, entityPaintings: true, entityStands: true, entityDisplays: true, resumeEnabled: true}
+	dimension: "overworld", entityFrames: true, entityPaintings: true, entityStands: true, entityDisplays: true, resumeEnabled: false}
 var droppedLogLines atomic.Uint64
 
 func w(s string) *uint16   { return syscall.StringToUTF16Ptr(s) }

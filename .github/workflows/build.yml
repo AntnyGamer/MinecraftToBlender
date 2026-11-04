@@ -110,7 +110,7 @@ jobs:
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -134,6 +134,20 @@ jobs:
           if($memoryReading -notmatch '^MiEx Java RAM \(working set\): [0-9.,]+ (MiB|GiB)$' -or
              $memoryReading -match '0\.0 GiB') {
             throw "Measured process memory was formatted incorrectly: $memoryReading"
+          }
+          $generatedStage = Join-Path $env:RUNNER_TEMP 'generated_materials'
+          $generatedFolder = Join-Path $generatedStage 'Sample_chunks/textures/banner'
+          New-Item -ItemType Directory -Force -Path $generatedFolder | Out-Null
+          $generatedRef = '{"texture":"./Sample_chunks/textures/banner/banner_abc.png"}'
+          try {
+            [void](Assert-GeneratedTextureFiles $generatedStage 'Sample' $generatedRef)
+            throw 'Missing generated banner image passed validation'
+          } catch {
+            if($_.Exception.Message -eq 'Missing generated banner image passed validation') { throw }
+          }
+          [IO.File]::WriteAllBytes((Join-Path $generatedFolder 'banner_abc.png'), [byte[]](1,2,3))
+          if((Assert-GeneratedTextureFiles $generatedStage 'Sample' $generatedRef) -ne 1) {
+            throw 'Generated banner image was not accepted or deduplicated'
           }
           $packRoot = Join-Path $env:RUNNER_TEMP 'preview_pack_cleanup'
           $ownedName = 'MinecraftToBlender_Preview_' + ('a' * 32)

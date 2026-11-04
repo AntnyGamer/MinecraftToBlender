@@ -28,6 +28,7 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 32*1024*1024)
 	tiles := make(map[[2]int][]byte)
+	sawChunkResponse := false
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) < 30 || string(line[:10]) != "[COMMAND] " {
@@ -37,9 +38,10 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 			Status string `json:"status"`
 			Chunks []previewChunk `json:"chunks"`
 		}
-		if err := json.Unmarshal(line[10:], &response); err != nil || len(response.Chunks) == 0 {
+		if err := json.Unmarshal(line[10:], &response); err != nil || response.Chunks == nil {
 			continue
 		}
+		sawChunkResponse = true
 		for _, ch := range response.Chunks {
 			if ch.Image == "" || ch.LayerCount <= 0 {
 				continue
@@ -58,8 +60,8 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	if err := scanner.Err(); err != nil {
 		return 0, fmt.Errorf("read MiEx preview diagnostics: %w", err)
 	}
-	if len(tiles) == 0 {
-		return 0, fmt.Errorf("MiEx returned no readable chunk images at the selected coordinates")
+	if !sawChunkResponse {
+		return 0, fmt.Errorf("MiEx returned no valid chunk-preview response; inspect the command log")
 	}
 	out := image.NewNRGBA(image.Rect(0, 0, 256, 256))
 	for y := 0; y < 256; y++ {
@@ -132,9 +134,8 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 			}
 		}
 	}
-	if loaded == 0 {
-		return 0, fmt.Errorf("the selected area has no readable chunk images")
-	}
+	// A valid empty region is an informative, all-gray preview, not a
+	// command failure. It can still be clicked to change the export center.
 	dest, err := os.Create(output)
 	if err != nil { return 0, err }
 	defer dest.Close()

@@ -127,11 +127,11 @@ func discoverWorlds(edition worldEdition, extraRoot string) []localWorld {
 			}
 		}
 		for _, p := range candidates {
-			if !validWorldDir(p, edition) {
-				continue
-			}
 			key := strings.ToLower(filepath.Clean(p))
 			if seen[key] {
+				continue
+			}
+			if !validWorldDir(p, edition) {
 				continue
 			}
 			seen[key] = true

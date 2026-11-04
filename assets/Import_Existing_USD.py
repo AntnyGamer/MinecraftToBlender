@@ -220,6 +220,16 @@ def import_world(src, import_type):
     return scene_report()
 
 
+def initial_view_distance(world_span):
+    """Open near the selected area's center, not a full-world overview.
+
+    On a large 1024-block export the old 1.35x size made the default
+    viewpoint more than a thousand blocks away. Blender's Home shortcut
+    remains available to frame the entire scene.
+    """
+    return max(12.0, min(180.0, float(world_span) * 0.30))
+
+
 def frame_actual_scene(evaluate_instances=True):
     """Frame real visible geometry, including Geometry Nodes instances.
 
@@ -283,15 +293,17 @@ def frame_actual_scene(evaluate_instances=True):
     center = (bounds_min + bounds_max) * 0.5
     dimensions = bounds_max - bounds_min
     size = max(dimensions)
+    focus_distance = initial_view_distance(size)
     log('VISIBLE geometry bounds center:', tuple(round(x, 2) for x in center))
     log('VISIBLE geometry dimensions:', tuple(round(x, 2) for x in dimensions))
     log('Evaluated mesh elements:', encountered, 'from node/other instances:', true_instances)
+    log('INITIAL VIEW: center terrain, distance:', round(focus_distance, 2), 'units; press Home for the full-area overview.')
     for screen in bpy.data.screens:
         for area in screen.areas:
             if area.type == 'VIEW_3D':
                 space = area.spaces.active
                 space.region_3d.view_location = center
-                space.region_3d.view_distance = max(10.0, size * 1.35)
+                space.region_3d.view_distance = focus_distance
                 space.clip_end = max(space.clip_end, 1000.0, size * 5)
     # IMPORTANT: Never set hide_viewport or hide_set False on hidden meshes here.
 

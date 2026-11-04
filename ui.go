@@ -367,8 +367,8 @@ func createControls() {
 	uiButton(idEntityPaintings, "Paintings: On")
 	uiButton(idEntityStands, "Armor stands: On")
 	uiButton(idEntityDisplays, "Displays: On")
-	uiButton(idResume, "Safe resume: On")
-	uiLabel(uiOptionsNote, "Preview samples actual loaded chunks. Resume never trusts incomplete USD geometry.", 3, theme.quiet, theme.card)
+	uiButton(idResume, "Safe resume: Off")
+	uiLabel(uiOptionsNote, "Resume reuses verified completed USD only; partial chunks are never trusted.", 3, theme.quiet, theme.card)
 
 	uiLabel(uiActivityTitle, "Activity", 2, theme.white, theme.card)
 	uiButton(idFollow, "Following")

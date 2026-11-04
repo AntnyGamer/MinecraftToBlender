@@ -104,7 +104,7 @@ jobs:
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Copy-WorldSnapshot', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -133,6 +133,9 @@ jobs:
           $auditLog = Join-Path $dir 'audit_cases.log'
           $auditLines = [System.Collections.Generic.List[string]]::new()
           $auditLines.Add('[COMMAND] {"status":"success"}')
+          # Setup success alone must not count as export success.
+          $auditLines.Add('Exporting world to C:\MiEx\test.usd')
+          $auditLines.Add('[COMMAND] {"status":"success"}')
           $auditLines.Add('Missing blockstate: minecraft:bed')
           $auditLines.Add('Missing blockstate: minecraft:bed')
           $auditLines.Add('Missing blockstate: minecraft:banner')
@@ -149,6 +152,9 @@ jobs:
               $accuracy.Errors[1] -ne '[MSG] Error: invalid texture') {
             throw ('Streaming audit changed missing-blockstate or error classifications: ' + ($accuracy | Out-String))
           }
+          $setupOnly = Join-Path $dir 'setup_only.log'
+          [IO.File]::WriteAllLines($setupOnly, [string[]]@('[COMMAND] {"status":"success"}', 'Exporting world to C:\MiEx\test.usd'))
+          if((Read-MiExAuditLog $setupOnly).Success) { throw 'Setup success incorrectly counted as export success' }
           $emptyAccuracy = Read-MiExAuditLog (Join-Path $dir 'nonexistent_audit.log')
           if ($emptyAccuracy.Success -or @($emptyAccuracy.Missing).Count -ne 0 -or
               @($emptyAccuracy.Errors).Count -ne 0) { throw 'Missing MiEx log no longer yields empty audit' }
@@ -184,34 +190,48 @@ jobs:
           $blocked = $false
           try { Assert-SafeResourcePackArchives $packWorld } catch { $blocked = $_.Exception.Message -like '*Unsafe resource-pack archive entry*' }
           if (-not $blocked) { throw 'Unsafe resource-pack ZIP entry was not rejected' }
-          # A completed export replaces old data without mixing stale chunks.
+          # Verify parallel snapshot copy preserves full world folder structure.
+          $sourceWorld = Join-Path $dir 'copy_source'
+          $destWorld = Join-Path $dir 'copy_dest'
+          New-Item -ItemType Directory -Force -Path (Join-Path $sourceWorld 'db') | Out-Null
+          Set-Content -LiteralPath (Join-Path $sourceWorld 'level.dat') -Value 'sample'
+          Set-Content -LiteralPath (Join-Path $sourceWorld 'db/00001.ldb') -Value 'db data'
+          Copy-WorldSnapshot $sourceWorld $destWorld
+          if(-not (Test-Path -LiteralPath (Join-Path $destWorld 'level.dat')) -or
+             -not (Test-Path -LiteralPath (Join-Path $destWorld 'db/00001.ldb'))) {
+              throw 'Snapshot copy dropped a file'
+          }
+          # Replacing generated USD must not mix stale chunk files or delete user notes.
           $original = Join-Path $dir 'World'
           $stage = Join-Path $dir '.staging_world'
-          New-Item -ItemType Directory -Force -Path $original, $stage | Out-Null
-          Set-Content -LiteralPath (Join-Path $original 'old.usd') -Value 'old'
-          Set-Content -LiteralPath (Join-Path $stage 'new.usd') -Value 'new'
+          New-Item -ItemType Directory -Force -Path $original, $stage, (Join-Path $original 'World_chunks'), (Join-Path $stage 'World_chunks') | Out-Null
+          Set-Content -LiteralPath (Join-Path $original 'World_chunks/old.usd') -Value 'old'
+          Set-Content -LiteralPath (Join-Path $stage 'World_chunks/new.usd') -Value 'new'
+          Set-Content -LiteralPath (Join-Path $stage 'World.usd') -Value 'root'
           Publish-Export $stage $original
-          if (-not (Test-Path -LiteralPath (Join-Path $original 'new.usd')) -or (Test-Path -LiteralPath (Join-Path $original 'old.usd'))) {
-            throw 'Published export mixed new and old files'
+          if (-not (Test-Path -LiteralPath (Join-Path $original 'World_chunks/new.usd')) -or
+              (Test-Path -LiteralPath (Join-Path $original 'World_chunks/old.usd'))) {
+            throw 'Published export mixed old and new chunk layers'
           }
-          # Preserve completed .blend files and Blender's numbered backups
-          # across a replacement without retaining stale USD chunk layers.
           Set-Content -LiteralPath (Join-Path $original 'Saved.blend') -Value 'blender project'
           Set-Content -LiteralPath (Join-Path $original 'Saved.blend1') -Value 'blender backup'
+          Set-Content -LiteralPath (Join-Path $original 'notes.txt') -Value 'user files must survive'
           $nextStage = Join-Path $dir '.next_world'
-          New-Item -ItemType Directory -Force -Path $nextStage | Out-Null
-          Set-Content -LiteralPath (Join-Path $nextStage 'newer.usd') -Value 'newer'
+          New-Item -ItemType Directory -Force -Path $nextStage, (Join-Path $nextStage 'World_chunks') | Out-Null
+          Set-Content -LiteralPath (Join-Path $nextStage 'World_chunks/newer.usd') -Value 'newer'
+          Set-Content -LiteralPath (Join-Path $nextStage 'World.usd') -Value 'next root'
           Publish-Export $nextStage $original
-          foreach ($name in @('Saved.blend', 'Saved.blend1', 'newer.usd')) {
+          foreach ($name in @('Saved.blend', 'Saved.blend1', 'notes.txt', 'World.usd')) {
             if (-not (Test-Path -LiteralPath (Join-Path $original $name))) { throw "Export lost $name" }
           }
-          if (Test-Path -LiteralPath (Join-Path $original 'new.usd')) {
-            throw 'Export retained stale USD after replacing the world'
+          if ((Test-Path -LiteralPath (Join-Path $original 'World_chunks/new.usd')) -or
+              -not (Test-Path -LiteralPath (Join-Path $original 'World_chunks/newer.usd'))) {
+            throw 'Export retained stale USD chunks after replacing the world'
           }
           # If publication fails, restore the previously published output.
           try { Publish-Export (Join-Path $dir 'missing_stage') $original; throw 'Expected promotion failure' }
           catch { if ($_.Exception.Message -eq 'Expected promotion failure') { throw } }
-          foreach ($name in @('Saved.blend', 'Saved.blend1', 'newer.usd')) {
+          foreach ($name in @('Saved.blend', 'Saved.blend1', 'notes.txt', 'World.usd')) {
             if (-not (Test-Path -LiteralPath (Join-Path $original $name))) { throw "Failed publication lost $name" }
           }
       - name: Validate_Blender_importer
@@ -238,18 +258,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Publish_v1_0_6_release
+      - name: Publish_v1_0_7_release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.0.6 >/dev/null 2>&1; then
-            echo "Release v1.0.6 already exists; leaving it unchanged."
+          if gh release view v1.0.7 >/dev/null 2>&1; then
+            echo "Release v1.0.7 already exists; leaving it unchanged."
             exit 0
           fi
           mkdir -p release
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
           test -s release/MinecraftToBlender_v1.exe
           (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
-          gh release create v1.0.6 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.6" \
-            --notes-file .github/RELEASE_NOTES_v1.0.6.md
+          gh release create v1.0.7 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.0.7" \
+            --notes-file .github/RELEASE_NOTES_v1.0.7.md

@@ -14,5 +14,7 @@
 - Report export and Blender preparation/import phase timings to distinguish slow snapshot copying, Java meshing, scene setup and saving.
 - MiEx already skips occluded neighboring block faces and runs its face optimizer; this change does not claim Minecraft-style chunk streaming or reduce scene fidelity.
 
+- Focus the initial Blender viewport close to the selected terrain, rather than placing the viewer 1.35 times the model's full extent away; Home still frames the entire region.
+
 ## Limitations
 These fixes have not yet been visually confirmed with a complete user Bedrock world imported into Blender. A passing automated build cannot guarantee the accuracy of all models, material UVs, or sign text. MiEx's pinned experimental release may still have Bedrock compatibility limitations. Source world data is left unchanged; previous completed exports are preserved on failed replacements.

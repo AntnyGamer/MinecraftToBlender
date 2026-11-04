@@ -54,3 +54,35 @@ func TestSampledPreviewUsesActualChunkColors(t *testing.T) {
 		t.Fatalf("unexpected block color in second source row: %x,%x,%x", bottomR>>8,bottomG>>8,bottomB>>8)
 	}
 }
+
+func TestPreviewOfUnexploredAreaIsClickableGrayMap(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "miex.log")
+	pngPath := filepath.Join(dir, "preview.png")
+	if err := os.WriteFile(log, []byte("[COMMAND] {\"chunks\":[]}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	count, err := renderSampledPreview(log, pngPath, 0, 0, 512)
+	if err != nil || count != 0 {
+		t.Fatalf("empty but valid MiEx chunk response should produce a gray map: %d, %v", count, err)
+	}
+	f, err := os.Open(pngPath)
+	if err != nil {t.Fatal(err)}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {t.Fatal(err)}
+	r,g,b,_ := img.At(0,0).RGBA()
+	if r>>8 != 218 || g>>8 != 218 || b>>8 != 218 {
+		t.Fatalf("unsampled terrain must remain gray, got %d,%d,%d",r>>8,g>>8,b>>8)
+	}
+}
+
+func TestPreviewRejectsMissingMiExChunkResponse(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "miex.log")
+	if err := os.WriteFile(log, []byte("[COMMAND] {\"status\":\"success\"}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := renderSampledPreview(log, filepath.Join(dir,"preview.png"), 0,0,512)
+	if err == nil {t.Fatal("a missing getChunk command response must not be shown as successful")}
+}

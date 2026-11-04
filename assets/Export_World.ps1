@@ -96,6 +96,23 @@ function Start-CapturedProcess([string]$exe,[string]$arguments,[string]$folder,[
         } catch { $errFile.Dispose(); throw }
     } catch { $outFile.Dispose(); $process.Dispose(); throw }
 }
+function Format-MiExMemory([System.Diagnostics.Process]$process) {
+    # A zero working set can mean a not-yet-initialized/unavailable reading.
+    # Never present that as a measured 0.0 GiB of Java RAM.
+    try {
+        if($process.HasExited) { return $null }
+        $current = [System.Diagnostics.Process]::GetProcessById($process.Id)
+        try {
+            $current.Refresh()
+            $bytes = [long]$current.WorkingSet64
+        } finally { $current.Dispose() }
+        if($bytes -le 0) { return $null }
+        if($bytes -lt 1GB) {
+            return ('MiEx Java RAM (working set): {0:N0} MiB' -f ($bytes / 1MB))
+        }
+        return ('MiEx Java RAM (working set): {0:N2} GiB' -f ($bytes / 1GB))
+    } catch { return $null }
+}
 function Finish-CapturedProcess($capture) {
     try {
         $capture.Process.WaitForExit()
@@ -721,7 +738,12 @@ try {
         if(([DateTime]::UtcNow - $lastMemoryReport).TotalSeconds -ge 15 -and -not $proc.HasExited) {
             $lastMemoryReport = [DateTime]::UtcNow
             try {
-                Write-Host ("[MEMORY] MiEx Java working set: {0:N1} GiB" -f ($proc.WorkingSet64 / 1GB))
+                $memory = Format-MiExMemory $proc
+                if($memory) {
+                    Write-Host ("[MEMORY] " + $memory)
+                } else {
+                    Write-Host '[MEMORY] MiEx Java RAM (working set): unavailable'
+                }
             } catch { }
         }
         if(Test-Path -LiteralPath $log) {

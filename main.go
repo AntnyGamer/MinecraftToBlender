@@ -885,7 +885,7 @@ func pathWithResolvedAncestors(path string) (string, error) {
 	current := filepath.Clean(abs)
 	var missing []string
 	for {
-		real, err := filepath.EvalSymlinks(current)
+		real, err := finalPathWindows(current)
 		if err == nil {
 			for i := len(missing)-1; i >= 0; i-- {
 				real = filepath.Join(real, missing[i])

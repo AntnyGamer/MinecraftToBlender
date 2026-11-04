@@ -19,6 +19,18 @@ A Windows app for exporting locally stored **Minecraft Bedrock and Java Edition*
 7. Export to USD, or choose **Export to Blender** to create a `.blend` and open it automatically after a successful import. In **Settings**, toggle **Auto-open Blender** off if you prefer to open it manually. The preference is saved between launches.
 8. Inspect the Blender scene for missing terrain, materials, item frames, or other details. A successful import is *not* a guarantee of exact visual fidelity.
 
+### Export options (feature branch)
+
+Use **Export options** in the sidebar to choose the Overworld, Nether or End, select whether to export item frames, paintings, armor stands and display entities, and control the optional safe resume checkpoint. All six previously supported entity types remain enabled by default.
+
+**Preview region** samples up to 16×16 actual chunk images through MiEx and displays a top-down map with gray placeholders where no chunk sample was available. This is a **sampled** preview, not a complete high-resolution survey. Click the map to update the export center X/Z. A preview takes a read-only world snapshot and may take time on a large world.
+
+**Check readiness** reports installed Java/Blender versions, available RAM and workspace disk space, and basic region/dimension validity. Export also asks about detected warnings before starting. These are early warnings, not guarantees.
+
+The activity area shows elapsed time and Java working-set memory measurements when MiEx reports them; it deliberately does **not** invent an export percentage.
+
+**Safe resume** is off by default to avoid extra disk reads on ordinary exports. When enabled with **Export to Blender**, the app records a SHA-256 checkpoint of the complete successfully exported USD and its source world. If Blender import then fails, a retry with exactly the same inputs can skip MiEx and resume at Blender import. Modified world or USD data invalidates the checkpoint. **Interrupted MiEx chunk exports cannot currently resume midway**: MiEx experimental-34 omits disabled chunks from the generated USD root, so merging half-written layers would risk losing terrain.
+
 **Requirements:** Java 21+ on PATH, Blender installed, and an internet connection for initial MiEx/resource downloads. The app itself has no third-party Go dependencies. Standard installation locations are searched automatically; custom locations can be selected in the interface.
 
 ### Terrain-free export diagnostics
@@ -90,7 +102,7 @@ The metadata-parser tests also run on Linux and macOS using `go test ./...`, but
 ## Known limitations
 
 - Automatic discovery is not guaranteed for every custom launcher or alternate drive. Use **Choose folder** when necessary.
-- Console progress is based on stages and actual log activity; the exporter does not provide a reliable percentage.
+- Console progress uses real elapsed time, stage messages and periodic Java memory readings; the exporter does not provide a reliable percentage.
 - Some Bedrock blocks, modded Java models, materials, or item frames may not render perfectly in Blender. Large exports may use significant CPU, RAM, and storage.
 - Windows GUI behavior and complete Java/Bedrock-to-Blender conversions still need end-to-end testing with real saves. Syntax, unit tests, and successful compilation are not a substitute.
 - The app uses third-party MiEx tools but **does not bundle Mojang world content or a MiEx JAR**.

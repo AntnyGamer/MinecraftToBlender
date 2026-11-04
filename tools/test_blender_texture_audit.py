@@ -45,10 +45,7 @@ def test_texture_audit_path_resolution():
                 ])),
                 NS(use_nodes=False, node_tree=None),
             ]),
-            path=NS(
-                is_rel=lambda p: p.startswith("//"),
-                abspath=lambda p: calls.append(p) or p,
-            ),
+            path=NS(abspath=lambda p: calls.append(p) or p),
         )
         namespace = dict(bpy=bpy, Path=Path, log=lambda *a: logs.append(a))
         exec(compile(ast.Module(body=selected, type_ignores=[]), "texture_audit", "exec"), namespace)

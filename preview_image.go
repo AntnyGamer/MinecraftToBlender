@@ -43,18 +43,22 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 		}
 		sawChunkResponse = true
 		for _, ch := range response.Chunks {
-			if ch.Image == "" || ch.LayerCount <= 0 {
-				continue
+			if ch.LayerCount <= 0 {
+				continue // Missing/empty terrain is a legitimate gray tile.
 			}
-			bytes, err := base64.StdEncoding.DecodeString(ch.Image)
-			if err == nil && len(bytes) == 16*16*4 {
-				// MiEx uses a zeroed image when it cannot render this chunk.
-				visible := false
-				for i := 3; i < len(bytes); i += 4 {
-					if bytes[i] != 0 {visible = true; break}
-				}
-				if visible { tiles[[2]int{ch.X, ch.Z}] = bytes }
+			if ch.Image == "" {
+				return 0, fmt.Errorf("MiEx omitted image data for loaded chunk (%d,%d)", ch.X, ch.Z)
 			}
+			pixels, err := base64.StdEncoding.DecodeString(ch.Image)
+			if err != nil || len(pixels) != 16*16*4 {
+				return 0, fmt.Errorf("MiEx returned an invalid image for chunk (%d,%d): %d bytes", ch.X, ch.Z, len(pixels))
+			}
+			// MiEx uses a zeroed image when it cannot render this chunk.
+			visible := false
+			for i := 3; i < len(pixels); i += 4 {
+				if pixels[i] != 0 {visible = true; break}
+			}
+			if visible { tiles[[2]int{ch.X, ch.Z}] = pixels }
 		}
 	}
 	if err := scanner.Err(); err != nil {

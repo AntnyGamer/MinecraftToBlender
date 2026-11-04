@@ -31,7 +31,7 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	sawChunkResponse := false
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		if len(line) < 30 || string(line[:10]) != "[COMMAND] " {
+		if len(line) < 10 || string(line[:10]) != "[COMMAND] " {
 			continue
 		}
 		var response struct {

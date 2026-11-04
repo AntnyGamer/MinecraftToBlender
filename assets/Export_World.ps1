@@ -645,11 +645,18 @@ try {
     $proc = $capture.Process
     $lastSize = -1
     $lastStderrSize = -1
+    $lastMemoryReport = [DateTime]::UtcNow.AddSeconds(-20)
     $outOfMemory = $false
     $oomPattern = 'java\.lang\.OutOfMemoryError|GC overhead limit exceeded'
     while(-not $proc.HasExited) {
         [void]$proc.WaitForExit(5000)
         $proc.Refresh()
+        if(([DateTime]::UtcNow - $lastMemoryReport).TotalSeconds -ge 15 -and -not $proc.HasExited) {
+            $lastMemoryReport = [DateTime]::UtcNow
+            try {
+                Write-Host ("[MEMORY] MiEx Java working set: {0:N1} GiB" -f ($proc.WorkingSet64 / 1GB))
+            } catch { }
+        }
         if(Test-Path -LiteralPath $log) {
             $length = (Get-Item -LiteralPath $log).Length
             if($length -ne $lastSize) {

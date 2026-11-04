@@ -16,13 +16,8 @@ func floorBlockDiv(n, divisor int) int {
 	return q
 }
 
-// javaRegionHasSavedChunks inspects only 4 KiB Anvil headers, not entire
-// chunk payloads. It never opens a world for writing. This indicates saved
-// data exists, not whether MiEx can decode its block models.
-func javaRegionHasSavedChunks(worldPath, dimension string, size, centerX, centerZ int) (bool,error) {
-	return javaRegionHasSavedChunksContext(context.Background(), worldPath, dimension, size, centerX, centerZ)
-}
-
+// javaRegionHasSavedChunksContext inspects only 4 KiB Anvil headers, not
+// entire chunk payloads. It never writes to a world, and checks cancellation.
 func javaRegionHasSavedChunksContext(ctx context.Context, worldPath, dimension string, size, centerX, centerZ int) (bool,error) {
 	if err:=ctx.Err();err!=nil {return false,err}
 	folder,err:=javaDimensionRegionPath(worldPath,dimension)

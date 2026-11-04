@@ -233,12 +233,14 @@ func startPreview() {
 		alert("Invalid workspace", "Choose a workspace outside the Minecraft world folder.", mbWarn)
 		return
 	}
+	dimension := app.dimension
+	useWorldPacks := app.useWorldPacks
 	ctx, cancel := context.WithCancel(context.Background())
 	app.cancel = cancel
 	resetLog()
 	setBusy(true)
 	state("Sampling world chunks for region preview...")
 	go func() {
-		app.doneCh <- runPreview(ctx, world, workspace, app.dimension, size, x, z)
+		app.doneCh <- runPreview(ctx, world, workspace, dimension, useWorldPacks, size, x, z)
 	}()
 }

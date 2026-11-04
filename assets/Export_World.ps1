@@ -217,6 +217,22 @@ function Publish-Export([string]$stage,[string]$destination) {
         catch { Write-Warning ("Previous export backup could not be removed: " + $backup) }
     }
 }
+function Assert-ReferencedChunkLayers([string]$folder, [System.Text.RegularExpressions.MatchCollection]$references) {
+    $checked = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($reference in $references) {
+        $filename = [regex]::Match($reference.Value, 'region_1_chunk_\d+_\d+\.usd').Value
+        if(-not $filename) { throw "Malformed USD payload reference: $($reference.Value)" }
+        if(-not $checked.Add($filename)) { continue }
+        $filePath = Join-Path $folder $filename
+        if(-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+            throw "Main USD references a missing chunk layer: $filePath"
+        }
+        if((Get-Item -LiteralPath $filePath -ErrorAction Stop).Length -eq 0) {
+            throw "Main USD references an empty chunk layer: $filePath"
+        }
+    }
+    return $checked.Count
+}
 function Test-ChunkTerrainGeometry([string]$folder, [System.IO.FileInfo[]]$files = $null) {
     # MiEx's ASCII chunk layers contain nonempty faceVertexCounts for mesh
     # geometry. A directory full of empty USD layer shells is not terrain.
@@ -760,6 +776,8 @@ try {
     $refPattern = 'payload\s*=\s*@\./' + [regex]::Escape($ExportName + '_chunks') + '/region_1_chunk_\d+_\d+\.usd@'
     $refMatches = [regex]::Matches($usdText, $refPattern)
     $regionPayloadCount = $refMatches.Count
+    $verifiedPayloadLayers = Assert-ReferencedChunkLayers $chunksDir $refMatches
+    Write-Host ("Verified main USD references: $verifiedPayloadLayers distinct nonempty chunk layer(s).") -ForegroundColor Green
     $expectedSections = [int][math]::Ceiling($Size / (16.0 * $chunkSize))
     $expectedSections = $expectedSections * $expectedSections
     if($regionPayloadCount -ne $expectedSections) {

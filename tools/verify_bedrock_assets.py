@@ -37,6 +37,26 @@ def main():
     for direction in range(6):
         assert f"thisBlock.state.facing_direction == {direction}" in shulker_text
 
+    # Legacy Bedrock names really appear in the user's saved block palette.
+    # Missing them used to bypass otherwise correct model overrides.
+    assert "minecraft:undyed_shulker_box" in shulkers["blocks"]
+    assert "type == 'undyed'" in shulker_text
+    signs = load("Bedrock_Signs.json")
+    assert {"minecraft:standing_sign", "minecraft:wall_sign"} <= set(signs["blocks"])
+    assert "ground_sign_direction" in text_of(signs)
+    assert "facing_direction" in text_of(signs)
+
+    # These names aren't recognized by MiEx's Java-era banner builtin map.
+    # Delegate to the actual builtin to retain patterns and vanilla UVs.
+    banners = load("Bedrock_Legacy_Banners.json")
+    assert {"minecraft:wall_banner", "minecraft:standing_banner"} <= set(banners["blocks"])
+    assert banners["handler"]["generators"][0]["type"] == "block"
+    assert "Patterns" in text_of(banners) and "bannerName" in text_of(banners)
+    frame_fallback = load("Bedrock_Frame_Blocks.json")
+    assert {"minecraft:frame", "minecraft:glow_frame"} <= set(frame_fallback["blocks"])
+    assert frame_fallback["handler"]["generators"][0]["type"] == "entity"
+    assert "thisBlock.state" in text_of(frame_fallback)
+
     for name in ("Bedrock_Signs.json", "Bedrock_Hanging_Signs.json"):
         doc = load(name)
         assert doc["blocks"], name
@@ -73,6 +93,15 @@ def main():
         assert name in exporter
     assert "Ensure-BedrockBedTextures" in exporter
     assert "Bedrock_Assets.ps1" in exporter
+    assert "'Bedrock_Legacy_Banners.json' = 'legacy_banners.json'" in exporter
+    assert "'Bedrock_Frame_Blocks.json' = 'frame_blocks.json'" in exporter
+    assert "-Name 'exportEntityAsBlocks'" in exporter
+    assert "entities=$true" in exporter
+    assert "Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest" in exporter
+    # The previously copied Bedrock atlas has incompatible UVs for the
+    # pinned Java-style bed model. Do not reinstall it over the Java base.
+    assert "Ensure-BedrockBedTextures $miexDir $bedTextureManifest" not in exporter
+    assert "[System.IO.File]::WriteAllText($frameStatePath, '{\"variants\":{}}'" not in exporter
     print("Bedrock override JSONs, Mojang texture pins, and export wiring validated.")
 
 

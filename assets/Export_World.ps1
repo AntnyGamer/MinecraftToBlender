@@ -13,7 +13,11 @@ param(
     [ValidateRange(-256,2048)][int]$MaxY = 319,
     [ValidatePattern('^[a-zA-Z][a-zA-Z0-9_]{0,60}$')][string]$ExportName = 'Bedrock_World',
     [switch]$CompactUSD,
-    [switch]$UseWorldResourcePacks
+    [switch]$UseWorldResourcePacks,
+    [ValidateSet('overworld','the_nether','the_end')][string]$Dimension = 'overworld',
+    [string]$Entities = 'minecraft:item_frame,minecraft:glow_item_frame,minecraft:painting,minecraft:block_display,minecraft:item_display,minecraft:armor_stand',
+    [switch]$PreviewOnly,
+    [switch]$ResumeSafe
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -38,7 +42,7 @@ $minZ = $CenterZ - [int][math]::Floor($Size/2)
 $maxX = $minX + $Size - 1
 $maxZ = $minZ + $Size - 1
 Write-Host ('Minecraft to Blender: face optimization ON, raytracing and subsets OFF, chunk size 16.') -ForegroundColor Cyan
-Write-Host ("Region: X=$minX..$maxX Z=$minZ..$maxZ Y=$MinY..$MaxY")
+Write-Host ("Region: X=$minX..$maxX Z=$minZ..$maxZ Y=$MinY..$MaxY; dimension=$Dimension")
 $miexDir = Join-Path $work 'miex'
 $jar = Join-Path $miexDir 'MiEx.jar'
 $releaseUrl = 'https://github.com/BramStoutProductions/MiEx/releases/download/v2.0.0.experimental-34/MiEx.jar'
@@ -580,19 +584,40 @@ try {
     } else {
         $commands += @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$false}
     }
-    $commands += @{command='loadDimension'; dimension='overworld'}
+    $commands += @{command='loadDimension'; dimension=$Dimension}
     if(-not $UseWorldResourcePacks) {
         $commands += @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')}
     }
-    $commands += @(
-      @{command='getWorld'},
-      @{command='getChunk'; chunks=$probeChunks; heightmap=$true},
-      @{command='applyExportSettings'; settings=@{chunkSize=$chunkSize; exportRegions=@{'Region 1'=$region}; runOptimiser=$enableFaceOptimization; removeCaves=$false; fillInCaves=$false; exportBlockAnimations=$false; entityStartFrame=0; entityEndFrame=1; entityFPS=24; entitySpawnRules=@(); entitySimulate=@(); entityExport=@('minecraft:item_frame','minecraft:glow_item_frame','minecraft:painting','minecraft:block_display','minecraft:item_display','minecraft:armor_stand')}},
-      @{command='export';path=(Join-Path $exportDir $exportFile)}
-    )
+    $entityList = @()
+    if($Entities -ne 'none') {
+        $entityList = @($Entities.Split(',') | Where-Object { $_ -ne '' })
+        $allowedEntities = @('minecraft:item_frame','minecraft:glow_item_frame','minecraft:painting','minecraft:block_display','minecraft:item_display','minecraft:armor_stand')
+        foreach($id in $entityList) {
+            if($id -notin $allowedEntities) { Abort "Unsupported entity ID: $id" }
+        }
+    }
+    if($PreviewOnly) {
+        # Sample actual chunk images from MiEx; 16x16 samples limit cost for huge regions.
+        $probeChunks = @()
+        for($row = 0; $row -lt 16; $row++) {
+            for($col = 0; $col -lt 16; $col++) {
+                $chunkX = [int][math]::Floor($minChunkX + ($maxChunkX - $minChunkX) * ($col / 15.0))
+                $chunkZ = [int][math]::Floor($minChunkZ + ($maxChunkZ - $minChunkZ) * ($row / 15.0))
+                $probeChunks += @{chunkX=$chunkX;chunkZ=$chunkZ}
+            }
+        }
+        $commands += @{command='getChunk';chunks=$probeChunks;image=$true}
+    } else {
+        $commands += @(
+          @{command='getWorld'},
+          @{command='getChunk'; chunks=$probeChunks; heightmap=$true},
+          @{command='applyExportSettings'; settings=@{chunkSize=$chunkSize; exportRegions=@{'Region 1'=$region}; runOptimiser=$enableFaceOptimization; removeCaves=$false; fillInCaves=$false; exportBlockAnimations=$false; entityStartFrame=0; entityEndFrame=1; entityFPS=24; entitySpawnRules=@(); entitySimulate=@(); entityExport=$entityList}},
+          @{command='export';path=(Join-Path $exportDir $exportFile)}
+        )
+    }
     $cmdFile = Join-Path $work 'MiEx_export_commands.json'
     $commands | ConvertTo-Json -Depth 15 | Set-Content -LiteralPath $cmdFile -Encoding UTF8
-    Write-Host 'Enabling vanilla item-frame, glow-frame, painting, display and armor-stand models (single static frame).' -ForegroundColor Cyan
+    Write-Host ("Selected entity exports: " + ($(if($entityList.Count -gt 0) { $entityList -join ', ' } else { 'none' }))) -ForegroundColor Cyan
     $env:MIEX_PORTABLE_EXPORTS='1'
     $env:MIEX_STORE_GEN_TEX_IN_EXPORT='1'
     $env:MIEX_SKIP_WORLD_RESOURCEPACK_CHECK = if($UseWorldResourcePacks) { '0' } else { '1' }
@@ -656,6 +681,12 @@ try {
         Abort "MiEx exhausted Java heap during export. Raytracing is disabled in this build; try a smaller region and inspect $stderrLog. Previous exports were preserved."
     }
     Write-Host "MiEx Java process exited with code $code"
+    if($PreviewOnly) {
+        if(Test-Path -LiteralPath $exportDir) { Remove-Item -LiteralPath $exportDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if($code -ne 0) { Abort "MiEx chunk preview failed (exit $code). See $stderrLog" }
+        Write-Host "Preview: sampled $($probeChunks.Count) real chunk coordinates. Raw image data saved to $log" -ForegroundColor Green
+        return
+    }
     if((Test-Path -LiteralPath $stderrLog) -and (Get-Item -LiteralPath $stderrLog).Length -gt 0) {
         Write-Host 'MiEx stderr (last 12 lines, warnings alone are not fatal):' -ForegroundColor Yellow
         Get-Content -LiteralPath $stderrLog -Tail 12 | ForEach-Object {Write-Host $_}
@@ -826,6 +857,8 @@ try {
         ('USD materials sidecar present: ' + $materialsUsdFound),
         ('Source ZIP SHA256 or direct world level.dat SHA256: ' + $actualWorldHash),
         ('Source world edition: ' + $Edition),
+        ('Dimension: ' + $Dimension),
+        ('Requested exported entities: ' + ($entityList -join ', ')),
         'Source world compatibility depends on MiEx support for this saved version.',
         'MiEx Java asset source may differ from Bedrock; vanilla texture parity is NOT verified.',
         ('Export region X=' + $minX + '..' + $maxX + ', Z=' + $minZ + '..' + $maxZ + ', Y=' + $MinY + '..' + $MaxY + ', LOD disabled'),

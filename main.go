@@ -993,7 +993,7 @@ func startExport(both bool) {
 	}
 	// Default coordinates remain 0,0, but warn when the selected region does
 	// not include the save's recorded player position or spawn location.
-	if world.hasCenter && worldCenterOutsideRegion(x, z, size, world.x, world.z) {
+	if app.dimension == "overworld" && world.hasCenter && worldCenterOutsideRegion(x, z, size, world.x, world.z) {
 		warning := fmt.Sprintf("The selected %d x %d region is centered at X=%d, Z=%d, but this world records a player/spawn location near X=%d, Z=%d outside that area.\n\nThe region might contain no saved terrain. Center X/Z will stay as entered. Continue anyway?", size, size, x, z, world.x, world.z)
 		if alert("Region may miss the world", warning, mbWarn|mbYesNo) != idYes {
 			return

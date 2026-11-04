@@ -486,6 +486,10 @@ def terrain_mesh_batch_key(ob):
     if ob.parent is not None:
         parent = ob.parent
         while parent is not None:
+            if parent.name.partition('.')[0].lower() in (
+                'entities', 'prototypes', 'individualblocksbasemeshes', 'background'
+            ):
+                return None
             if parent.animation_data or parent.constraints or parent.hide_render:
                 return None
             parent = parent.parent

@@ -103,6 +103,54 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('Pinned MiEx material node lookup changed; cannot apply verified optimization.')
     contents = contents.replace(original, faster, 1)
+    # Upstream's material node layout repeatedly scans the entire NodeGrid to
+    # find an already-placed node, which becomes quadratic for large graphs.
+    # Cache the same Blender-unique node names; preserve all rows, columns,
+    # connections, and resulting node positions.
+    original = '''                self.nodes : list[Node] = []
+                self.minColumn = 0
+                self.maxColumn = 0'''
+    faster = '''                self.nodes : list[Node] = []
+                self.byName = {}
+                self.minColumn = 0
+                self.maxColumn = 0'''
+    if contents.count(original) != 1:
+        raise RuntimeError('MiEx layout grid constructor changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
+    original = '''            def getNode(self, node: bpy.types.Node) -> Node:
+                for node2 in self.nodes:
+                    if node2.node.name == node.name:
+                        return node2
+                node2 = Node(node, 0, len(self.getColumn(0)))
+                self.nodes.append(node2)
+                return node2
+
+            def getNodeIfMissing(self, node: bpy.types.Node) -> Node|None:
+                for node2 in self.nodes:
+                    if node2.node.name == node.name:
+                        return None
+                node2 = Node(node, 0, len(self.getColumn(0)))
+                self.nodes.append(node2)
+                return node2'''
+    faster = '''            def getNode(self, node: bpy.types.Node) -> Node:
+                node2 = self.byName.get(node.name)
+                if node2 is not None:
+                    return node2
+                node2 = Node(node, 0, len(self.getColumn(0)))
+                self.nodes.append(node2)
+                self.byName[node.name] = node2
+                return node2
+
+            def getNodeIfMissing(self, node: bpy.types.Node) -> Node|None:
+                if node.name in self.byName:
+                    return None
+                node2 = Node(node, 0, len(self.getColumn(0)))
+                self.nodes.append(node2)
+                self.byName[node.name] = node2
+                return node2'''
+    if contents.count(original) != 1:
+        raise RuntimeError('MiEx layout node lookup changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
     module = types.ModuleType('miex_import_compat')
     module.__file__ = str(src)
     sys.modules[module.__name__] = module

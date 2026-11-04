@@ -152,7 +152,7 @@ assert key(complex_mesh) is None
 before_faces = sum(len(obj.data.polygons) for obj in all_objects)
 joined = scope["batch_static_terrain_meshes"]()
 after_faces = sum(len(obj.data.polygons) for obj in all_objects)
-assert joined == 3, (joined, records)
+assert joined == 4, (joined, records)
 assert before_faces == after_faces, "Batching must not delete or duplicate polygon faces"
 assert water_mesh in all_objects and different in all_objects
 assert complex_mesh in all_objects

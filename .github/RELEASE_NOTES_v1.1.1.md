@@ -13,6 +13,11 @@
 - Add an Off-by-default toggle that switches water materials from MiEx's noisy hashed/dithered alpha to Blender 5.2 smooth `BLENDED` transparency. Preserve Minecraft water geometry, UVs, biome color, water textures and existing alpha links; set modest constant alpha only when no image alpha connection exists. Disable layered translucency overlap to reduce multiple overlapping blue faces. This is intended to reduce pixelated holes at a distance; it cannot repair missing mesh faces, and blended water may sort or render more slowly on very large worlds.
 - This is not Minecraft's rendering engine and does not offer identical refraction, underwater effects or animated flowing water.
 
+## Viewport FPS improvements
+- Add **Nearby-only** (Off by default) to hide distant Minecraft terrain mesh objects in Blender's current view layer, without removing their geometry, changing any materials, or hiding them in final renders. Press **Alt+H** in Object Mode to reveal the full world. The toggle is not dynamic Minecraft-style streaming, and only helps when large exports contain separately bounded meshes; the import log reports actual hidden mesh counts.
+- Unlike the earlier ineffective Solid-mode preset, this directly reduces how many mesh objects and polygons Blender needs to draw. Blender already starts in Solid mode, so the new option leaves shading unchanged. Small regions are not culled.
+- Reduce the initial viewport's unnecessarily large far-clipping distance from five times to two times the world span, retaining full-scene visibility from the initial viewpoint and improving depth-buffer range.
+
 ## Performance
 - Speed Blender's MiEx material-node layout by replacing repeated linear name searches with a stable dictionary, retaining identical node positions; add a 200-node regression check.
 - Skip redundant dependency-graph evaluation when framing static, modifier-free meshes in Blender; retain evaluated bounds for instances, Geometry Nodes and other modifiers.

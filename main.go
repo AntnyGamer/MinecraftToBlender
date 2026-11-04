@@ -888,6 +888,17 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 	if err != nil {
 		return result{what: "Export", err: err}
 	}
+	usd := outputUSD(workspace, exportName)
+	identity := makeResumeIdentity(worldPath, edition, exportName, options, size, x, z, minY, maxY, useWorldPacks)
+	checkpoint := checkpointFile(workspace, exportName)
+	if options.Resume && alsoImport {
+		guiLog("Checking a saved USD checkpoint against the source world and output files...")
+		if verifiedResumeCheckpoint(checkpoint, identity, worldPath, usd) {
+			guiLog("Verified unchanged completed USD export. Resuming directly at Blender import.")
+			target, e := doImportValidated(ctx, usd, blender, tools)
+			return result{what: "Resumed Blender import", output: target, err: e}
+		}
+	}
 	guiLog("Preparing MiEx export...")
 	args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(tools, "Export_World.ps1"), "-WorldPath", worldPath, "-Edition", string(edition), "-Size", strconv.Itoa(size), "-CenterX", strconv.Itoa(x), "-CenterZ", strconv.Itoa(z), "-MinY", strconv.Itoa(minY), "-MaxY", strconv.Itoa(maxY), "-ExportName", exportName, "-Dimension", options.Dimension, "-Entities", options.EntityList()}
 	if useWorldPacks {
@@ -901,11 +912,16 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 	if err != nil {
 		return result{what: "Export", err: fmt.Errorf("export failed: %w; see %s", err, file), logFile: file}
 	}
-	usd := outputUSD(workspace, exportName)
 	if err = usdFiles(usd); err != nil {
 		return result{what: "Export", err: fmt.Errorf("export process ended, but files are incomplete: %w", err), logFile: file}
 	}
 	guiLog("Exported world: " + usd)
+	if options.Resume && alsoImport {
+		guiLog("Recording exact-content USD checkpoint for retrying a failed Blender import...")
+		if err := saveResumeCheckpoint(checkpoint, identity, worldPath, usd); err != nil {
+			guiLog("WARNING: Could not save optional resume checkpoint: " + err.Error())
+		}
+	}
 	if alsoImport {
 		target, e := doImportValidated(ctx, usd, blender, tools)
 		return result{what: "Export + import", output: target, err: e, logFile: file}

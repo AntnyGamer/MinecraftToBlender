@@ -37,6 +37,7 @@ def grid(methods):
             "        self.nodes = []\n"
             "        self.byName = {}\n"
             "        self.columnSizes = {}\n"
+            "        self.columnMembers = {0: []}\n"
             "        self.minColumn = 0\n"
             "        self.maxColumn = 0\n"
             "    def getColumn(self, column):\n"
@@ -87,4 +88,9 @@ assert snapshot(old) == snapshot(fast)
 assert "self.byName.get(node.name)" in pairs["nodes"][1]
 assert "self.columnSizes.get(0, 0)" in pairs["nodes"][1]
 assert "self.columnSizes.get(column, 0)" in pairs["columns"][1]
+assert "self.columnMembers[0].append(node2)" in pairs["nodes"][1]
+assert "for other in oldMembers:" in pairs["columns"][1]
+assert sum(len(group) for group in fast.columnMembers.values()) == len(names)
+assert all(member.column == column
+           for column, group in fast.columnMembers.items() for member in group)
 print("MiEx original and accelerated 400-node, 1100-move material layouts match.")

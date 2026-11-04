@@ -76,7 +76,7 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 				pGdipDeleteGraphics.Call(gfx)
 			}
 		}
-		buttonText(dc,"Click the map to set center X / Z. Grey = unsampled or unavailable.",rect{32,592,544,620},theme.muted,ui.fonts[3],0)
+		buttonText(dc,"Click to set X/Z. Large maps are approximate sampled views.",rect{32,592,544,620},theme.muted,ui.fonts[3],0)
 		pEndPaint.Call(hwnd,uintptr(unsafe.Pointer(&ps)))
 		return 0
 	case wmLButtonDown:

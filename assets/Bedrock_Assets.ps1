@@ -30,7 +30,14 @@ function Ensure-BedrockBedTextures([string]$miexDir,[string]$manifestPath) {
             throw 'Unexpected filename or hash in the pinned Mojang texture manifest.'
         }
         $target = Join-Path $targetDir $entry.to
-        if(Test-GitBlobSha1 $target $entry.git_blob_sha1) { continue }
+        if(Test-Path -LiteralPath $target -PathType Leaf) {
+            if(-not (Test-GitBlobSha1 $target $entry.git_blob_sha1)) {
+                # This path may contain a user-supplied pack override. Never
+                # replace a nonmatching file solely to install a fallback.
+                Write-Warning ('Preserving a custom or modified Bedrock bed texture: ' + $target)
+            }
+            continue
+        }
         if($networkUnavailable) { continue }
         $temp = $target + '.new'
         $url = 'https://raw.githubusercontent.com/' + $manifest.source + '/' + $manifest.revision + '/' + $manifest.folder + '/' + $entry.from

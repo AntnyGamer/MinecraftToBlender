@@ -233,6 +233,36 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('Pinned MiEx material grid column lookup changed; refusing unverified patch.')
     contents = contents.replace(original, faster, 1)
+    # Shared upstream branches in Minecraft shader networks may reach the same
+    # node many times. A visit at the same or shallower column cannot add a new
+    # placement constraint: that node and its inputs were already processed at
+    # an equal or greater depth. Cache that proven deepest traversal to avoid
+    # revisiting whole branches without altering node positions.
+    original = '''        def placeInColumns(node: bpy.types.Node, nodeGrid: NodeGrid, column: int):
+            node2 = nodeGrid.getNode(node)
+            nodeGrid.setColumn(node2, column)
+
+            for i in range(len(node.inputs)): # type: ignore
+                if node.inputs[i].is_linked:
+                    link : bpy.types.NodeLink = node.inputs[i].links[0]
+                    placeInColumns(link.from_node, nodeGrid, column + 1)'''
+    faster = '''        seen_columns = {}
+
+        def placeInColumns(node: bpy.types.Node, nodeGrid: NodeGrid, column: int):
+            name = node.name
+            if seen_columns.get(name, -1) >= column:
+                return
+            seen_columns[name] = column
+            node2 = nodeGrid.getNode(node)
+            nodeGrid.setColumn(node2, column)
+
+            for i in range(len(node.inputs)): # type: ignore
+                if node.inputs[i].is_linked:
+                    link : bpy.types.NodeLink = node.inputs[i].links[0]
+                    placeInColumns(link.from_node, nodeGrid, column + 1)'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx graph placement traversal changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
     module = types.ModuleType('miex_import_compat')
     module.__file__ = str(src)
     sys.modules[module.__name__] = module

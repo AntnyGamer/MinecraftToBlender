@@ -87,6 +87,13 @@ func physicalRAM() (uint64, uint64) {
 	return m.TotalPhys, m.AvailPhys
 }
 
+// Readiness checks must never briefly open console windows in the GUI.
+func hiddenCheckCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	return cmd
+}
+
 func readiness(ctx context.Context, world localWorld, workspace, blender, dim string, size, x, z int, alsoImport, deep bool) (string, []string) {
 	var info, warnings []string
 	if !validWorldDir(world.path, world.edition) {
@@ -128,7 +135,7 @@ func readiness(ctx context.Context, world localWorld, workspace, blender, dim st
 		warnings = append(warnings, "Java is not available on PATH.")
 	} else if deep {
 		checkCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		data, err := exec.CommandContext(checkCtx, "java.exe", "-version").CombinedOutput()
+		data, err := hiddenCheckCommand(checkCtx, "java.exe", "-version").CombinedOutput()
 		cancel()
 		if err != nil {
 			warnings = append(warnings, "Java version check failed: "+err.Error())
@@ -147,7 +154,7 @@ func readiness(ctx context.Context, world localWorld, workspace, blender, dim st
 			warnings = append(warnings, "Blender executable cannot be found.")
 		} else if deep {
 			checkCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
-			data, err := exec.CommandContext(checkCtx, blender, "--version").CombinedOutput()
+			data, err := hiddenCheckCommand(checkCtx, blender, "--version").CombinedOutput()
 			cancel()
 			if err != nil {
 				warnings = append(warnings, "Blender could not report its version: "+err.Error())

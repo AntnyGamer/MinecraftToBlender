@@ -1,6 +1,7 @@
 {
     "blocks": [
         "minecraft:shulker_box",
+        "minecraft:undyed_shulker_box",
         "minecraft:white_shulker_box",
         "minecraft:orange_shulker_box",
         "minecraft:magenta_shulker_box",
@@ -45,7 +46,7 @@
             "type = thisBlock.name.substring(thisBlock.name.indexOf(':') + 1)",
             "type = type.substring(0, type.length() - 11)",
             "type = type.endsWith('_') ? type.substring(0, type.length() - 1) : type",
-            "type = type == '' ? 'shulker' : ('shulker_' + type)"
+            "type = type == '' || type == 'undyed' ? 'shulker' : ('shulker_' + type)"
         ],
         "textures": {
             "texture": "'minecraft:entity/shulker/' + type"

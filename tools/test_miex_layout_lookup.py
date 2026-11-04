@@ -24,8 +24,10 @@ for stmt in method.body:
             pairs["nodes"] = (original, stmt.value.value)
         elif "def setColumn(self" in original:
             pairs["columns"] = (original, stmt.value.value)
+        elif "def getColumn(self" in original:
+            pairs["get_column"] = (original, stmt.value.value)
         original = None
-assert set(pairs) == {"nodes", "columns"}, "Expected both optimized MiEx grid functions"
+assert set(pairs) == {"nodes", "columns", "get_column"}, "Expected all optimized MiEx grid functions"
 
 class Node:
     def __init__(self, node, column, row):
@@ -40,12 +42,7 @@ def grid(methods):
             "        self.columnMembers = {0: []}\n"
             "        self.minColumn = 0\n"
             "        self.maxColumn = 0\n"
-            "    def getColumn(self, column):\n"
-            "        res = []\n"
-            "        for node in self.nodes:\n"
-            "            if node.column == column:\n"
-            "                res.insert(node.row, node)\n"
-            "        return res\n"
+            + textwrap.indent(textwrap.dedent(methods["get_column"]), "    ") + "\n"
             + textwrap.indent(textwrap.dedent(methods["nodes"]), "    ") + "\n"
             + textwrap.indent(textwrap.dedent(methods["columns"]), "    ") + "\n")
     scope = {"Node": Node, "bpy": NS(types=NS(Node=object))}
@@ -90,7 +87,9 @@ assert "self.columnSizes.get(0, 0)" in pairs["nodes"][1]
 assert "self.columnSizes.get(column, 0)" in pairs["columns"][1]
 assert "self.columnMembers[0].append(node2)" in pairs["nodes"][1]
 assert "for other in oldMembers:" in pairs["columns"][1]
+assert "self.columnMembers.get(column, ())" in pairs["get_column"][1]
+assert "creation_index" in pairs["get_column"][1]
 assert sum(len(group) for group in fast.columnMembers.values()) == len(names)
 assert all(member.column == column
            for column, group in fast.columnMembers.items() for member in group)
-print("MiEx original and accelerated 400-node, 1100-move material layouts match.")
+print("MiEx original and accelerated 400-node, 1100-move shader layouts match, including exact node ordering per column.")

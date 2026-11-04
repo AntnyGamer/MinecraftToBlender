@@ -893,11 +893,14 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 	checkpoint := checkpointFile(workspace, exportName)
 	if options.Resume && alsoImport {
 		guiLog("Checking a saved USD checkpoint against the source world and output files...")
-		if verifiedResumeCheckpoint(checkpoint, identity, worldPath, usd) {
+		if verifiedResumeCheckpoint(ctx, checkpoint, identity, worldPath, usd) {
 			guiLog("Verified unchanged completed USD export. Resuming directly at Blender import.")
 			target, e := doImportValidated(ctx, usd, blender, tools)
 			return result{what: "Resumed Blender import", output: target, err: e}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result{what: "Export", err: err}
 	}
 	guiLog("Preparing MiEx export...")
 	args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(tools, "Export_World.ps1"), "-WorldPath", worldPath, "-Edition", string(edition), "-Size", strconv.Itoa(size), "-CenterX", strconv.Itoa(x), "-CenterZ", strconv.Itoa(z), "-MinY", strconv.Itoa(minY), "-MaxY", strconv.Itoa(maxY), "-ExportName", exportName, "-Dimension", options.Dimension, "-Entities", options.EntityList()}
@@ -915,7 +918,7 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 	guiLog("Exported world: " + usd)
 	if options.Resume && alsoImport {
 		guiLog("Recording exact-content USD checkpoint for retrying a failed Blender import...")
-		if err := saveResumeCheckpoint(checkpoint, identity, filepath.Join(tools, "MiEx_Work", "world_source"), usd); err != nil {
+		if err := saveResumeCheckpoint(ctx, checkpoint, identity, filepath.Join(tools, "MiEx_Work", "world_source"), usd); err != nil {
 			guiLog("WARNING: Could not save optional resume checkpoint: " + err.Error())
 		}
 	}

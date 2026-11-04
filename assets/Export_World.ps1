@@ -276,6 +276,17 @@ function Assert-SafeResourcePackArchives([string]$worldFolder) {
         }
     }
 }
+function Remove-ManagedPreviewPack([string]$resourcePackDir, [string]$packName) {
+    # Only remove GUID-named ephemeral preview packs. Completed exports may
+    # still need their installed resource-pack files for external USD textures.
+    if($packName -cnotmatch '^MinecraftToBlender_Preview_[0-9a-f]{32}$') {
+        throw 'Refusing to remove a resource pack not owned by this preview.'
+    }
+    $target = Join-Path $resourcePackDir $packName
+    if(Test-Path -LiteralPath $target -PathType Container) {
+        Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+    }
+}
 function Copy-WorldSnapshot([string]$source,[string]$destination) {
     # Parallel file copying avoids PowerShell's per-file loop overhead on large saves.
     $copyExe = Get-Command robocopy.exe -ErrorAction SilentlyContinue
@@ -596,10 +607,11 @@ try {
         }
     }
     $commands = @()
+    $worldPackName = ''
     if($UseWorldResourcePacks) {
-        # A unique working pack avoids stale textures from a different export
-        # and keeps any USD-relative texture references valid after export.
-        $worldPackName = 'MinecraftToBlender_World_' + [guid]::NewGuid().ToString('N')
+        # Preview packs are temporary; export packs may be referenced by USD.
+        $worldPackPrefix = if($PreviewOnly) { 'MinecraftToBlender_Preview_' } else { 'MinecraftToBlender_World_' }
+        $worldPackName = $worldPackPrefix + [guid]::NewGuid().ToString('N')
         $commands += @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')}
         $commands += @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$true; worldResourcePackName=$worldPackName}
         Write-Host 'Using world-supplied resource packs where available.' -ForegroundColor Cyan
@@ -714,6 +726,16 @@ try {
         }
     }
     $code = Finish-CapturedProcess $capture
+    if($PreviewOnly -and $worldPackName) {
+        try {
+            # FileUtil.getResourcePackDir uses the MiEx process working dir,
+            # unless MIEX_RESOURCEPACK_DIR was explicitly set.
+            $packRoot = if($env:MIEX_RESOURCEPACK_DIR) { $env:MIEX_RESOURCEPACK_DIR } else { Join-Path $miexDir 'resources' }
+            Remove-ManagedPreviewPack $packRoot $worldPackName
+        } catch {
+            Write-Warning ('Could not clean temporary preview resource pack: ' + $_.Exception.Message)
+        }
+    }
     if($outOfMemory -or ((Test-Path -LiteralPath $stderrLog) -and
         (Select-String -LiteralPath $stderrLog -Pattern $oomPattern -Quiet -ErrorAction SilentlyContinue))) {
         Abort "MiEx exhausted Java heap during export. Raytracing is disabled in this build; try a smaller region and inspect $stderrLog. Previous exports were preserved."

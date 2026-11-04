@@ -87,7 +87,7 @@ func physicalRAM() uint64 {
 	return m.TotalPhys
 }
 
-func readiness(world localWorld, workspace, blender, dim string, size, x, z int, alsoImport bool) (string, []string) {
+func readiness(ctx context.Context, world localWorld, workspace, blender, dim string, size, x, z int, alsoImport, deep bool) (string, []string) {
 	var info, warnings []string
 	if !validWorldDir(world.path, world.edition) {
 		warnings = append(warnings, "The selected save is unavailable.")
@@ -112,10 +112,9 @@ func readiness(world localWorld, workspace, blender, dim string, size, x, z int,
 	}
 	if _, err := exec.LookPath("java.exe"); err != nil {
 		warnings = append(warnings, "Java is not available on PATH.")
-	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		cmd := exec.CommandContext(ctx, "java.exe", "-version")
-		data, err := cmd.CombinedOutput()
+	} else if deep {
+		checkCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		data, err := exec.CommandContext(checkCtx, "java.exe", "-version").CombinedOutput()
 		cancel()
 		if err != nil {
 			warnings = append(warnings, "Java version check failed: "+err.Error())
@@ -123,22 +122,26 @@ func readiness(world localWorld, workspace, blender, dim string, size, x, z int,
 			first := strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0])
 			info = append(info, "Java: "+first)
 			if major := javaMajorVersion(first); major != 0 && major < 21 {
-				warnings = append(warnings, fmt.Sprintf("Java %d is too old; MiEx requires Java 21 or newer.",major))
+				warnings = append(warnings, fmt.Sprintf("Java %d is too old; MiEx requires Java 21 or newer.", major))
 			}
 		}
+	} else {
+		info = append(info, "Java found on PATH (version check available under Check readiness).")
 	}
 	if alsoImport {
 		if s, err := os.Stat(blender); err != nil || s.IsDir() {
 			warnings = append(warnings, "Blender executable cannot be found.")
-		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-			data, err := exec.CommandContext(ctx, blender, "--version").CombinedOutput()
+		} else if deep {
+			checkCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+			data, err := exec.CommandContext(checkCtx, blender, "--version").CombinedOutput()
 			cancel()
 			if err != nil {
 				warnings = append(warnings, "Blender could not report its version: "+err.Error())
 			} else {
 				info = append(info, "Blender: "+strings.TrimSpace(strings.SplitN(string(data),"\n",2)[0]))
 			}
+		} else {
+			info = append(info, "Blender executable found (version check available under Check readiness).")
 		}
 	}
 	if ram := physicalRAM(); ram != 0 {
@@ -172,26 +175,43 @@ func javaMajorVersion(line string) int {
 }
 
 func showPreflight() {
+	if app.busy {
+		return
+	}
 	if app.selectedWorld == nil {
 		alert("Choose a world", "Select a Minecraft world before checking readiness.", mbWarn)
 		return
 	}
-	world := *app.selectedWorld
-	size, errSize := strconv.Atoi(strings.TrimSpace(getText(idSize)))
-	x, errX := strconv.Atoi(strings.TrimSpace(getText(idX)))
-	z, errZ := strconv.Atoi(strings.TrimSpace(getText(idZ)))
-	if errSize != nil || errX != nil || errZ != nil || size < 16 || size > 8192 || size%16 != 0 {
+	size, es := intField(idSize, 16, 8192)
+	x, ex := intField(idX, -30000000, 30000000)
+	z, ez := intField(idZ, -30000000, 30000000)
+	if es != nil || ex != nil || ez != nil || size%16 != 0 {
 		alert("Invalid region", "Enter a valid block area and center coordinates in Export world first.", mbWarn)
 		return
 	}
-	info, warnings := readiness(world, getText(idWorkspace), getText(idBlender), app.dimension, size, x, z, false)
-	text := info
-	if len(warnings) > 0 {
-		text += "\n\nWARNINGS:\n- "+strings.Join(warnings, "\n- ")
-	} else {
-		text += "\n\nNo obvious configuration issues detected. This does not guarantee a successful export."
-	}
-	alert("Pre-export readiness", text, 0)
+	world := *app.selectedWorld
+	workspace := strings.TrimSpace(getText(idWorkspace))
+	blender := strings.TrimSpace(getText(idBlender))
+	dimension := app.dimension
+	ctx, cancel := context.WithCancel(context.Background())
+	app.cancel = cancel
+	resetLog()
+	setBusy(true)
+	state("Checking Minecraft world, Java, Blender and system resources...")
+	go func() {
+		info, warnings := readiness(ctx, world, workspace, blender, dimension, size, x, z, blender != "", true)
+		if err := ctx.Err(); err != nil {
+			app.doneCh <- result{what: "Pre-export readiness", err: err}
+			return
+		}
+		message := info
+		if len(warnings) != 0 {
+			message += "\n\nWARNINGS:\n- " + strings.Join(warnings, "\n- ")
+		} else {
+			message += "\n\nNo obvious configuration issues detected. This does not guarantee a successful export."
+		}
+		app.doneCh <- result{what: "Pre-export readiness", output: message}
+	}()
 }
 
 func startPreview() {

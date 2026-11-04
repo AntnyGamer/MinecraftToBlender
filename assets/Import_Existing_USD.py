@@ -113,9 +113,9 @@ def load_patched_importer(src):
 
 def needs_evaluated_bounds(ob):
     """Whether an object's visible extents can differ from its stored bounds."""
-    if ob.instance_type != 'NONE':
+    if getattr(ob, 'instance_type', 'NONE') != 'NONE':
         return True
-    if len(ob.modifiers):
+    if len(getattr(ob, 'modifiers', ())):
         return True
     return ob.type == 'POINTCLOUD' and len(ob.data.points) > 0
 

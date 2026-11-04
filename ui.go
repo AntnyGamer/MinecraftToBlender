@@ -351,13 +351,13 @@ func createControls() {
 
 	uiLabel(uiImportTitle, "Existing USD or Blender file", 2, theme.white, theme.card)
 	uiLabel(uiImportInfo, "Import a USD or optimize an existing .blend copy.", 3, theme.muted, theme.card)
-	uiLabel(uiUsdLabel, "MAIN MIEX USD FILE", 3, theme.muted, theme.card)
+	uiLabel(uiUsdLabel, "MIEX USD OR BLENDER PROJECT", 3, theme.muted, theme.card)
 	uiField(idUSD, "")
 	uiButton(idUSDBrowse, "Browse")
 	uiLabel(uiBlenderLabel, "BLENDER INSTALLATION", 3, theme.muted, theme.card)
 	uiField(idBlender, detectBlender())
 	uiButton(idBlenderBrowse, "Browse")
-	uiLabel(uiImportHint, "Saves a new .blend beside the USD. Original files remain untouched.", 3, theme.quiet, theme.card)
+	uiLabel(uiImportHint, "Creates a new .blend copy; never replaces the original.", 3, theme.quiet, theme.card)
 	uiButton(idImport, "Create / optimize project")
 
 	uiLabel(uiSettingsTitle, "App settings", 2, theme.white, theme.card)

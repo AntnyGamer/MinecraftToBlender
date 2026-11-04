@@ -349,8 +349,8 @@ func createControls() {
 	uiButton(idBoth, "Export to Blender")
 	uiButton(idExport, "USD only")
 
-	uiLabel(uiImportTitle, "Existing MiEx export", 2, theme.white, theme.card)
-	uiLabel(uiImportInfo, "Already have a USD? Skip the world export.", 3, theme.muted, theme.card)
+	uiLabel(uiImportTitle, "Existing USD or Blender file", 2, theme.white, theme.card)
+	uiLabel(uiImportInfo, "Import a USD or optimize an existing .blend copy.", 3, theme.muted, theme.card)
 	uiLabel(uiUsdLabel, "MAIN MIEX USD FILE", 3, theme.muted, theme.card)
 	uiField(idUSD, "")
 	uiButton(idUSDBrowse, "Browse")
@@ -358,7 +358,7 @@ func createControls() {
 	uiField(idBlender, detectBlender())
 	uiButton(idBlenderBrowse, "Browse")
 	uiLabel(uiImportHint, "Saves a new .blend beside the USD. Original files remain untouched.", 3, theme.quiet, theme.card)
-	uiButton(idImport, "Create Blender project")
+	uiButton(idImport, "Create / optimize project")
 
 	uiLabel(uiSettingsTitle, "App settings", 2, theme.white, theme.card)
 	uiLabel(uiSettingsInfo, "Choose your workspace and export preferences.", 3, theme.muted, theme.card)
@@ -659,8 +659,8 @@ func switchTab(id int) {
 		setText(app.ctrls[uiTitle], "Export a Minecraft world")
 		setText(app.ctrls[uiSubtitle], "Choose a Java or Bedrock world, adjust the region, and create a Blender project.")
 	case 1:
-		setText(app.ctrls[uiTitle], "Import into Blender")
-		setText(app.ctrls[uiSubtitle], "Turn an existing MiEx USD into a Blender project without re-exporting.")
+		setText(app.ctrls[uiTitle], "Import or optimize")
+		setText(app.ctrls[uiSubtitle], "Use an existing USD or optimize a saved Blender project without re-exporting.")
 	case 2:
 		setText(app.ctrls[uiTitle], "Settings & workspace")
 		setText(app.ctrls[uiSubtitle], "Choose where exports, tools, and completed models are saved.")

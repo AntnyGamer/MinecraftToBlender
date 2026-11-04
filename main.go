@@ -146,6 +146,7 @@ const (
 	idEntityDisplays   = 145
 	idResume           = 146
 	idWaterStyle       = 147
+	idFastViewport     = 148
 )
 
 type wndClass struct {
@@ -234,6 +235,7 @@ type appState struct {
 	followLog     bool
 	useWorldPacks bool
 	minecraftWater bool
+	fastViewport bool
 	autoOpenBlender bool
 	dimension       string
 	entityFrames    bool
@@ -523,7 +525,7 @@ func setBusy(b bool) {
 		app.operationMemory = ""
 	}
 	pInvalidate.Call(app.main, 0, 0)
-	for _, id := range []int{idSelectBedrock, idSelectJava, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idWorldBrowse, idWorld, idName, idSize, idX, idZ, idMinY, idMaxY, idExport, idBoth, idUSD, idUSDBrowse, idBlender, idBlenderBrowse, idImport, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender, idWaterStyle} {
+	for _, id := range []int{idSelectBedrock, idSelectJava, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idWorldBrowse, idWorld, idName, idSize, idX, idZ, idMinY, idMaxY, idExport, idBoth, idUSD, idUSDBrowse, idBlender, idBlenderBrowse, idImport, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender, idWaterStyle, idFastViewport} {
 		enabled(id, !b)
 	}
 	enabled(idCancel, b)
@@ -833,10 +835,14 @@ func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 }
 
 func doImportWithWater(ctx context.Context, src, blender, tools string, minecraftWater bool) (string, error) {
+	return doImportWithOptions(ctx, src, blender, tools, minecraftWater, false)
+}
+
+func doImportWithOptions(ctx context.Context, src, blender, tools string, minecraftWater, fastViewport bool) (string, error) {
 	if err := usdFiles(src); err != nil {
 		return "", err
 	}
-	return doImportValidatedWithWater(ctx, src, blender, tools, minecraftWater)
+	return doImportValidatedWithOptions(ctx, src, blender, tools, minecraftWater, fastViewport)
 }
 
 // An export is already checked by runExport. Avoid parsing its large material
@@ -846,6 +852,10 @@ func doImportValidated(ctx context.Context, src, blender, tools string) (string,
 }
 
 func doImportValidatedWithWater(ctx context.Context, src, blender, tools string, minecraftWater bool) (string, error) {
+	return doImportValidatedWithOptions(ctx, src, blender, tools, minecraftWater, false)
+}
+
+func doImportValidatedWithOptions(ctx context.Context, src, blender, tools string, minecraftWater, fastViewport bool) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -868,6 +878,9 @@ func doImportValidatedWithWater(ctx context.Context, src, blender, tools string,
 	args := []string{"--background", "--factory-startup", "--python", filepath.Join(tools, "Import_Existing_USD.py"), "--", src, importer, target}
 	if minecraftWater {
 		args = append(args, "--minecraft-water")
+	}
+	if fastViewport {
+		args = append(args, "--fast-viewport")
 	}
 	if err := runProcess(ctx, blender, args, logFile); err != nil {
 		return "", fmt.Errorf("Blender import failed: %w; details: %s", err, logFile)
@@ -932,7 +945,7 @@ func pathsOverlap(a, b string) bool {
 	return aa == bb || strings.HasPrefix(aa, bb+string(filepath.Separator)) || strings.HasPrefix(bb, aa+string(filepath.Separator))
 }
 
-func runExport(ctx context.Context, worldPath string, edition worldEdition, workspace, exportName, blender string, size, x, z, minY, maxY int, useWorldPacks, alsoImport bool, options exportOptions, minecraftWater bool) result {
+func runExport(ctx context.Context, worldPath string, edition worldEdition, workspace, exportName, blender string, size, x, z, minY, maxY int, useWorldPacks, alsoImport bool, options exportOptions, minecraftWater, fastViewport bool) result {
 	if pathsOverlap(worldPath, toolsDir(workspace)) {
 		return result{what: "Export", err: errors.New("the converter workspace conflicts with the selected Minecraft save. Choose a workspace outside the world folder")}
 	}
@@ -950,7 +963,7 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 		guiLog("Checking a saved USD checkpoint against the source world and output files...")
 		if verifiedResumeCheckpoint(ctx, checkpoint, identity, worldPath, usd) {
 			guiLog("Verified unchanged completed USD export. Resuming directly at Blender import.")
-			target, e := doImportValidatedWithWater(ctx, usd, blender, tools, minecraftWater)
+			target, e := doImportValidatedWithOptions(ctx, usd, blender, tools, minecraftWater, fastViewport)
 			return result{what: "Resumed Blender import", output: target, err: e}
 		}
 	}
@@ -978,7 +991,7 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 		}
 	}
 	if alsoImport {
-		target, e := doImportValidatedWithWater(ctx, usd, blender, tools, minecraftWater)
+		target, e := doImportValidatedWithOptions(ctx, usd, blender, tools, minecraftWater, fastViewport)
 		return result{what: "Export + import", output: target, err: e, logFile: file}
 	}
 	return result{what: "Export", output: usd, logFile: file}
@@ -1069,8 +1082,9 @@ func startExport(both bool) {
 	guiLog(fmt.Sprintf("Exporting %d x %d blocks around X=%d Z=%d (%s)", size, size, x, z, options.Dimension))
 	useWorldPacks := app.useWorldPacks
 	minecraftWater := app.minecraftWater
+	fastViewport := app.fastViewport
 	go func() {
-		app.doneCh <- runExport(ctx, world.path, world.edition, workspace, name, blender, size, x, z, minY, maxY, useWorldPacks, both, options, minecraftWater)
+		app.doneCh <- runExport(ctx, world.path, world.edition, workspace, name, blender, size, x, z, minY, maxY, useWorldPacks, both, options, minecraftWater, fastViewport)
 	}()
 }
 func startImport() {
@@ -1101,13 +1115,14 @@ func startImport() {
 	setBusy(true)
 	app.lastFolder = filepath.Dir(usd)
 	minecraftWater := app.minecraftWater
+	fastViewport := app.fastViewport
 	go func() {
 		tools, e := toolsSetup(workspace)
 		if e != nil {
 			app.doneCh <- result{what: "Import", err: e}
 			return
 		}
-		out, e := doImportWithWater(ctx, usd, blender, tools, minecraftWater)
+		out, e := doImportWithOptions(ctx, usd, blender, tools, minecraftWater, fastViewport)
 		app.doneCh <- result{what: "Import", output: out, err: e}
 	}()
 }
@@ -1333,6 +1348,10 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 		case idWaterStyle:
 			app.minecraftWater = !app.minecraftWater
 			setText(app.ctrls[idWaterStyle], minecraftWaterLabel())
+			refreshButtons()
+		case idFastViewport:
+			app.fastViewport = !app.fastViewport
+			setText(app.ctrls[idFastViewport], fastViewportLabel())
 			refreshButtons()
 		case idAutoOpenBlender:
 			next := !app.autoOpenBlender

@@ -31,6 +31,7 @@ class Mesh:
         self.hide_render = hide_render
         self.hidden = hidden
         self.matrix_world = Matrix()
+        self.data = NS(polygons=range(240))
         self.bound_box = tuple((x, y, z)
                                for x in (lo[0], hi[0])
                                for y in (lo[1], hi[1])

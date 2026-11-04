@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,11 @@ func floorBlockDiv(n, divisor int) int {
 // chunk payloads. It never opens a world for writing. This indicates saved
 // data exists, not whether MiEx can decode its block models.
 func javaRegionHasSavedChunks(worldPath, dimension string, size, centerX, centerZ int) (bool,error) {
+	return javaRegionHasSavedChunksContext(context.Background(), worldPath, dimension, size, centerX, centerZ)
+}
+
+func javaRegionHasSavedChunksContext(ctx context.Context, worldPath, dimension string, size, centerX, centerZ int) (bool,error) {
+	if err:=ctx.Err();err!=nil {return false,err}
 	folder:=worldPath
 	switch dimension {
 	case "overworld":
@@ -35,6 +41,7 @@ func javaRegionHasSavedChunks(worldPath, dimension string, size, centerX, center
 	minCZ,maxCZ:=floorBlockDiv(minZ,16),floorBlockDiv(minZ+size-1,16)
 	for rx:=floorBlockDiv(minCX,32);rx<=floorBlockDiv(maxCX,32);rx++ {
 		for rz:=floorBlockDiv(minCZ,32);rz<=floorBlockDiv(maxCZ,32);rz++ {
+			if err:=ctx.Err();err!=nil {return false,err}
 			path:=filepath.Join(folder,fmt.Sprintf("r.%d.%d.mca",rx,rz))
 			f,err:=os.Open(path)
 			if os.IsNotExist(err){continue}
@@ -45,6 +52,7 @@ func javaRegionHasSavedChunks(worldPath, dimension string, size, centerX, center
 			if readErr!=nil{return false,fmt.Errorf("invalid Anvil region header %s: %w",path,readErr)}
 			if closeErr!=nil{return false,closeErr}
 			for cx:=max(minCX,rx*32);cx<=min(maxCX,rx*32+31);cx++ {
+				if err:=ctx.Err();err!=nil {return false,err}
 				for cz:=max(minCZ,rz*32);cz<=min(maxCZ,rz*32+31);cz++ {
 					i:=4*((cx-rx*32)+(cz-rz*32)*32)
 					if (header[i]!=0||header[i+1]!=0||header[i+2]!=0)&&header[i+3]!=0 {

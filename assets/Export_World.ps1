@@ -601,11 +601,15 @@ try {
     }
     . $bedrockAssetHelper
     $bedTextureManifest = Join-Path $base 'Bedrock_Bed_Textures.json'
-    # The pinned bed model uses the upstream Java entity/bed UV layout.
-    # Bedrock-samples texture sheets have a different layout: installing them
-    # ahead of the Java base pack caused warped bed textures. Remove only our
-    # hash-verified old fallback files; retain nonmatching user assets.
-    Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest
+    # Bedrock uses a different 64x64 bed atlas layout from Java. The Bedrock
+    # model UVs match Mojang's geometry.bed and must use the matching sheets.
+    # Keep official, hash-verified files cached; never silently render beds
+    # black when the required files could not be installed.
+    if($Edition -eq 'bedrock' -and -not $UseWorldResourcePacks) {
+        Ensure-BedrockBedTextures $miexDir $bedTextureManifest
+    } else {
+        Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest
+    }
     $blockOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/blockstates'
     $bedrockBlockOverrides = @{
         'Bedrock_Beds.json' = 'bed.json'

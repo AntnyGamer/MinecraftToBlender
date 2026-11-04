@@ -962,6 +962,13 @@ func startExport(both bool) {
 		alert("Blender required", "Select the installed blender.exe for automatic import.", mbWarn)
 		return
 	}
+	_, warnings := readiness(world, workspace, blender, app.dimension, size, x, z, both)
+	if len(warnings) > 0 {
+		message := "The pre-export check found possible issues:\n\n- "+strings.Join(warnings,"\n- ")+"\n\nProceed anyway?"
+		if alert("Pre-export warnings", message, mbWarn|mbYesNo) != idYes {
+			return
+		}
+	}
 	// The underlying MiEx exporter replaces an existing export with the same name.
 	if _, err := os.Stat(outputUSD(workspace, name)); err == nil {
 		if alert("Existing export", "An export with this name already exists in the workspace and will be replaced. Continue?", mbWarn|mbYesNo) != idYes {

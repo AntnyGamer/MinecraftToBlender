@@ -41,6 +41,9 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 		if err := json.Unmarshal(line[10:], &response); err != nil || response.Chunks == nil {
 			continue
 		}
+		if response.Status != "" && response.Status != "success" {
+			return 0, fmt.Errorf("MiEx rejected the chunk-preview command: %s", response.Status)
+		}
 		sawChunkResponse = true
 		for _, ch := range response.Chunks {
 			if ch.LayerCount <= 0 {

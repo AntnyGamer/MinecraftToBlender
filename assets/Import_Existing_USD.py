@@ -32,15 +32,17 @@ def stage_report(src, variant):
             path_parts = str(prim.GetPath()).split('/', 3)
             group = path_parts[2] if len(path_parts) > 2 else 'other'
             examples[group] += 1
-            faces = UsdGeom.Mesh(prim).GetFaceVertexCountsAttr().Get()
-            if faces is not None:
-                face_count = len(faces)
-                stats['faces'] += face_count
-                # Individual block prototypes are reusable source meshes, not
-                # proof of actual solid terrain in the imported world.
-                if group not in ('individualBlocksBaseMeshes', 'entities', 'prototypes'):
-                    stats['world_mesh_faces'] += face_count
-                    stats['world_meshes'] += 1
+            # OpenUSD exposes the native face count directly. Avoid returning
+            # potentially millions of faceVertexCounts values into Python
+            # solely to call len() on them; preserve the full terrain checks.
+            mesh = UsdGeom.Mesh(prim)
+            face_count = mesh.GetFaceCount()
+            stats['faces'] += face_count
+            # Individual block prototypes are reusable source meshes, not
+            # proof of actual solid terrain in the imported world.
+            if group not in ('individualBlocksBaseMeshes', 'entities', 'prototypes'):
+                stats['world_mesh_faces'] += face_count
+                stats['world_meshes'] += 1
         elif prim.IsA(UsdGeom.PointInstancer):
             stats['instancers'] += 1
             inst = UsdGeom.PointInstancer(prim)

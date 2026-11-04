@@ -10,7 +10,7 @@
 - Expand Windows/Go/Python validation for new behaviors.
 
 ## Optional Minecraft-style water
-- Add an Off-by-default toggle in Export options for a simple translucent water material in Blender. It preserves water geometry, UVs, biome color and imported textures. No expensive geometry displacement or additional render passes are introduced by the app; transparency itself may reduce Blender viewport frame rates.
+- Add an Off-by-default toggle that switches water materials from MiEx's noisy hashed/dithered alpha to Blender 5.2 smooth `BLENDED` transparency. Preserve Minecraft water geometry, UVs, biome color, water textures and existing alpha links; set modest constant alpha only when no image alpha connection exists. Disable layered translucency overlap to reduce multiple overlapping blue faces. This is intended to reduce pixelated holes at a distance; it cannot repair missing mesh faces, and blended water may sort or render more slowly on very large worlds.
 - This is not Minecraft's rendering engine and does not offer identical refraction, underwater effects or animated flowing water.
 
 ## Performance

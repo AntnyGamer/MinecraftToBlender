@@ -25,17 +25,8 @@ func javaRegionHasSavedChunks(worldPath, dimension string, size, centerX, center
 
 func javaRegionHasSavedChunksContext(ctx context.Context, worldPath, dimension string, size, centerX, centerZ int) (bool,error) {
 	if err:=ctx.Err();err!=nil {return false,err}
-	folder:=worldPath
-	switch dimension {
-	case "overworld":
-	case "the_nether":
-		folder=filepath.Join(folder,"DIM-1")
-	case "the_end":
-		folder=filepath.Join(folder,"DIM1")
-	default:
-		return false,fmt.Errorf("unsupported dimension %q",dimension)
-	}
-	folder=filepath.Join(folder,"region")
+	folder,err:=javaDimensionRegionPath(worldPath,dimension)
+	if err!=nil {return false,err}
 	minX,minZ:=centerX-size/2,centerZ-size/2
 	minCX,maxCX:=floorBlockDiv(minX,16),floorBlockDiv(minX+size-1,16)
 	minCZ,maxCZ:=floorBlockDiv(minZ,16),floorBlockDiv(minZ+size-1,16)
@@ -63,4 +54,17 @@ func javaRegionHasSavedChunksContext(ctx context.Context, worldPath, dimension s
 		}
 	}
 	return false,nil
+}
+
+func javaDimensionRegionPath(root, dimension string) (string, error) {
+	switch dimension {
+	case "overworld":
+		return filepath.Join(root, "region"), nil
+	case "the_nether":
+		return filepath.Join(root, "DIM-1", "region"), nil
+	case "the_end":
+		return filepath.Join(root, "DIM1", "region"), nil
+	default:
+		return "", fmt.Errorf("unsupported dimension %q",dimension)
+	}
 }

@@ -66,6 +66,44 @@ def test_material_lookup():
         raise AssertionError("missing shader node did not report original error")
 
 
+def test_redundant_preview_shaders_are_skipped():
+    tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+              and node.name == "load_patched_importer")
+    # The pinned MiEx importer builds the Minecraft JSON material nodes after
+    # Blender's USD reader creates the bound material datablocks. Only the
+    # temporary preview shader network is skipped; not USD material binding.
+    assigns = [node for node in fn.body
+               if isinstance(node, ast.Assign)
+               and any(isinstance(target, ast.Name) and target.id == "usd_import"
+                       for target in node.targets)]
+    assert len(assigns) == 1
+    anchor = ast.literal_eval(assigns[0].value)
+    assert anchor == "mtl_name_collision_mode='REFERENCE_EXISTING',import_proxy="
+    replaced = [node for node in ast.walk(fn) if isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and "import_usd_preview=False" in node.value]
+    assert len(replaced) == 1
+    assert replaced[0].value == (
+        "mtl_name_collision_mode='REFERENCE_EXISTING',"
+        "import_usd_preview=False,import_proxy="
+    )
+    example = (
+        "bpy.ops.wm.usd_import(filepath=filepath, import_visible_only=False, "
+        "set_frame_range=False, scale=1.0/16.0, "
+        + anchor
+        + "bool(options['import_type'] != 'render'))"
+    )
+    assert example.count(anchor) == 1
+    updated = example.replace(anchor, replaced[0].value, 1)
+    assert "import_materials=False" not in updated
+    assert "import_usd_preview=False" in updated
+    assert "import_visible_only=False" in updated
+    assert "mtl_name_collision_mode='REFERENCE_EXISTING'" in updated
+    assert "import_proxy=bool(options['import_type'] != 'render')" in updated
+
+
 if __name__ == "__main__":
     test_material_lookup()
-    print("Pinned MiEx material-node lookup regressions passed.")
+    test_redundant_preview_shaders_are_skipped()
+    print("Pinned MiEx material-node lookup and USD preview import regressions passed.")

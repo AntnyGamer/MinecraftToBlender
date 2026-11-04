@@ -5,6 +5,7 @@ compatibility guards. The source importer is never overwritten.
 """
 import sys
 import types
+import re
 import time
 from collections import Counter
 from pathlib import Path
@@ -350,7 +351,7 @@ def clear_objects():
     bpy.ops.object.delete(use_global=False)
 
 
-def import_world(src, import_type, fast_viewport=False):
+def import_world(src, import_type):
     log('PHASE: Importing with MiEx option:', import_type)
     t0 = time.monotonic()
     clear_objects()
@@ -453,95 +454,171 @@ def frame_actual_scene(evaluate_instances=True):
     return center, dimensions
 
 
-def lighten_solid_viewport():
-    """Turn off expensive optional effects, not the already-Solid view mode."""
-    disabled = 0
-    for screen in bpy.data.screens:
-        for area in screen.areas:
-            if area.type != 'VIEW_3D':
-                continue
-            shading = area.spaces.active.shading
-            if shading.type != 'SOLID':
-                continue
-            for option in ('show_shadows', 'show_cavity', 'show_specular_highlight'):
-                if hasattr(shading, option) and getattr(shading, option):
-                    setattr(shading, option, False)
-                    disabled += 1
-    log('NEARBY VIEW: disabled', disabled,
-        'optional Solid-view shadow/cavity/highlight effects; '
-        'kept the original shading mode.')
-    return disabled
+def terrain_mesh_batch_key(ob):
+    """Identify compatible static opaque terrain faces in nearby MiEx chunks.
 
-
-def outside_nearby_radius(box_min, box_max, center, axes, radius):
-    """True only if the entire world-space bounding box is farther away.
-
-    Use the two widest scene dimensions as horizontal axes. That works for
-    both Y-up and Z-up Minecraft USD imports and avoids clipping underground
-    chunks that lie underneath nearby surface blocks.
+    No entities, instancers, water, modifiers, shared mesh data, animations,
+    non-default object colors, or mixed materials. Preserve UV/color layers
+    and don't merge across more than a 2x2 MiEx export-chunk neighborhood.
     """
-    distance_sq = 0.0
-    for axis in axes:
-        coordinate = center[axis]
-        if coordinate < box_min[axis]:
-            difference = box_min[axis] - coordinate
-        elif coordinate > box_max[axis]:
-            difference = coordinate - box_max[axis]
-        else:
-            difference = 0.0
-        distance_sq += difference * difference
-    return distance_sq > radius * radius
+    if ob.type != 'MESH' or not ob.visible_get() or ob.hide_get():
+        return None
+    if ob.hide_render or ob.hide_viewport or ob.instance_type != 'NONE':
+        return None
+    if ob.modifiers or ob.constraints or ob.animation_data or ob.children:
+        return None
+    if ob.data.users != 1 or ob.data.shape_keys is not None:
+        return None
+    if ob.vertex_groups or len(ob.material_slots) != 1:
+        return None
+    if ob.material_slots[0].link != 'DATA':
+        return None
+    mat = ob.material_slots[0].material
+    if mat is None or is_minecraft_water_material(mat.name):
+        return None
+    if getattr(mat, 'surface_render_method', 'DITHERED') == 'BLENDED':
+        return None
+    if tuple(ob.color) != (1.0, 1.0, 1.0, 1.0):
+        return None
+    # Preserve per-object metadata used by Blender/USD users.
+    if len(ob.keys()) or len(ob.data.keys()):
+        return None
+    if ob.parent is not None:
+        parent = ob.parent
+        while parent is not None:
+            if parent.animation_data or parent.constraints or parent.hide_render:
+                return None
+            parent = parent.parent
+    match = re.search(r'mesh_chunk_(-?\d+)_(-?\d+)(?:_|$)', ob.name, re.I)
+    if match is None:
+        return None
+    # These coordinates are MiEx export-chunk coordinates, not block values.
+    # Batch at most nearby 2x2 chunks, not the entire 1024x1024 landscape.
+    area = (int(match.group(1)) // 2, int(match.group(2)) // 2)
+    uv = tuple((layer.name, getattr(layer, 'active_render', False)) for layer in ob.data.uv_layers)
+    colors = tuple((attr.name, attr.domain, attr.data_type) for attr in ob.data.color_attributes)
+    return (area, mat.as_pointer(), uv, colors)
 
 
-def hide_distant_meshes(view_bounds):
-    """Temporarily hide distant meshes in the viewport without deleting them.
+def batch_static_terrain_meshes(max_faces=75000, max_objects=8):
+    """Optional bounded Blender Join: fewer draw calls, all polygons retained.
 
-    Unlike choosing Solid shading again, this reduces the actual objects and
-    triangles submitted for viewport drawing. It is opt-in, *not* automatic
-    camera-following chunk streaming. Alt+H reveals everything again.
+    This changes individual terrain object boundaries/editing but should not
+    change the visual result. The mode never deletes terrain faces. The
+    original USD remains an untouched, fully separated source.
     """
-    if view_bounds is None:
-        log('NEARBY VIEW: skipped; no visible world bounds were found.')
-        return 0
-    center, dimensions = view_bounds
-    axes = tuple(sorted(range(3), key=lambda axis: dimensions[axis], reverse=True)[:2])
-    span = max(dimensions[axis] for axis in axes)
-    radius = max(160.0, min(320.0, span * 0.20))
-    if span <= max(512.0, 2 * radius):
-        log('NEARBY VIEW: selected region is small; no mesh hiding necessary.')
-        return 0
-    hidden = 0
-    hidden_faces = 0
-    meshes = 0
+    groups = {}
+    before = 0
+    for ob in tuple(bpy.context.scene.objects):
+        key = terrain_mesh_batch_key(ob)
+        if key is None:
+            continue
+        face_count = len(ob.data.polygons)
+        if face_count == 0 or face_count > max_faces:
+            continue
+        before += 1
+        groups.setdefault(key, []).append(ob)
+
+    joined = 0
+    combined_faces = 0
+    old_active = bpy.context.view_layer.objects.active
+    old_selected = tuple(bpy.context.selected_objects)
+    try:
+        bpy.ops.object.select_all(action='DESELECT')
+        for group in groups.values():
+            # Bound individual joins to avoid expensive huge meshes that hurt
+            # Blender's frustum culling despite having fewer draw calls.
+            ordered = sorted(group, key=lambda ob: ob.name)
+            for start in range(0, len(ordered), max_objects):
+                remaining = ordered[start:start + max_objects]
+                if len(remaining) < 2:
+                    continue
+                batch = []
+                faces = 0
+                for ob in remaining:
+                    count = len(ob.data.polygons)
+                    if batch and faces + count > max_faces:
+                        break
+                    batch.append(ob)
+                    faces += count
+                if len(batch) < 2:
+                    continue
+                for ob in batch:
+                    ob.select_set(True)
+                active = batch[0]
+                bpy.context.view_layer.objects.active = active
+                outcome = bpy.ops.object.join()
+                if 'FINISHED' not in outcome:
+                    raise RuntimeError('Blender declined a selected terrain mesh join')
+                if len(active.data.polygons) != faces:
+                    raise RuntimeError('Terrain batching changed polygon count; refusing the Blender file')
+                joined += len(batch) - 1
+                combined_faces += faces
+                active.select_set(False)
+    finally:
+        bpy.ops.object.select_all(action='DESELECT')
+        for ob in old_selected:
+            if ob.name in bpy.context.view_layer.objects:
+                ob.select_set(True)
+        if old_active is not None and old_active.name in bpy.context.view_layer.objects:
+            bpy.context.view_layer.objects.active = old_active
+    log('MESH BATCHING:', joined, 'static terrain objects merged,',
+        combined_faces, 'faces preserved in bounded batches from',
+        before, 'eligible objects; original USD unchanged.')
+    if joined == 0:
+        log('MESH BATCHING: no eligible similarly-materialed nearby meshes; '
+            'no viewport speedup is expected from this option.')
+    return joined
+
+
+def deduplicate_exact_material_slots():
+    """Remove only identical material datablock slots; zero visual change.
+
+    MiEx and Blender Join can leave multiple slots referring to the *same*
+    shader datablock. Remapping their face indices to one slot reduces
+    redundant material-group submissions. Different materials are untouched.
+    """
+    cleaned = 0
+    visited = set()
+    from array import array
     for ob in bpy.context.scene.objects:
-        if ob.type != 'MESH' or ob.hide_render or ob.hide_get():
+        if ob.type != 'MESH' or ob.data.users != 1:
             continue
-        if not ob.visible_get():
+        mesh = ob.data
+        if mesh.as_pointer() in visited:
             continue
-        corners = tuple(ob.bound_box)
-        if len(corners) != 8:
+        visited.add(mesh.as_pointer())
+        slots = list(mesh.materials)
+        if len(slots) < 2 or any(mat is None for mat in slots):
             continue
-        bounds_min = [float('inf')] * 3
-        bounds_max = [float('-inf')] * 3
-        for corner in corners:
-            point = ob.matrix_world @ Vector(corner)
-            for axis in axes:
-                bounds_min[axis] = min(bounds_min[axis], point[axis])
-                bounds_max[axis] = max(bounds_max[axis], point[axis])
-        meshes += 1
-        if outside_nearby_radius(bounds_min, bounds_max, center, axes, radius):
-            ob.hide_set(True)
-            hidden += 1
-            hidden_faces += len(ob.data.polygons)
-    log('NEARBY VIEW:', hidden, '/', meshes,
-        'visible mesh objects hidden,',
-        hidden_faces, 'mesh faces omitted from viewport drawing, beyond',
-        round(radius, 1), 'Blender units. Alt+H in Object Mode reveals all.')
-    if hidden == 0:
-        log('NEARBY VIEW: no separate distant meshes were found. '
-            'If MiEx exported very large combined meshes, this option will '
-            'not improve viewport performance without a different export layout.')
-    return hidden
+        unique = []
+        positions = {}
+        remap = []
+        for mat in slots:
+            key = mat.as_pointer()
+            if key not in positions:
+                positions[key] = len(unique)
+                unique.append(mat)
+            remap.append(positions[key])
+        if len(unique) == len(slots):
+            continue
+        if any(slot.link != 'DATA' for slot in ob.material_slots):
+            continue
+        values = array('i', [0]) * len(mesh.polygons)
+        mesh.polygons.foreach_get('material_index', values)
+        for i, val in enumerate(values):
+            values[i] = remap[val]
+        mesh.materials.clear()
+        for mat in unique:
+            mesh.materials.append(mat)
+        mesh.polygons.foreach_set('material_index', values)
+        mesh.update()
+        cleaned += len(slots) - len(unique)
+    log('MATERIAL DRAW GROUPS:', cleaned,
+        'duplicate slots referencing the exact same material datablock removed,'
+        ' without changing any mesh faces or shaders.')
+    return cleaned
+
 
 
 def hide_relationship_lines():
@@ -555,11 +632,11 @@ def hide_relationship_lines():
 def main():
     arguments = sys.argv[sys.argv.index('--') + 1:]
     flags = arguments[3:]
-    accepted = {'--minecraft-water', '--fast-viewport'}
+    accepted = {'--minecraft-water', '--batch-static-meshes'}
     if len(arguments) < 3 or len(flags) != len(set(flags)) or not set(flags) <= accepted:
-        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water] [--fast-viewport]')
+        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water] [--batch-static-meshes]')
     minecraft_water = '--minecraft-water' in flags
-    fast_viewport = '--fast-viewport' in flags
+    batch_meshes = '--batch-static-meshes' in flags
     src, importer, target = [Path(arg).resolve() for arg in arguments[:3]]
     log('BLENDER VERSION:', bpy.app.version_string)
     log('Input USD:', src)
@@ -588,7 +665,7 @@ def main():
     log('[PERF] USD integrity inspection:', round(time.monotonic() - phase_start, 2), 'seconds')
     log('Selected MiEx import variant:', import_variant)
     load_patched_importer(importer)
-    scene = import_world(src, import_variant, fast_viewport)
+    scene = import_world(src, import_variant)
     if minecraft_water:
         apply_minecraft_water_materials()
     if stats['instancers'] and scene['clouds'] == 0 and scene['faces'] < 1000:
@@ -605,16 +682,18 @@ def main():
     bounds = frame_actual_scene(scene['evaluate_bounds'])
     log('[PERF] Scene framing:', round(time.monotonic() - phase_start, 2), 'seconds')
     hide_relationship_lines()
-    if fast_viewport:
+    if batch_meshes:
         phase_start = time.monotonic()
-        lighten_solid_viewport()
-        hide_distant_meshes(bounds)
-        log('[PERF] Viewport nearby-object culling and Solid effects:',
+        batch_static_terrain_meshes()
+        log('[PERF] Bounded static terrain mesh batching:',
             round(time.monotonic() - phase_start, 2), 'seconds')
+    # Unlike mesh batching, removing repeated slots for the SAME shader
+    # datablock changes no actual rendering or geometry and is safe as default.
+    deduplicate_exact_material_slots()
     if scene['meshes'] > 1000:
         log('VIEWPORT NOTICE:', scene['meshes'],
-            'mesh objects may limit FPS in large scenes. Nearby-only mode can'
-            ' reduce draw calls only when these meshes are independently bounded.')
+            'mesh objects may limit FPS in large scenes. Optional batching'
+            ' reduces draw calls only when nearby meshes use compatible materials.')
     try:
         audit_imported_textures(target)
     except Exception as exc:

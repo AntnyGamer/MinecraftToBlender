@@ -74,8 +74,8 @@ class Mesh:
 def imported_functions(bpy, messages):
     module = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
     functions = [node for node in module.body if isinstance(node, ast.FunctionDef)
-                 and node.name in ("scene_report", "frame_actual_scene", "stage_report")]
-    assert len(functions) == 3
+                 and node.name in ("scene_report", "frame_actual_scene", "stage_report", "needs_evaluated_bounds")]
+    assert len(functions) == 4
     namespace = {
         "Counter": Counter, "Vector": Vec, "bpy": bpy,
         "log": lambda *args: messages.append(args),
@@ -95,7 +95,7 @@ def test_scene_report():
     messages = []
     bpy = NS(context=NS(scene=NS(objects=scene_objects)), data=NS(images={}))
     report = imported_functions(bpy, messages)["scene_report"]()
-    assert report == {"meshes": 2, "faces": 14, "terrain_faces": 10, "clouds": 1, "points": 17}
+    assert report == {"meshes": 2, "faces": 14, "terrain_faces": 10, "clouds": 1, "points": 17, "evaluate_bounds": True}
     assert scene_objects.iterations == 1
     assert any("BLENDER geometry-node modifiers on point clouds:" in x and 2 in x
                for x in messages)
@@ -122,6 +122,25 @@ def test_repeated_instance_bounds():
     assert abs(space.region_3d.view_distance - 25.65) < 0.00001
     assert space.clip_end == 1000
     assert any("Evaluated mesh elements:" in x and 3 in x and 2 in x for x in messages)
+
+
+def test_static_scene_avoids_depsgraph():
+    mesh = Mesh("static", 12, 24)
+    mesh.matrix_world = Matrix((100, 2, 3))
+    area = NS(type="VIEW_3D", spaces=NS(active=NS(
+        region_3d=NS(view_location=None, view_distance=None), clip_end=100)))
+    bpy = NS(context=NS(
+        evaluated_depsgraph_get=lambda: (_ for _ in ()).throw(
+            AssertionError("Static scene must not evaluate the dependency graph")),
+        scene=NS(objects=[mesh])),
+        data=NS(screens=[NS(areas=[area])]))
+    msgs = []
+    functions = imported_functions(bpy, msgs)
+    functions["frame_actual_scene"](evaluate_instances=False)
+    center = area.spaces.active.region_3d.view_location.values
+    assert center == [100.5, 2.5, 3.5], center
+    assert any("skipping redundant scene-wide dependency graph" in " ".join(map(str, msg))
+               for msg in msgs)
 
 
 def test_usd_stage_mesh_grouping():
@@ -180,5 +199,6 @@ def test_usd_stage_mesh_grouping():
 if __name__ == "__main__":
     test_scene_report()
     test_repeated_instance_bounds()
+    test_static_scene_avoids_depsgraph()
     test_usd_stage_mesh_grouping()
     print("Blender scene, USD grouping and repeated-instance framing checks passed.")

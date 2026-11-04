@@ -277,6 +277,13 @@ const (
 	uiEntityHeading  = 228
 )
 
+func minecraftWaterLabel() string {
+	if app.minecraftWater {
+		return "Minecraft-style water: On"
+	}
+	return "Minecraft-style water: Off"
+}
+
 func autoOpenBlenderLabel() string {
 	if app.autoOpenBlender {
 		return "Auto-open Blender: On"
@@ -368,6 +375,7 @@ func createControls() {
 	uiButton(idEntityStands, "Armor stands: On")
 	uiButton(idEntityDisplays, "Displays: On")
 	uiButton(idResume, "Safe resume: Off")
+	uiButton(idWaterStyle, minecraftWaterLabel())
 	uiLabel(uiOptionsNote, "Resume reuses verified completed USD only; partial chunks are never trusted.", 3, theme.quiet, theme.card)
 
 	uiLabel(uiActivityTitle, "Activity", 2, theme.white, theme.card)
@@ -577,8 +585,9 @@ func layoutUI() {
 		move(idEntityPaintings, x+(w-10)/2+10, top+166, (w-10)/2, 32)
 		move(idEntityStands, x, top+205, (w-10)/2, 32)
 		move(idEntityDisplays, x+(w-10)/2+10, top+205, (w-10)/2, 32)
-		move(idResume, x, top+244, w, 32)
-		move(uiOptionsNote, x, top+282, w, 26)
+		move(idResume, x, top+226, w, 32)
+		move(idWaterStyle, x, top+264, w, 32)
+		move(uiOptionsNote, x, top+299, w, 16)
 	} else {
 		move(uiOptionsTitle, x, top+28, w, 27)
 		move(uiOptionsInfo, x, top+60, w, 19)
@@ -590,8 +599,9 @@ func layoutUI() {
 		move(idEntityPaintings, x+(w-12)/2+12, top+218, (w-12)/2, 40)
 		move(idEntityStands, x, top+269, (w-12)/2, 40)
 		move(idEntityDisplays, x+(w-12)/2+12, top+269, (w-12)/2, 40)
-		move(idResume, x, top+317, w, 39)
-		move(uiOptionsNote, x, top+360, w, 20)
+		move(idResume, x, top+303, w, 36)
+		move(idWaterStyle, x, top+343, w, 36)
+		move(uiOptionsNote, x, top+378, w, 12)
 	}
 
 	a := ui.activityTop
@@ -616,7 +626,7 @@ func layoutUI() {
 	for _, id := range []int{uiSettingsTitle, uiSettingsInfo, uiWorkspaceLabel, uiPrefsNote, uiPacksHint, uiAutoOpenHint, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
 		show(id, ui.tab == 2)
 	}
-	for _, id := range []int{uiOptionsTitle, uiOptionsInfo, uiOptionsNote, uiEntityHeading, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume} {
+	for _, id := range []int{uiOptionsTitle, uiOptionsInfo, uiOptionsNote, uiEntityHeading, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idWaterStyle} {
 		show(id, ui.tab == 3)
 	}
 	// In compact mode these actions sit near the bottom of the setup card.
@@ -652,7 +662,7 @@ func switchTab(id int) {
 	refreshButtons()
 }
 func refreshButtons() {
-	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idAutoOpenBlender, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
+	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idWaterStyle, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idAutoOpenBlender, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
 		if h := app.ctrls[id]; h != 0 {
 			pInvalidate.Call(h, 0, 1)
 		}
@@ -729,7 +739,7 @@ func paintButton(lp uintptr) uintptr {
 		}
 	} else if (id == idEntityFrames && app.entityFrames) || (id == idEntityPaintings && app.entityPaintings) ||
 		(id == idEntityStands && app.entityStands) || (id == idEntityDisplays && app.entityDisplays) ||
-		(id == idResume && app.resumeEnabled) {
+		(id == idResume && app.resumeEnabled) || (id == idWaterStyle && app.minecraftWater) {
 		fill, fg = theme.accentDark, color(29, 78, 179)
 		if hover || focused {
 			fill = color(200, 223, 255)

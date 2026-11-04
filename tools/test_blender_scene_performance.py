@@ -178,8 +178,11 @@ def test_usd_stage_mesh_grouping():
         def __init__(self, prim):
             self.prim = prim
 
+        def GetInstanceCount(self):
+            return self.prim.count
+
         def GetProtoIndicesAttr(self):
-            return NS(Get=lambda: [0] * self.prim.count)
+            raise AssertionError("Do not fetch a large instance-index array to count positions")
 
     prims = [
         FakePrim("/Root/individualBlocksBaseMeshes/very/deep/prototype", "Mesh", 10),

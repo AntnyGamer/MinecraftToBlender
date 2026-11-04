@@ -975,7 +975,7 @@ func startExport(both bool) {
 		alert("Blender required", "Select the installed blender.exe for automatic import.", mbWarn)
 		return
 	}
-	_, warnings := readiness(world, workspace, blender, app.dimension, size, x, z, both)
+	_, warnings := readiness(context.Background(), world, workspace, blender, app.dimension, size, x, z, both, false)
 	if len(warnings) > 0 {
 		message := "The pre-export check found possible issues:\n\n- "+strings.Join(warnings,"\n- ")+"\n\nProceed anyway?"
 		if alert("Pre-export warnings", message, mbWarn|mbYesNo) != idYes {
@@ -1129,6 +1129,11 @@ func onCompleted(r result) {
 		appendLog("ERROR: " + r.err.Error())
 		updateLog()
 		alert(r.what+" failed", r.err.Error(), mbError)
+		return
+	}
+	if r.what == "Pre-export readiness" {
+		state("Readiness check completed.")
+		alert("Pre-export readiness", r.output, 0)
 		return
 	}
 	if r.what == "Region preview" {

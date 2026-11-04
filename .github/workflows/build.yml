@@ -69,6 +69,40 @@ jobs:
           [IO.File]::WriteAllText($testBedFile, 'user custom texture')
           Remove-ManagedBedrockBedTextures (Join-Path $env:RUNNER_TEMP 'asset_cleanup') $testManifest
           if (-not (Test-Path -LiteralPath $testBedFile)) { throw 'Cleanup deleted a user-created texture' }
+          # Existing custom textures must survive a later Bedrock export.
+          # Mock the downloader to verify both the no-overwrite path and the
+          # original download behavior, without any network dependency.
+          $installDir = Join-Path $env:RUNNER_TEMP 'asset_install'
+          $bedNames = @('white','orange','magenta','light_blue','yellow','lime','pink','gray','light_gray','cyan','purple','blue','brown','green','red','black')
+          $installManifest = Join-Path $env:RUNNER_TEMP 'asset_install_manifest.json'
+          @{ source='Mojang/bedrock-samples'; revision=('a' * 40); folder='resource_pack/textures/entity/bed';
+             textures=@($bedNames | ForEach-Object { @{from=($_ + '.png');to=($_ + '.png');git_blob_sha1='3b18e512dba79e4c8300dd08aeb37f8e728b8dad'} }) } |
+            ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $installManifest -Encoding UTF8
+          $installBedDir = Join-Path $installDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
+          New-Item -ItemType Directory -Force -Path $installBedDir | Out-Null
+          foreach ($name in $bedNames) { [IO.File]::WriteAllText((Join-Path $installBedDir ($name + '.png')), 'user custom texture') }
+          $script:assetDownloads = 0
+          function Invoke-WebRequest {
+            [CmdletBinding()]
+            param([switch]$UseBasicParsing,[string]$Uri,[string]$OutFile,[int]$TimeoutSec)
+            $script:assetDownloads++
+            [IO.File]::WriteAllBytes($OutFile, [Text.Encoding]::UTF8.GetBytes("hello world`n"))
+          }
+          Ensure-BedrockBedTextures $installDir $installManifest
+          if ($script:assetDownloads -ne 0) { throw 'Installer downloaded over a user custom texture' }
+          foreach ($name in $bedNames) {
+            if ([IO.File]::ReadAllText((Join-Path $installBedDir ($name + '.png'))) -ne 'user custom texture') {
+              throw ('Installer overwrote user customization: ' + $name)
+            }
+          }
+          $missingBed = Join-Path $installBedDir 'red.png'
+          Remove-Item -LiteralPath $missingBed -Force
+          Ensure-BedrockBedTextures $installDir $installManifest
+          if ($script:assetDownloads -ne 1 -or
+              -not (Test-GitBlobSha1 $missingBed '3b18e512dba79e4c8300dd08aeb37f8e728b8dad')) {
+            throw 'Missing managed bed texture was not installed and verified'
+          }
+          Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
           foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Test-ChunkTerrainGeometry', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))

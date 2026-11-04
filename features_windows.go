@@ -96,7 +96,7 @@ func readiness(ctx context.Context, world localWorld, workspace, blender, dim st
 	}
 	info = append(info, fmt.Sprintf("Dimension: %s; region %dx%d, center (%d,%d)", dimensionLabel(dim), size, size, x, z))
 	if world.edition == javaEdition {
-		hasChunks, err := javaRegionHasSavedChunks(world.path, dim, size, x, z)
+		hasChunks, err := javaRegionHasSavedChunksContext(ctx, world.path, dim, size, x, z)
 		if err != nil {
 			warnings = append(warnings, "Cannot inspect saved Java chunks: "+err.Error())
 		} else if !hasChunks {

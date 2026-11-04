@@ -727,6 +727,11 @@ def optimize_existing_blend(target, batch_meshes=False):
     log('BEFORE: mesh objects:', len(meshes), 'faces:', before_faces)
     phase_start = time.monotonic()
     cleared = clear_bulk_import_selection()
+    # Large saved projects can still draw thousands of parent-child lines.
+    # Like a fresh MiEx import, hide only this editor overlay; geometry,
+    # material datablocks and parent relationships remain unchanged.
+    if len(meshes) >= 128:
+        hide_relationship_lines()
     joined = batch_static_terrain_meshes() if batch_meshes else 0
     slots = deduplicate_exact_material_slots()
     after_meshes = tuple(ob for ob in bpy.context.scene.objects if ob.type == 'MESH')

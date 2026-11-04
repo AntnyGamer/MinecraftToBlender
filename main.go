@@ -1161,7 +1161,17 @@ func openBlenderProject(blender, path string) error {
 
 func onCompleted(r result) {
 	setBusy(false)
-	app.cancel = nil
+	if app.cancel != nil {
+		app.cancel()
+		app.cancel = nil
+	}
+	if errors.Is(r.err, context.Canceled) {
+		ui.progressComplete = false
+		state("Operation cancelled")
+		appendLog("CANCELLED: "+r.what)
+		updateLog()
+		return
+	}
 	if r.err != nil {
 		ui.progressComplete = false
 		state("Failed — see details in log")

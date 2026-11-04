@@ -76,32 +76,58 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	lastChunkX := int(math.Floor(float64(minX+size-1)/16))
 	lastChunkZ := int(math.Floor(float64(minZ+size-1)/16))
 	loaded := 0
-	for row := 0; row < 16; row++ {
-		for col := 0; col < 16; col++ {
-			chunkX := int(math.Floor(float64(firstChunkX)+float64(lastChunkX-firstChunkX)*float64(col)/15))
-			chunkZ := int(math.Floor(float64(firstChunkZ)+float64(lastChunkZ-firstChunkZ)*float64(row)/15))
-			data, ok := tiles[[2]int{chunkX, chunkZ}]
-			if !ok { continue }
-			loaded++
-			for py := 0; py < 16; py++ {
-				for px := 0; px < 16; px++ {
-					offset := (py*16+px)*4
-					alpha := data[offset+3]
-					if alpha == 0 {
-						continue // Keep the gray unavailable/transparent background.
+	paintPixel := func(x,y int,data []byte,offset int) {
+		alpha := data[offset+3]
+		if alpha == 0 {
+			return
+		}
+		pixel := imgcolor.NRGBA{R: data[offset+2], G: data[offset+1], B: data[offset], A: 255}
+		if alpha < 255 {
+			bg := out.NRGBAAt(x,y)
+			blend := func(source, background uint8) uint8 {
+				return uint8((uint32(source)*uint32(alpha) + uint32(background)*uint32(255-alpha) + 127) / 255)
+			}
+			pixel.R = blend(pixel.R,bg.R)
+			pixel.G = blend(pixel.G,bg.G)
+			pixel.B = blend(pixel.B,bg.B)
+		}
+		out.SetNRGBA(x,y,pixel)
+	}
+	// When all chunks fit within the 16x16 sample grid, display their exact
+	// Minecraft positions. Repeating one tiny chunk 256 times made a false
+	// tiled overview instead of a correctly enlarged map of those blocks.
+	if lastChunkX-firstChunkX < 16 && lastChunkZ-firstChunkZ < 16 {
+		seen := make(map[[2]int]bool)
+		for y:=0;y<256;y++ {
+			worldZ:=minZ+y*size/256
+			chunkZ:=int(math.Floor(float64(worldZ)/16))
+			localZ:=((worldZ%16)+16)%16
+			for x:=0;x<256;x++ {
+				worldX:=minX+x*size/256
+				chunkX:=int(math.Floor(float64(worldX)/16))
+				data,ok:=tiles[[2]int{chunkX,chunkZ}]
+				if !ok {continue}
+				seen[[2]int{chunkX,chunkZ}]=true
+				localX:=((worldX%16)+16)%16
+				paintPixel(x,y,data,(localZ*16+localX)*4)
+			}
+		}
+		loaded=len(seen)
+	} else {
+		// Larger regions use a coarse 16x16 sample preview, never a claim of
+		// full terrain coverage. Each cell displays the corresponding sampled
+		// chunk image; genuinely unavailable chunks retain the gray grid.
+		for row := 0; row < 16; row++ {
+			for col := 0; col < 16; col++ {
+				chunkX := int(math.Floor(float64(firstChunkX)+float64(lastChunkX-firstChunkX)*float64(col)/15))
+				chunkZ := int(math.Floor(float64(firstChunkZ)+float64(lastChunkZ-firstChunkZ)*float64(row)/15))
+				data, ok := tiles[[2]int{chunkX, chunkZ}]
+				if !ok {continue}
+				loaded++
+				for py:=0;py<16;py++ {
+					for px:=0;px<16;px++ {
+						paintPixel(col*16+px,row*16+py,data,(py*16+px)*4)
 					}
-					x, y := col*16+px, row*16+py
-					pixel := imgcolor.NRGBA{R: data[offset+2], G: data[offset+1], B: data[offset], A: 255}
-					if alpha < 255 {
-						bg := out.NRGBAAt(x, y)
-						blend := func(source, background uint8) uint8 {
-							return uint8((uint32(source)*uint32(alpha) + uint32(background)*uint32(255-alpha) + 127) / 255)
-						}
-						pixel.R = blend(pixel.R, bg.R)
-						pixel.G = blend(pixel.G, bg.G)
-						pixel.B = blend(pixel.B, bg.B)
-					}
-					out.SetNRGBA(x, y, pixel)
 				}
 			}
 		}

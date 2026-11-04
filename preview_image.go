@@ -16,6 +16,7 @@ type previewChunk struct {
 	X int `json:"chunkX"`
 	Z int `json:"chunkZ"`
 	Image string `json:"image"`
+	LayerCount int `json:"layerCount"`
 }
 
 func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (int, error) {
@@ -40,12 +41,17 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 			continue
 		}
 		for _, ch := range response.Chunks {
-			if ch.Image == "" {
+			if ch.Image == "" || ch.LayerCount <= 0 {
 				continue
 			}
 			bytes, err := base64.StdEncoding.DecodeString(ch.Image)
 			if err == nil && len(bytes) == 16*16*4 {
-				tiles[[2]int{ch.X, ch.Z}] = bytes
+				// MiEx uses a zeroed image when it cannot render this chunk.
+				visible := false
+				for i := 3; i < len(bytes); i += 4 {
+					if bytes[i] != 0 {visible = true; break}
+				}
+				if visible { tiles[[2]int{ch.X, ch.Z}] = bytes }
 			}
 		}
 	}

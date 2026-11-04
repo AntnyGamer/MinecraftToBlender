@@ -33,11 +33,9 @@
 - Skip Blender path expansion for relative image paths that the texture audit intentionally does not check. Continue checking and reporting absolute paths and missing textures without altering the materials.
 - Add tests for large GUI messages, Bedrock world-name precedence and fallback, and texture-audit counts/path lookups.
 
-## Faster world selection
+## World discovery and compatibility
 
-- Decode world thumbnails only when they first become visible in the world picker, rather than decoding the entire saved-world collection before the picker opens. Cache both successful and failed loads within each session; release images and cache state on refresh or closing the picker.
-- Avoid repeated file existence checks for Minecraft saves reached through overlapping Java launcher paths; retain the same case-insensitive deduplication and sorting.
-- Add Windows tests for visible-row ranges, thumbnail load caching and release, plus overlapping launcher-path discovery.
+- Avoid repeated file existence checks for Minecraft saves reached through overlapping Java launcher paths; retain the same case-insensitive deduplication and sorting. The original eager thumbnail loading remains in place to avoid introducing per-scroll image-decoding latency.
 
 Bedrock-only model overrides are cleaned up when exporting a Java world in the same workspace. The existing source worlds, Blender auto-open setting, source resource-pack choice, geometry optimizations, and export-region borders are unchanged.
 

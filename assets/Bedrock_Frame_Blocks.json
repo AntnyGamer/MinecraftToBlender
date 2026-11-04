@@ -1,0 +1,17 @@
+{
+    "blocks": [
+        "minecraft:frame",
+        "minecraft:glow_frame"
+    ],
+    "handler": {
+        "generators": [
+            {
+                "type": "entity",
+                "args": {
+                    "id": "thisBlock.name == 'minecraft:glow_frame' ? 'minecraft:glow_item_frame' : 'minecraft:item_frame'",
+                    "properties": "thisBlock.state"
+                }
+            }
+        ]
+    }
+}

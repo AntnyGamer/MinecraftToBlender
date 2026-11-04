@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"image/color"
+	imgcolor "image/color"
 	"image/png"
 	"math"
 	"os"
@@ -60,7 +60,7 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 		for x := 0; x < 256; x++ {
 			col := uint8(232)
 			if ((x/16)+(y/16))%2 == 0 { col = 218 }
-			out.SetNRGBA(x, y, color.NRGBA{R: col, G: col, B: col, A: 255})
+			out.SetNRGBA(x, y, imgcolor.NRGBA{R: col, G: col, B: col, A: 255})
 		}
 	}
 	minX := centerX - size/2
@@ -80,7 +80,7 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 			for py := 0; py < 16; py++ {
 				for px := 0; px < 16; px++ {
 					offset := (py*16+px)*4
-					out.SetNRGBA(col*16+px, row*16+py, color.NRGBA{
+					out.SetNRGBA(col*16+px, row*16+py, imgcolor.NRGBA{
 						R: data[offset+2], G: data[offset+1], B: data[offset], A: 255,
 					})
 				}

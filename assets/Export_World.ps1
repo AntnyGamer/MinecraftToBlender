@@ -23,7 +23,8 @@ $work = Join-Path $base 'MiEx_Work'
 $worldDir = Join-Path $work 'world_source'
 $chunkSize = 16
 $enableGeometrySubsets = $false
-$enableFaceOptimization = $false
+$enableRaytracingOptimization = $false
+$enableFaceOptimization = $true
 $fillWorldBorders = $true
 $finalExportDir = Join-Path (Join-Path $work 'exports') $ExportName
 # Always export into a unique, empty directory. Never let leftover chunk files
@@ -36,7 +37,7 @@ $minX = $CenterX - [int][math]::Floor($Size/2)
 $minZ = $CenterZ - [int][math]::Floor($Size/2)
 $maxX = $minX + $Size - 1
 $maxZ = $minZ + $Size - 1
-Write-Host ('Minecraft to Blender v1: compatibility-first export; face merging, geometry-subset batching and point instancing disabled.') -ForegroundColor Cyan
+Write-Host ('Minecraft to Blender v1: face optimization ON, raytracing and subsets OFF, chunk size 16.') -ForegroundColor Cyan
 Write-Host ("Region: X=$minX..$maxX Z=$minZ..$maxZ Y=$MinY..$MaxY")
 $miexDir = Join-Path $work 'miex'
 $jar = Join-Path $miexDir 'MiEx.jar'
@@ -139,15 +140,17 @@ function Read-MiExAuditLog([string]$path) {
     $missingPattern = [regex]::new('Missing blockstate:\s*([^\r\n]+)', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     $errorPattern = [regex]::new('\[MSG\] Error:|No blockstate file|Missing texture|No texture found|Missing model|No model file|Unknown block|Exception|\[MSG\] Error|\[ERROR\]', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     $success = $false
+    $exportStarted = $false
     if(Test-Path -LiteralPath $path -PathType Leaf) {
         foreach($line in [System.IO.File]::ReadLines($path)) {
+            if($line.StartsWith('Exporting world to ')) { $exportStarted = $true; $success = $false }
             foreach($match in $missingPattern.Matches($line)) {
                 $missingValues.Add($match.Groups[1].Value.Trim())
             }
             if($errorValues.Count -lt 35 -and $errorPattern.IsMatch($line)) {
                 $errorValues.Add($line.Trim())
             }
-            if(-not $success -and
+            if($exportStarted -and
                $line.IndexOf('[COMMAND] {"status":"success"}', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
                 $success = $true
             }
@@ -243,6 +246,19 @@ function Assert-SafeResourcePackArchives([string]$worldFolder) {
         }
     }
 }
+function Copy-WorldSnapshot([string]$source,[string]$destination) {
+    # Parallel file copying avoids PowerShell's per-file loop overhead on large saves.
+    $copyExe = Get-Command robocopy.exe -ErrorAction SilentlyContinue
+    if($copyExe) {
+        $robocopyExe = $copyExe.Source
+        & $robocopyExe $source $destination /E /MT:8 /R:1 /W:1 /XJ /NFL /NDL /NJH /NJS /NP | Out-Null
+        if($LASTEXITCODE -ge 8) { throw "World snapshot copy failed (Robocopy exit $LASTEXITCODE)." }
+    } else {
+        foreach($entry in (Get-ChildItem -LiteralPath $source -Force -ErrorAction Stop)) {
+            Copy-Item -LiteralPath $entry.FullName -Destination $destination -Recurse -Force -ErrorAction Stop
+        }
+    }
+}
 function Abort([string]$reason) {throw $reason}
 
 try {
@@ -335,7 +351,9 @@ try {
         if($Edition -eq 'java' -and -not ((Test-Path -LiteralPath (Join-Path $source 'region') -PathType Container) -or (Test-Path -LiteralPath (Join-Path $source 'dimensions') -PathType Container))) {
             Abort 'Selected Java world has no region/dimensions folder.'
         }
-        if($source.StartsWith($work, [System.StringComparison]::OrdinalIgnoreCase) -or $work.StartsWith(($source + [IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
+        if($source.Equals($work, [System.StringComparison]::OrdinalIgnoreCase) -or
+           $source.StartsWith(($work + [IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase) -or
+           $work.StartsWith(($source + [IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
             Abort 'The world save and converter workspace cannot contain one another.'
         }
         # Source game worlds can be updated at any time. A fresh snapshot avoids
@@ -345,9 +363,7 @@ try {
         New-Item -ItemType Directory -Force -Path $stage | Out-Null
         Write-Host "Copying a safe, read-only snapshot of the $Edition world..." -ForegroundColor Cyan
         try {
-            foreach($entry in (Get-ChildItem -LiteralPath $source -Force -ErrorAction Stop)) {
-                Copy-Item -LiteralPath $entry.FullName -Destination $stage -Recurse -Force -ErrorAction Stop
-            }
+            Copy-WorldSnapshot $source $stage
             if(-not (Test-Path -LiteralPath (Join-Path $stage 'level.dat'))) {
                 Abort 'World snapshot is incomplete: level.dat missing.'
             }
@@ -371,8 +387,8 @@ try {
     try {Test-Hash $jar $releaseSha256}
     catch {Remove-Item -LiteralPath $jar -Force -ErrorAction SilentlyContinue;Get-WebFile $releaseUrl $jar;Test-Hash $jar $releaseSha256}
 
-    # The pinned MiEx JAR is run unchanged. Face merging stays disabled
-    # because it has not been proven to preserve all exported terrain.
+    # Keep the pinned MiEx JAR unchanged. Raytracing previously exhausted
+    # 24 GB of Java heap, so it stays off. Face-only succeeded in testing.
     $runJar = $jar
 
     # Official MiEx example resource pack for Blender EEVEE materials only.
@@ -402,12 +418,13 @@ try {
     # geometry-node output is validated. Previously it imported as scattered points.
     $packConfig | Add-Member -MemberType NoteProperty -Name 'usePointInstancersForIndividualBlocks' -Value $false -Force
     $packConfig | Add-Member -MemberType NoteProperty -Name 'runFaceOptimiser' -Value $enableFaceOptimization -Force
-    $packConfig | Add-Member -MemberType NoteProperty -Name 'runRaytracingOptimiser' -Value $false -Force
+    $packConfig | Add-Member -MemberType NoteProperty -Name 'runRaytracingOptimiser' -Value $enableRaytracingOptimization -Force
+    $packConfig | Add-Member -MemberType NoteProperty -Name 'raytracingOptimiserUseMeshSubsets' -Value $false -Force
     $packConfig | Add-Member -MemberType NoteProperty -Name 'fillWorldBorders' -Value $fillWorldBorders -Force
     $outConfig = $packConfig | ConvertTo-Json -Depth 20
     [System.IO.File]::WriteAllText($packConfigPath, $outConfig + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
     $parsedConfig = Get-Content -LiteralPath $packConfigPath -Raw | ConvertFrom-Json
-    if([bool]$parsedConfig.useGeometrySubsets -ne $enableGeometrySubsets -or [bool]$parsedConfig.usePointInstancersForIndividualBlocks -or [bool]$parsedConfig.runFaceOptimiser -ne $enableFaceOptimization -or [bool]$parsedConfig.runRaytracingOptimiser -or [bool]$parsedConfig.fillWorldBorders -ne $fillWorldBorders) {
+    if([bool]$parsedConfig.useGeometrySubsets -ne $enableGeometrySubsets -or [bool]$parsedConfig.usePointInstancersForIndividualBlocks -or [bool]$parsedConfig.runFaceOptimiser -ne $enableFaceOptimization -or [bool]$parsedConfig.runRaytracingOptimiser -ne $enableRaytracingOptimization -or [bool]$parsedConfig.raytracingOptimiserUseMeshSubsets -or [bool]$parsedConfig.fillWorldBorders -ne $fillWorldBorders) {
         Abort 'MiEx exporter resource-pack configuration did not validate.'
     }
     Write-Host 'Applied reusable exporter configuration in BlenderEEVEE/miex_config.json.' -ForegroundColor Green
@@ -588,6 +605,9 @@ try {
     $capture = Start-CapturedProcess $javaCommand $javaArgs $miexDir $log $stderrLog
     $proc = $capture.Process
     $lastSize = -1
+    $lastStderrSize = -1
+    $outOfMemory = $false
+    $oomPattern = 'java\.lang\.OutOfMemoryError|GC overhead limit exceeded'
     while(-not $proc.HasExited) {
         [void]$proc.WaitForExit(5000)
         $proc.Refresh()
@@ -596,14 +616,31 @@ try {
             if($length -ne $lastSize) {
                 $lastSize = $length
                 Get-Content -LiteralPath $log -Tail 8 -ErrorAction SilentlyContinue | ForEach-Object {
-                    if($_.Length -gt 4000 -and $_.StartsWith('[COMMAND] ')) {
+                    if($_.StartsWith('[COMMAND] ') -and ($_.Contains('"chunks"') -or $_.Contains('"world"'))) {
+                        Write-Host '[COMMAND] World/chunk diagnostics saved to miex_console.log.'
+                    } elseif($_.Length -gt 4000 -and $_.StartsWith('[COMMAND] ')) {
                         Write-Host '[COMMAND] Large diagnostic response saved to miex_console.log.'
                     } else { Write-Host $_ }
                 }
             }
         }
+        if(Test-Path -LiteralPath $stderrLog) {
+            $errorSize = (Get-Item -LiteralPath $stderrLog).Length
+            if($errorSize -ne $lastStderrSize) {
+                $lastStderrSize = $errorSize
+                if(Select-String -LiteralPath $stderrLog -Pattern $oomPattern -Quiet -ErrorAction SilentlyContinue) {
+                    $outOfMemory = $true
+                    try { if(-not $proc.HasExited) { $proc.Kill() } } catch {}
+                    break
+                }
+            }
+        }
     }
     $code = Finish-CapturedProcess $capture
+    if($outOfMemory -or ((Test-Path -LiteralPath $stderrLog) -and
+        (Select-String -LiteralPath $stderrLog -Pattern $oomPattern -Quiet -ErrorAction SilentlyContinue))) {
+        Abort "MiEx exhausted Java heap during export. Raytracing is disabled in this build; try a smaller region and inspect $stderrLog. Previous exports were preserved."
+    }
     Write-Host "MiEx Java process exited with code $code"
     if((Test-Path -LiteralPath $stderrLog) -and (Get-Item -LiteralPath $stderrLog).Length -gt 0) {
         Write-Host 'MiEx stderr (last 12 lines, warnings alone are not fatal):' -ForegroundColor Yellow
@@ -757,15 +794,15 @@ try {
         ('USD: ' + $main),
         ('USD size after optional binary compaction: ' + (Get-Item -LiteralPath $main).Length + ' bytes'),
         ('Java exit code: ' + $code),
-        'Export mode: compatibility-first; face merging and individual block instancing disabled',
+        'Export mode: face optimizer ON; raytracing, geometry subsets and instancing OFF',
         ('Minecraft-chunks-per-USD-section: ' + $chunkSize + 'x' + $chunkSize),
         ('USD geometry-subset batching enabled: ' + $enableGeometrySubsets),
         ('Face merging enabled (MiEx FaceOptimiser): ' + $enableFaceOptimization),
-        'Raytracing geometry removal disabled (preserve all visible model surfaces).',
+        ('Raytracing optimizer enabled: ' + $enableRaytracingOptimization),
         ('Fill export-region boundary faces: ' + $fillWorldBorders),
         'Generated textures (banners, layered entity materials) stored with the export.',
         ('MiEx JAR used: ' + $runJar),
-        ('MiEx status success: ' + $logSuccess),
+        ('MiEx final export command success: ' + $logSuccess),
         ('USD binary Crate compaction: ' + $binarySummary),
         ('Exported chunk USD files: ' + $chunkCount),
         ('Main USD terrain payloads: ' + $regionPayloadCount),
@@ -781,7 +818,7 @@ try {
         'Bedrock frame and glow-frame blockstate definitions and pinned vanilla frame-entity model corrected; visual item-frame verification still required.',
         'Entity export requested: item_frame, glow_item_frame, painting, block_display, item_display, armor_stand.',
         'Entity timeline: static single frame (no simulation).',
-        'Face merging and geometry-subset batching disabled to avoid missing terrain. Verify model visually.',
+        'Face optimizer enabled; geometry-subset batching disabled. Verify visually.',
         'IMPORTANT: Check actual frame meshes and item contents in Blender. Blockstate warnings alone cannot prove entity export failed or succeeded.',
         '',
         'IMPORTANT: structurally valid geometry does NOT prove correct models or textures.',

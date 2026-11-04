@@ -418,6 +418,11 @@ func guiLog(line string) {
 	// The UI displays at most 4000 bytes per line. Bound the queued copy
 	// before it enters the 4096-line channel; runProcess saves full output.
 	if len(line) > 4000 {
+		// appendLog historically discards whitespace-only lines before
+		// truncation. Preserve that behavior for oversized messages too.
+		if strings.TrimSpace(line) == "" {
+			return
+		}
 		line = line[:4000] + "..."
 	}
 	select {

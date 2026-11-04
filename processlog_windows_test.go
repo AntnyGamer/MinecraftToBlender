@@ -31,8 +31,29 @@ func TestRunProcessPreservesLargeLogs(t *testing.T) {
 	}
 	for i, line := range lines {
 		want := "LINE_" + strconv.Itoa(i+1) + ":" + strings.Repeat("x", 256)
+		// Preserve the child's original CRLF on Windows when streaming logs.
+		line = strings.TrimSuffix(line, "\r")
 		if line != want {
 			t.Fatalf("incorrect log line %d: %q", i+1, line)
 		}
+	}
+}
+
+func TestRunProcessPreservesLinesOverEightMegabytes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	path := filepath.Join(t.TempDir(), "huge.log")
+	const size = 9 * 1024 * 1024
+	code := "$line = 'Q' * " + strconv.Itoa(size) + "; [Console]::Out.WriteLine($line)"
+	if err := runProcess(ctx, "powershell.exe", []string{"-NoProfile", "-NonInteractive", "-Command", code}, path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) < size || data[0] != 'Q' || data[size-1] != 'Q' {
+		t.Fatalf("large output was truncated: saved %d bytes, expected at least %d", len(data), size)
 	}
 }

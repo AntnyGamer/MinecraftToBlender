@@ -316,7 +316,7 @@ def main():
             'The stage may be empty or contain only block prototypes, instances, or entities. '
             'An importer cannot recreate terrain surfaces missing from the export. '
             'Export a small region near the actual build coordinates with the revised '
-            'compatibility-first exporter (no face merging or point instancing). '
+            'face-only exporter (raytracing, subsets and individual-block instancing off). '
             'The original Minecraft ZIP and USD have not been changed.'
         )
     log('Selected MiEx import variant:', import_variant)

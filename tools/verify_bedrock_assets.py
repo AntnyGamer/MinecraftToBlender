@@ -31,6 +31,24 @@ def main():
                   "thisBlock.state.head_piece_bit", "thisBlock.state.direction"):
         assert field in bed_text, field
 
+    # Mojang's 64x64 Bedrock geometry.bed atlas has a single 32-pixel
+    # body: head uses texel rows 6..22 and foot 22..38, unlike Java's
+    # separated foot UVs (old row 28..44). Leg islands are rows 38..50.
+    head, foot = ({c["condition"].split("'")[1]: c
+                   for c in beds["handler"]["children"]}[p]
+                  for p in ("head", "foot"))
+    assert head["elements"][0]["faces"]["up"]["uv"] == [1.5, 1.5, 5.5, 5.5]
+    assert foot["elements"][0]["faces"]["up"]["uv"] == [1.5, 5.5, 5.5, 9.5]
+    assert head["elements"][0]["faces"]["east"]["uv"] == [5.5, 1.5, 7, 5.5]
+    assert foot["elements"][0]["faces"]["east"]["uv"] == [5.5, 5.5, 7, 9.5]
+    for part, leg_y in ((head, 44), (foot, 38)):
+        for offset, leg in zip((0, 12), part["elements"][1:]):
+            assert leg["faces"]["up"]["uv"] == [
+                (offset + 3)/4, leg_y/4, (offset + 6)/4, (leg_y + 3)/4]
+            assert leg["faces"]["north"]["uv"] == [
+                (offset + 3)/4, (leg_y + 3)/4,
+                (offset + 6)/4, (leg_y + 6)/4]
+
     shulkers = load("Bedrock_Shulkers.json")
     shulker_text = text_of(shulkers)
     assert "minecraft:shulker_box" in shulkers["blocks"]
@@ -99,9 +117,13 @@ def main():
     assert "-Name 'exportEntityAsBlocks'" in exporter
     assert "entities=$true" in exporter
     assert "Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest" in exporter
-    # The previously copied Bedrock atlas has incompatible UVs for the
-    # pinned Java-style bed model. Do not reinstall it over the Java base.
-    assert "Ensure-BedrockBedTextures $miexDir $bedTextureManifest" not in exporter
+    # The source Bedrock sheets must be present: removing them previously
+    # produced black beds because the referenced material had no usable PNG.
+    assert "Ensure-BedrockBedTextures $miexDir $bedTextureManifest" in exporter
+    helper = (ASSETS / "Bedrock_Assets.ps1").read_text(encoding="utf-8")
+    assert "function Test-BedrockBedAtlas" in helper
+    assert "function Ensure-BedrockBedTextures" in helper
+    assert "Bedrock bed texture(s) missing, corrupt" in helper
     assert "[System.IO.File]::WriteAllText($frameStatePath, '{\"variants\":{}}'" not in exporter
     print("Bedrock override JSONs, Mojang texture pins, and export wiring validated.")
 

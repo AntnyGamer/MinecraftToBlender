@@ -258,11 +258,13 @@ def is_minecraft_water_material(name):
 
 
 def apply_minecraft_water_materials():
-    """Optional inexpensive Minecraft-style water surface approximation.
+    """Keep MiEx's water textures, but avoid noisy dithered alpha in Blender.
 
-    Preserve MiEx UVs, existing color/biome tint nodes, and the original
-    water mesh. Change only the alpha and surface highlights on its existing
-    Principled shader; do not add costly displacement or per-frame modifiers.
+    MiEx's pinned importer sets every material's deprecated blend_method to
+    HASHED, which shows semi-transparent water as a speckled pixel mask in
+    EEVEE, especially when zoomed out. Blender 4.2+/5.x provides BLENDED
+    transparency for smooth water. Preserve the existing alpha links (which
+    may contain a water texture's own opacity), biome color and UV mapping.
     """
     count = 0
     for material in bpy.data.materials:
@@ -275,17 +277,31 @@ def apply_minecraft_water_materials():
         roughness = shader.inputs.get('Roughness')
         if alpha is None or roughness is None:
             continue
-        for link in tuple(alpha.links):
-            material.node_tree.links.remove(link)
-        alpha.default_value = 0.68
-        roughness.default_value = 0.20
+        # Do not strip original texture alpha connections: transparency already
+        # works in the user's world and would be altered by forcing 0.68.
+        if not alpha.is_linked:
+            alpha.default_value = 0.80
+        roughness.default_value = 0.24
         specular = shader.inputs.get('Specular IOR Level')
         if specular is not None:
-            specular.default_value = 0.24
-        # Color and biome-dependent tint remain exactly as MiEx authored them.
+            specular.default_value = 0.3
+        if hasattr(material, 'surface_render_method'):
+            material.surface_render_method = 'BLENDED'
+            if hasattr(material, 'use_transparency_overlap'):
+                # Large waters often consist of many touching water faces.
+                # Keeping only the closest translucent surface avoids multiple
+                # overlapping blue layers and helps the forward renderer.
+                material.use_transparency_overlap = False
+        else:
+            # Blender before the surface_render_method API; not the supported
+            # version, but keep the same visible result when the fallback exists.
+            material.blend_method = 'BLEND'
+        # Water's original texture and biome-color shader network remain intact.
         count += 1
     log('MINECRAFT-STYLE WATER:', count,
-        'vanilla water texture materials adjusted (not Minecraft engine rendering).')
+        'water texture materials using smooth blended alpha (no dithering).')
+    if count == 0:
+        log('WARNING: No MiEx water materials were found; water appearance was unchanged.')
     return count
 
 

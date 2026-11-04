@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,5 +23,14 @@ func TestJavaRegionHeaderProbeHandlesNegativeWorldCoordinates(t *testing.T) {
 	if err!=nil||present {t.Fatalf("wrong area reported saved: %v, %v",present,err)}
 	if floorBlockDiv(-1,32)!=-1||floorBlockDiv(-33,32)!=-2||floorBlockDiv(0,32)!=0 {
 		t.Fatal("negative Minecraft region rounding is incorrect")
+	}
+}
+
+func TestJavaRegionInspectionHonorsCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := javaRegionHasSavedChunksContext(ctx, t.TempDir(), "overworld", 8192, 0, 0)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled region scan must immediately stop: %v", err)
 	}
 }

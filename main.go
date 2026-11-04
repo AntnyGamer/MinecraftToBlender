@@ -904,9 +904,6 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 	if useWorldPacks {
 		args = append(args, "-UseWorldResourcePacks")
 	}
-	if options.Resume {
-		args = append(args, "-ResumeSafe")
-	}
 	file := filepath.Join(workspace, "Minecraft_Blender_Export.log")
 	err = runProcess(ctx, "powershell.exe", args, file)
 	if err != nil {

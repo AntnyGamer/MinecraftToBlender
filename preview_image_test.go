@@ -23,7 +23,7 @@ func TestSampledPreviewUsesActualChunkColors(t *testing.T) {
 	}
 	line := fmt.Sprintf("[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"image\":\"%s\"}]}\n",base64.StdEncoding.EncodeToString(pixels))
 	if err:=os.WriteFile(logPath,[]byte(line),0600);err!=nil {t.Fatal(err)}
-	n,err:=renderSampledPreview(logPath,output,0,0,16)
+	n,err:=renderSampledPreview(logPath,output,8,8,16)
 	if err!=nil || n!=256 {t.Fatalf("expected 256 duplicated sampled tiles, got %d: %v",n,err)}
 	f,err:=os.Open(output);if err!=nil {t.Fatal(err)}
 	defer f.Close()

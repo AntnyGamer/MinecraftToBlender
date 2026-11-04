@@ -139,5 +139,6 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	if err != nil { return 0, err }
 	defer dest.Close()
 	if err := png.Encode(dest, out); err != nil { return 0, err }
-	return loaded, nil
+	// Report unique real chunk images, not repeated visual grid cells.
+	return len(tiles), nil
 }

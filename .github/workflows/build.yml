@@ -32,6 +32,8 @@ jobs:
         run: python tools/test_blender_scene_performance.py
       - name: Validate_MiEx_material_node_layout_optimization
         run: python tools/test_miex_layout_lookup.py
+      - name: Validate_bulk_import_selection_optimization
+        run: python tools/test_import_selection.py
       - name: Validate_opt_in_fast_Blender_viewport
         run: python tools/test_fast_viewport.py
       - name: Validate_opt_in_Minecraft_water

@@ -96,6 +96,36 @@ function Start-CapturedProcess([string]$exe,[string]$arguments,[string]$folder,[
         } catch { $errFile.Dispose(); throw }
     } catch { $outFile.Dispose(); $process.Dispose(); throw }
 }
+function Get-PreviewChunkCoordinates([int]$firstX,[int]$lastX,[int]$firstZ,[int]$lastZ) {
+    $spanX = $lastX - $firstX + 1
+    $spanZ = $lastZ - $firstZ + 1
+    if($spanX -le 0 -or $spanZ -le 0) { throw 'Invalid preview bounds.' }
+    # List.Add is linear overall; repeated PowerShell += on several thousand
+    # hashtables would repeatedly copy the entire array.
+    $locations = New-Object 'System.Collections.Generic.List[object]'
+    if(([long]$spanX * [long]$spanZ) -le 9216) {
+        for($z = $firstZ; $z -le $lastZ; $z++) {
+            for($x = $firstX; $x -le $lastX; $x++) {
+                $locations.Add(@{chunkX=$x;chunkZ=$z})
+            }
+        }
+    } else {
+        $cols = [int][math]::Min(96, $spanX)
+        $rows = [int][math]::Min(96, $spanZ)
+        for($row = 0; $row -lt $rows; $row++) {
+            $z = if($rows -eq 1) { $firstZ } else {
+                [int][math]::Floor($firstZ + ($lastZ - $firstZ) * ($row / [double]($rows - 1)))
+            }
+            for($col = 0; $col -lt $cols; $col++) {
+                $x = if($cols -eq 1) { $firstX } else {
+                    [int][math]::Floor($firstX + ($lastX - $firstX) * ($col / [double]($cols - 1)))
+                }
+                $locations.Add(@{chunkX=$x;chunkZ=$z})
+            }
+        }
+    }
+    return $locations.ToArray()
+}
 function Format-MiExMemory([System.Diagnostics.Process]$process) {
     # A zero working set can mean a not-yet-initialized/unavailable reading.
     # Never present that as a measured 0.0 GiB of Java RAM.
@@ -672,35 +702,12 @@ try {
         }
     }
     if($PreviewOnly) {
-        # Every chunk is queried for reasonably sized regions so individual
-        # blocks can be drawn at their actual Minecraft X/Z coordinates.
-        # Only genuinely huge regions use a bounded, coarse color sampling.
-        $probeChunks = @()
+        $probeChunks = @(Get-PreviewChunkCoordinates $minChunkX $maxChunkX $minChunkZ $maxChunkZ)
         $spanX = $maxChunkX - $minChunkX + 1
         $spanZ = $maxChunkZ - $minChunkZ + 1
-        $previewLimit = 9216
-        $exactPreview = ([long]$spanX * [long]$spanZ) -le $previewLimit
-        if($exactPreview) {
-            for($chunkZ = $minChunkZ; $chunkZ -le $maxChunkZ; $chunkZ++) {
-                for($chunkX = $minChunkX; $chunkX -le $maxChunkX; $chunkX++) {
-                    $probeChunks += @{chunkX=$chunkX;chunkZ=$chunkZ}
-                }
-            }
-            Write-Host ("Preview: exact geographic placement; requesting all $($probeChunks.Count) chunks.")
+        if(([long]$spanX * [long]$spanZ) -le 9216) {
+            Write-Host ("Preview: exact X/Z placement; requesting all $($probeChunks.Count) chunks.")
         } else {
-            $sampleCols = [int][math]::Min(96, $spanX)
-            $sampleRows = [int][math]::Min(96, $spanZ)
-            for($row = 0; $row -lt $sampleRows; $row++) {
-                $chunkZ = if($sampleRows -eq 1) { $minChunkZ } else {
-                    [int][math]::Floor($minChunkZ + ($maxChunkZ - $minChunkZ) * ($row / [double]($sampleRows - 1)))
-                }
-                for($col = 0; $col -lt $sampleCols; $col++) {
-                    $chunkX = if($sampleCols -eq 1) { $minChunkX } else {
-                        [int][math]::Floor($minChunkX + ($maxChunkX - $minChunkX) * ($col / [double]($sampleCols - 1)))
-                    }
-                    $probeChunks += @{chunkX=$chunkX;chunkZ=$chunkZ}
-                }
-            }
             Write-Host ("Preview: large area ($spanX x $spanZ chunks); requesting $($probeChunks.Count) coarse color samples.")
         }
         $commands += @{command='getChunk';chunks=$probeChunks;image=$true}

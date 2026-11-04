@@ -48,6 +48,7 @@ def main():
             assert leg["faces"]["north"]["uv"] == [
                 (offset + 3)/4, (leg_y + 3)/4,
                 (offset + 6)/4, (leg_y + 6)/4]
+            assert all("rotation" not in face for face in leg["faces"].values())
 
     shulkers = load("Bedrock_Shulkers.json")
     shulker_text = text_of(shulkers)

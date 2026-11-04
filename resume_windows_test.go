@@ -30,6 +30,20 @@ func TestResumeCheckpointRequiresIdenticalFilesAndSettings(t *testing.T) {
 	checkpoint:=filepath.Join(base,"checkpoint.json")
 	if err:=saveResumeCheckpoint(context.Background(),checkpoint,key,world,out);err!=nil{t.Fatal(err)}
 	if !verifiedResumeCheckpoint(context.Background(),checkpoint,key,world,out) {t.Fatal("verified identical export should resume")}
+	// Blender writes its log into the USD folder even on a failed import.
+	// Incomplete .blend files and backups must not invalidate the USD checkpoint.
+	write(filepath.Join(filepath.Dir(out),"Minecraft_Blender_Import.log"),"Blender exited before confirmation")
+	write(filepath.Join(filepath.Dir(out),"Saved.blend"),"partial blend output")
+	write(filepath.Join(filepath.Dir(out),"Saved_2.blend"),"another failed attempt")
+	write(filepath.Join(filepath.Dir(out),"Saved.blend1"),"backup")
+	if !verifiedResumeCheckpoint(context.Background(),checkpoint,key,world,out) {
+		t.Fatal("Blender log/project files incorrectly invalidate a complete USD export")
+	}
+	write(filepath.Join(filepath.Dir(out),"Saved_materials.json"),"{\"modified\":true}")
+	if verifiedResumeCheckpoint(context.Background(),checkpoint,key,world,out) {
+		t.Fatal("changed material metadata was ignored")
+	}
+	write(filepath.Join(filepath.Dir(out),"Saved_materials.json"),"{}")
 	write(filepath.Join(world,"level.dat"),"new data  ")
 	if verifiedResumeCheckpoint(context.Background(),checkpoint,key,world,out) {t.Fatal("changed source world accepted")}
 	write(filepath.Join(world,"level.dat"),"world data")

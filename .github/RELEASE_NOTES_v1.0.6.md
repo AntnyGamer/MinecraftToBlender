@@ -26,6 +26,12 @@
 - Append log chunks directly to the standard Windows EDIT control when RichEdit is unavailable and auto-follow is enabled, instead of retrieving and rewriting the full accumulated log every update. Keep the original behavior near the EDIT text-length limit or while follow is paused.
 - Windows regressions exercise streaming audit classifications and incremental standard EDIT appends without altering the saved log file.
 
+## Faster world selection
+
+- Decode world thumbnails only when they first become visible in the world picker, rather than decoding the entire saved-world collection before the picker opens. Cache both successful and failed loads within each session; release images and cache state on refresh or closing the picker.
+- Avoid repeated file existence checks for Minecraft saves reached through overlapping Java launcher paths; retain the same case-insensitive deduplication and sorting.
+- Add Windows tests for visible-row ranges, thumbnail load caching and release, plus overlapping launcher-path discovery.
+
 Bedrock-only model overrides are cleaned up when exporting a Java world in the same workspace. The existing source worlds, Blender auto-open setting, source resource-pack choice, geometry optimizations, and export-region borders are unchanged.
 
 **Verification required:** This release is prepared in a PR, not published. A Windows CI build and a real Bedrock-world export with known beds, signs, banners, and shulker boxes are required before claiming the reported visual problems are fully solved.

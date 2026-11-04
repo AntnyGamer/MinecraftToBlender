@@ -454,6 +454,27 @@ def frame_actual_scene(evaluate_instances=True):
     return center, dimensions
 
 
+def is_conservatively_opaque_terrain_material(material):
+    """Keep alpha-blended and unusual Minecraft geometry out of mesh joining."""
+    name = material.name.lower()
+    if 'minecraft_block_' not in name:
+        return False
+    if any(token in name for token in (
+        'water', 'glass', 'ice', 'leaves', 'leaf', 'slime', 'honey',
+        'portal', 'grass', 'vine', 'plant', 'fire', 'torch', 'banner',
+        'bed', 'sign', 'shulker', 'frame', 'cobweb', 'kelp', 'coral',
+        'sea_pickle', 'lantern', 'chain', 'fence', 'door', 'rail',
+    )):
+        return False
+    return any(token in name for token in (
+        'stone', 'deepslate', 'dirt', 'sand', 'gravel', 'granite',
+        'diorite', 'andesite', 'bricks', 'planks', 'terracotta',
+        'concrete', 'basalt', 'obsidian', 'tuff', 'netherrack',
+        'blackstone', 'ore', 'copper_block', 'clay', 'mud',
+        'log', 'wood', 'stripped_',
+    ))
+
+
 def terrain_mesh_batch_key(ob):
     """Identify compatible static opaque terrain faces in nearby MiEx chunks.
 
@@ -474,7 +495,7 @@ def terrain_mesh_batch_key(ob):
     if ob.material_slots[0].link != 'DATA':
         return None
     mat = ob.material_slots[0].material
-    if mat is None or is_minecraft_water_material(mat.name):
+    if mat is None or not is_conservatively_opaque_terrain_material(mat):
         return None
     if getattr(mat, 'surface_render_method', 'DITHERED') == 'BLENDED':
         return None
@@ -508,7 +529,9 @@ def terrain_mesh_batch_key(ob):
     area = (coordinate(match.group(1)) // 2, coordinate(match.group(2)) // 2)
     uv = tuple((layer.name, getattr(layer, 'active_render', False)) for layer in ob.data.uv_layers)
     colors = tuple((attr.name, attr.domain, attr.data_type) for attr in ob.data.color_attributes)
-    return (area, mat.as_pointer(), uv, colors)
+    attributes = tuple((attr.name, attr.domain, attr.data_type)
+                       for attr in getattr(ob.data, 'attributes', ()))
+    return (area, mat.as_pointer(), uv, colors, attributes)
 
 
 def batch_static_terrain_meshes(max_faces=75000, max_objects=8):

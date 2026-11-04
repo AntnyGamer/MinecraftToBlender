@@ -172,3 +172,17 @@ func TestPlayerPositionFloorsNegativeCoordinates(t *testing.T) {
 		}
 	}
 }
+
+func TestOverlappingLauncherRootsPreserveSingleWorld(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("APPDATA", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("LOCALAPPDATA", root)
+	saves := filepath.Join(root, ".minecraft", "saves")
+	world := filepath.Join(saves, "Example")
+	writeFixtureWorld(t, world, javaEdition, "Overlapping root", 1750000000)
+	found := discoverWorlds(javaEdition, saves)
+	if len(found) != 1 || found[0].path != world || found[0].name != "Overlapping root" {
+		t.Fatalf("overlapping launcher folders should produce one intact entry: %+v", found)
+	}
+}

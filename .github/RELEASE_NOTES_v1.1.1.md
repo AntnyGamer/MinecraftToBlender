@@ -14,9 +14,11 @@
 - This is not Minecraft's rendering engine and does not offer identical refraction, underwater effects or animated flowing water.
 
 ## Viewport FPS improvements
-- Add **Nearby-only** (Off by default) to hide distant Minecraft terrain mesh objects in Blender's current view layer, without removing their geometry, changing any materials, or hiding them in final renders. Press **Alt+H** in Object Mode to reveal the full world. The toggle is not dynamic Minecraft-style streaming, and only helps when large exports contain separately bounded meshes; the import log reports actual hidden mesh counts.
-- Unlike the earlier ineffective Solid-mode preset, this directly reduces how many mesh objects and polygons Blender needs to draw. Blender already starts in Solid mode; the option preserves that mode but also turns off optional Solid shadows, cavity and specular highlights when enabled. Full materials/render settings remain unchanged. Small regions are not culled.
-- Reduce the initial viewport's unnecessarily large far-clipping distance from five times to two times the world span, retaining full-scene visibility from the initial viewpoint and improving depth-buffer range.
+- Add optional **Batch meshes** (Off by default) to join only static, opaque, identically materialed and UV/color-layout-compatible terrain meshes within bounded nearby 2×2 MiEx chunk cells (at most eight objects and 75,000 faces per join). Skip animated entities, water, instanced/shared meshes, modifiers, shape keys, vertex groups, object metadata, and other unsafe cases. The full world remains visible and no faces or texture coordinates are removed. Batching can lower draw calls but alters terrain object organization/editability, may increase import time, and can reduce per-object culling: this is not a no-tradeoff default.
+- Remove **Nearby-only**/Solid-toggle proposals; Blender already starts in Solid mode, and the user rejected hiding faraway meshes. Full-scene visibility and existing viewport shading are retained.
+- **No visual-geometry tradeoff:** Automatically consolidate only duplicate material slots referring to the exact same Blender material datablock (including those created after mesh joins), remapping polygon material indices so original material appearance is unchanged. Skip different materials and object-linked slots; speedup depends on whether redundant slots exist.
+- Retain the smaller, full-scene-compatible far-clipping distance adjustment (five to two times world span).
+
 
 ## Performance
 - Speed Blender's MiEx material-node layout by replacing repeated linear name searches with a stable dictionary, retaining identical node positions; add a 200-node regression check.

@@ -100,7 +100,26 @@ def load_patched_importer(src):
                                     fallback = bpy.data.images.new('_MiEx_Unreadable_Texture', width=1, height=1, alpha=True)
                                     fallback.pixels[:] = (1.0, 0.0, 1.0, 1.0)
                                 node.image = fallback
-                            continue'''
+                            continue
+                        # Blender stores color space and alpha interpretation
+                        # on the shared Image datablock, not on the shader node.
+                        # A custom pack may reuse one file with different
+                        # interpretations. Copy only for a genuine mismatch
+                        # after an image is already used elsewhere, so setting
+                        # up this material cannot recolor other Minecraft
+                        # materials sharing the same file.
+                        attrs = data['attributes']
+                        space_attr = attrs.get('colorspace_settings', {})
+                        space = space_attr.get('value') if isinstance(space_attr, dict) else None
+                        if isinstance(space, list):
+                            color_conflict = bool(space) and node.image.colorspace_settings.name not in space
+                        else:
+                            color_conflict = isinstance(space, str) and node.image.colorspace_settings.name != space
+                        alpha_attr = attrs.get('alpha_mode', {})
+                        alpha = alpha_attr.get('value') if isinstance(alpha_attr, dict) else None
+                        alpha_conflict = isinstance(alpha, str) and node.image.alpha_mode != alpha
+                        if node.image.users > 1 and (color_conflict or alpha_conflict):
+                            node.image = node.image.copy()'''
     if contents.count(original) != 1:
         raise RuntimeError('Existing MiExImport.py does not match expected pinned importer. Nothing was modified.')
     contents = contents.replace(original, safe, 1)

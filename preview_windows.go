@@ -120,7 +120,10 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 		pGetClientRect.Call(hwnd,uintptr(unsafe.Pointer(&r)))
 		pFillRect.Call(dc,uintptr(unsafe.Pointer(&r)),ui.brushBg)
 		buttonText(dc,"Sampled Minecraft region",rect{32,20,544,46},theme.white,ui.fonts[5],0)
-		if regionPreview.bitmap!=0 {
+		// Hover updates invalidate only the footer; avoid invoking GDI+ to
+		// redraw the 512x512 map when its pixels cannot have changed.
+		if regionPreview.bitmap!=0 && ps.RcPaint.Top < 582 && ps.RcPaint.Bottom > 70 &&
+			ps.RcPaint.Left < 544 && ps.RcPaint.Right > 32 {
 			var gfx uintptr
 			if status,_,_:=pGdipCreateGraphics.Call(dc,uintptr(unsafe.Pointer(&gfx)));status==0 && gfx!=0 {
 				// Pixel-art maps should keep block edges crisp when enlarged.
@@ -147,7 +150,8 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 			}
 			if regionPreview.hovered!=inside || inside {
 				regionPreview.hovered=inside
-				pInvalidate.Call(hwnd,0,0)
+				footer:=rect{Left:32,Top:618,Right:544,Bottom:649}
+				pInvalidate.Call(hwnd,uintptr(unsafe.Pointer(&footer)),0)
 			}
 		}
 		ev:=trackMouseEvent{Size:uint32(unsafe.Sizeof(trackMouseEvent{})),Flags:0x2,Window:hwnd}
@@ -156,7 +160,8 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 	case wmMouseLeave:
 		if regionPreview.hovered {
 			regionPreview.hovered=false
-			pInvalidate.Call(hwnd,0,0)
+			footer:=rect{Left:32,Top:618,Right:544,Bottom:649}
+				pInvalidate.Call(hwnd,uintptr(unsafe.Pointer(&footer)),0)
 		}
 		return 0
 	case wmLButtonDown:

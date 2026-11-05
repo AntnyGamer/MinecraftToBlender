@@ -52,13 +52,13 @@
             ]
         },
         {
-            "condition": "thisBlock.name.endsWith('_wall_sign') || thisBlock.name == 'minecraft:wall_sign'",
+            "condition": "(thisBlock.name.endsWith('_wall_sign')) || (thisBlock.name == 'minecraft:wall_sign')",
             "variables": [
                 "face = thisBlock.state.facing != null ? thisBlock.state.facing : thisBlock.state['minecraft:cardinal_direction']",
-                "face = face == null && thisBlock.state.facing_direction == 2 ? 'north' : face",
-                "face = face == null && thisBlock.state.facing_direction == 3 ? 'south' : face",
-                "face = face == null && thisBlock.state.facing_direction == 4 ? 'west' : face",
-                "face = face == null && thisBlock.state.facing_direction == 5 ? 'east' : face",
+                "face = ((face == null) && (thisBlock.state.facing_direction == 2)) ? 'north' : face",
+                "face = ((face == null) && (thisBlock.state.facing_direction == 3)) ? 'south' : face",
+                "face = ((face == null) && (thisBlock.state.facing_direction == 4)) ? 'west' : face",
+                "face = ((face == null) && (thisBlock.state.facing_direction == 5)) ? 'east' : face",
                 "rotY = 0",
                 "rotY = face == 'north' ? 180.0 : rotY",
                 "rotY = face == 'east' ? 270.0 : rotY",
@@ -101,7 +101,7 @@
                 {
                     "type": "signText",
                     "args": {
-                        "state": "(thisBlock.state.FrontText == null) && (thisBlock.state.Text != null) ? {'FrontText': {'Text': thisBlock.state.Text, 'SignTextColor': thisBlock.state.SignTextColor, 'IgnoreLighting': thisBlock.state.IgnoreLighting, 'HideGlowOutline': thisBlock.state.HideGlowOutline}, 'BackText': thisBlock.state.BackText} : thisBlock.state",
+                        "state": "thisBlock.state",
                         "textOffsetX": "offsetX",
                         "textOffsetY": "(isWall ? 0.0 : 20.0) * scale + offsetY + 0.133",
                         "textOffsetZ": "1.0 * scale + offsetZ + 0.02",

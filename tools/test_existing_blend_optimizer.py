@@ -50,6 +50,8 @@ with tempfile.TemporaryDirectory() as folder:
         "log": lambda *parts: None,
         "clear_bulk_import_selection": clear,
         "batch_static_terrain_meshes": batch,
+        "compact_redundant_usd_normals": lambda: operations.append("normals"),
+        "remove_unused_usd_display_colors": lambda: operations.append("preview_colors"),
         "deduplicate_exact_material_slots": dedup,
         "hide_relationship_lines": hide_relationships,
     }
@@ -97,7 +99,7 @@ with tempfile.TemporaryDirectory() as folder:
     original.write_bytes(b"untouched original world")
     bpy.ops.wm.save_as_mainfile = save_mainfile
     optimize(output, batch_meshes=True)
-    assert operations == ["clear", "batch", "dedup", "save"]
+    assert operations == ["clear", "normals", "preview_colors", "batch", "dedup", "save"]
     assert original.read_bytes() == b"untouched original world"
 
     # Large saved models hide only relationship line overlays; all polygons

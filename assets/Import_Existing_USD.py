@@ -416,9 +416,13 @@ def apply_minecraft_water_materials():
     for material in bpy.data.materials:
         if not is_minecraft_water_material(material.name) or not material.use_nodes:
             continue
-        shader = material.node_tree.nodes.get('MAT')
-        if shader is None or shader.type != 'BSDF_PRINCIPLED':
+        # MiEx expands the JSON node key MAT into MAT_<texture>_<hash>.
+        # Use the actual node type rather than the unexpanded template key.
+        shaders = [node for node in material.node_tree.nodes.values()
+                   if node.type == 'BSDF_PRINCIPLED']
+        if len(shaders) != 1:
             continue
+        shader = shaders[0]
         alpha = shader.inputs.get('Alpha')
         roughness = shader.inputs.get('Roughness')
         if alpha is None or roughness is None:
@@ -481,7 +485,10 @@ def apply_minecraft_texture_preview():
     for screen in bpy.data.screens:
         for area in screen.areas:
             for space in area.spaces:
-                if space.type == 'VIEW_3D' and space.shading.type == 'SOLID':
+                if space.type == 'VIEW_3D':
+                    # This explicit option must also switch a saved Material
+                    # Preview/Rendered workspace into the requested fast view.
+                    space.shading.type = 'SOLID'
                     space.shading.color_type = 'TEXTURE'
                     changed += 1
     log('MINECRAFT TEXTURE PREVIEW: Standard color transform,',
@@ -663,6 +670,13 @@ def terrain_mesh_batch_key(ob):
     # Thus chunk X=-1 Z=-2 becomes mesh_chunk__1__2_<hash> in USD.
     # Recognize both that upstream-safe form and raw signed names.
     match = re.search(r'mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)', ob.name, re.I)
+    # Blender's USD importer names each mesh after its texture. The chunk
+    # coordinates live on its region_<n>_chunk_<x>_<z> parent instead.
+    parent = ob.parent
+    while match is None and parent is not None:
+        match = re.fullmatch(r'region_\d+_chunk_(_?-?\d+)_(_?-?\d+)(?:\.\d+)?',
+                             parent.name, re.I)
+        parent = parent.parent
     if match is None:
         return None
 
@@ -757,6 +771,118 @@ def batch_static_terrain_meshes(max_faces=75000, max_objects=8):
         log('MESH BATCHING: no eligible similarly-materialed nearby meshes; '
             'no viewport speedup is expected from this option.')
     return joined
+
+
+def compact_redundant_usd_normals():
+    """Opt-in removal of an unused, exact copy of native split normals.
+
+    USD imports can retain a FLOAT_VECTOR corner attribute named normals
+    alongside Blender's custom_normal storage. Keep the native normals,
+    every face/UV/color and the original USD; skip edited or referenced data.
+    """
+    from array import array
+
+    trees = [mat.node_tree for mat in bpy.data.materials if mat.use_nodes]
+    trees.extend(bpy.data.node_groups)
+    for tree in trees:
+        for node in tree.nodes:
+            if (getattr(node, 'attribute_name', '') == 'normals' or
+                    getattr(node, 'string', '') == 'normals' or
+                    any(getattr(socket, 'is_linked', False)
+                        for socket in node.inputs if socket.type == 'STRING') or
+                    any(getattr(socket, 'default_value', None) == 'normals'
+                        for socket in node.inputs if socket.type == 'STRING')):
+                log('MESH MEMORY: retained named normals referenced by a shader or node group.')
+                return 0
+
+    removed = 0
+    released = 0
+    seen = set()
+    for ob in bpy.context.scene.objects:
+        if ob.type != 'MESH' or ob.modifiers or ob.animation_data:
+            continue
+        mesh = ob.data
+        key = mesh.as_pointer()
+        if key in seen or mesh.users != 1 or mesh.shape_keys is not None or mesh.animation_data:
+            continue
+        seen.add(key)
+        attr = mesh.attributes.get('normals')
+        if (not mesh.has_custom_normals or attr is None or
+                attr.domain != 'CORNER' or attr.data_type != 'FLOAT_VECTOR'):
+            continue
+        count = len(attr.data) * 3
+        source = array('f', [0.0]) * count
+        native = array('f', [0.0]) * count
+        attr.data.foreach_get('vector', source)
+        mesh.corner_normals.foreach_get('vector', native)
+        if source != native:
+            continue
+        mesh.attributes.remove(attr)
+        after = array('f', [0.0]) * count
+        mesh.corner_normals.foreach_get('vector', after)
+        if native != after:
+            # A future Blender storage change must not silently change shading.
+            restored = mesh.attributes.new(name='normals', type='FLOAT_VECTOR', domain='CORNER')
+            restored.data.foreach_set('vector', source)
+            log('MESH MEMORY: restored normals attribute after a native-normal mismatch.')
+            continue
+        removed += 1
+        released += count * source.itemsize
+    log('MESH MEMORY:', removed, 'unused duplicate normal arrays removed;',
+        released, 'attribute bytes saved; native split normals, faces, UVs and colors retained.')
+    return released
+
+
+def remove_unused_usd_display_colors():
+    """Opt-in removal of USD preview colors unused by the Minecraft shaders.
+
+    Keep the actual Cd biome tint, UVs and normals. Named/default color
+    readers, dynamic attribute names and vertex-color viewports block this
+    cleanup; edited, animated and shared meshes are left alone.
+    """
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type != 'VIEW_3D':
+                continue
+            for space in area.spaces:
+                if space.type == 'VIEW_3D' and space.shading.color_type == 'VERTEX':
+                    log('MESH MEMORY: retained USD displayColor for vertex-color viewport display.')
+                    return 0
+
+    trees = [mat.node_tree for mat in bpy.data.materials if mat.use_nodes]
+    trees.extend(bpy.data.node_groups)
+    for tree in trees:
+        for node in tree.nodes:
+            if (node.type == 'SCRIPT' or
+                    getattr(node, 'attribute_name', '') == 'displayColor' or
+                    getattr(node, 'layer_name', '') == 'displayColor' or
+                    (node.type == 'VERTEX_COLOR' and not node.layer_name) or
+                    getattr(node, 'string', '') == 'displayColor' or
+                    any(getattr(socket, 'is_linked', False)
+                        for socket in node.inputs if socket.type == 'STRING') or
+                    any(getattr(socket, 'default_value', None) == 'displayColor'
+                        for socket in node.inputs if socket.type == 'STRING')):
+                log('MESH MEMORY: retained USD displayColor referenced by a shader or node group.')
+                return 0
+
+    removed = released = 0
+    for ob in bpy.context.scene.objects:
+        if (ob.type != 'MESH' or ob.modifiers or ob.animation_data or
+                ob.mode != 'OBJECT'):
+            continue
+        mesh = ob.data
+        if (mesh.users != 1 or mesh.shape_keys is not None or
+                mesh.animation_data or mesh.library is not None):
+            continue
+        attr = mesh.color_attributes.get('displayColor')
+        if attr is None or attr.domain != 'CORNER' or attr.data_type != 'FLOAT_COLOR':
+            continue
+        released += len(attr.data) * 4 * 4
+        mesh.color_attributes.remove(attr)
+        removed += 1
+    log('MESH MEMORY:', removed, 'unused USD displayColor preview arrays removed;',
+        released, 'attribute bytes saved; Minecraft Cd biome tints retained.')
+    return released
 
 
 def deduplicate_exact_material_slots():
@@ -865,6 +991,9 @@ def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
     # material datablocks and parent relationships remain unchanged.
     if len(meshes) >= 128:
         hide_relationship_lines()
+    if batch_meshes:
+        compact_redundant_usd_normals()
+        remove_unused_usd_display_colors()
     joined = batch_static_terrain_meshes() if batch_meshes else 0
     slots = deduplicate_exact_material_slots()
     if minecraft_view:
@@ -962,6 +1091,8 @@ def main():
     clear_bulk_import_selection()
     if batch_meshes:
         phase_start = time.monotonic()
+        compact_redundant_usd_normals()
+        remove_unused_usd_display_colors()
         batch_static_terrain_meshes()
         log('[PERF] Bounded static terrain mesh batching:',
             round(time.monotonic() - phase_start, 2), 'seconds')

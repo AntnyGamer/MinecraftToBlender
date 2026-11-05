@@ -55,12 +55,12 @@ exec(code, ns)
 original_objects = scene.objects
 original_world = scene.world
 
-assert ns["apply_minecraft_texture_preview"]() == 1
+assert ns["apply_minecraft_texture_preview"]() == 2
 assert scene.view_settings.view_transform == "Standard"
 assert solid.shading.type == "SOLID"
 assert solid.shading.color_type == "TEXTURE"
-assert material.shading.type == "MATERIAL"
-assert material.shading.color_type == "MATERIAL"
+assert material.shading.type == "SOLID"
+assert material.shading.color_type == "TEXTURE"
 assert camera.type == "IMAGE_EDITOR"
 assert scene.objects is original_objects
 assert scene.world is original_world
@@ -70,7 +70,7 @@ assert selected_nodes.active is base_image
 assert missing_nodes.active is mat_node
 
 # Reapplying the optional preference must be safe and repeatable.
-assert ns["apply_minecraft_texture_preview"]() == 1
+assert ns["apply_minecraft_texture_preview"]() == 2
 assert solid.shading.color_type == "TEXTURE"
 
 # These flags enable the preview through the existing EXE/import helper;
@@ -80,4 +80,4 @@ assert "'--minecraft-view' in flags" in source
 assert "if minecraft_view:" in source
 assert "apply_minecraft_texture_preview()" in source
 assert "'--minecraft-view'" in source
-print("Minecraft texture preview is opt-in, activates only unambiguous image nodes, preserves shaders/geometry and other shading modes.")
+print("Minecraft texture preview explicitly activates textured Solid view in every workspace and preserves shaders/geometry.")

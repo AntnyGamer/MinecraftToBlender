@@ -38,6 +38,10 @@ jobs:
         run: python tools/test_existing_blend_optimizer.py
       - name: Validate_opt_in_fast_Blender_viewport
         run: python tools/test_fast_viewport.py
+      - name: Validate_redundant_USD_normal_compaction
+        run: python tools/test_redundant_normals.py
+      - name: Validate_unused_USD_preview_colors
+        run: python tools/test_unused_display_colors.py
       - name: Validate_opt_in_Minecraft_water
         run: python tools/test_minecraft_water.py
       - name: Validate_opt_in_Minecraft_texture_preview
@@ -74,6 +78,18 @@ jobs:
           if ($sha -ne 'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707') {
             throw "Pinned MiEx.jar SHA-256 mismatch: $sha"
           }
+          $rebuilt = Join-Path $env:RUNNER_TEMP 'Bedrock_ChunkReader.class'
+          python tools/build_bedrock_reader_patch.py --jar $jar --output $rebuilt
+          if ($LASTEXITCODE -ne 0) { throw 'Could not rebuild pinned Bedrock reader' }
+          if ((Get-FileHash $rebuilt).Hash -ne (Get-FileHash assets/Bedrock_ChunkReader.class).Hash) {
+            throw 'Bundled Bedrock reader differs from reproducible source patch'
+          }
+          . ./assets/Bedrock_Assets.ps1
+          $readerRoot = Install-BedrockReaderClass $jar (Resolve-Path assets/Bedrock_ChunkReader.class)
+          javac -cp $jar -d $env:RUNNER_TEMP tools/MiExBedrockRegression.java
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compile Bedrock semantic regression' }
+          java -cp "$readerRoot;$jar;$env:RUNNER_TEMP" MiExBedrockRegression
+          if ($LASTEXITCODE -ne 0) { throw 'Bedrock model runtime regression failed' }
           javac -cp $jar -d $env:RUNNER_TEMP tools/MiExExpressionSmoke.java
           if ($LASTEXITCODE -ne 0) { throw 'Could not compile MiEx parser regression test' }
           $exprs = [Collections.Generic.List[string]]::new()
@@ -88,9 +104,23 @@ jobs:
           if ($exprs.Count -lt 30) { throw 'Missing expected Bedrock expression coverage' }
           $exprs | & java -cp "$jar;$env:RUNNER_TEMP" MiExExpressionSmoke
           if ($LASTEXITCODE -ne 0) { throw 'MiEx rejected a Bedrock expression: see Java exception above' }
+      - name: Reproduce_Bedrock_detail_models
+        shell: pwsh
+        run: |
+          $rebuilt = Join-Path $env:RUNNER_TEMP 'bedrock_detail_models'
+          python tools/build_bedrock_detail_models.py --output $rebuilt
+          if ($LASTEXITCODE -ne 0) { throw 'Could not reproduce detail models' }
+          $models = @(Get-ChildItem -LiteralPath $rebuilt -Filter '*.json' -File)
+          if ($models.Count -ne 9) { throw 'Missing detail model output' }
+          foreach ($model in $models) {
+            if ((Get-FileHash $model.FullName).Hash -ne (Get-FileHash (Join-Path 'assets' $model.Name)).Hash) {
+              throw ('Detail model source mismatch: ' + $model.Name)
+            }
+          }
       - name: Validate_PowerShell
         shell: powershell
         run: |
+          & ./tools/test_miex_launch_args.ps1
           $tokens = $null
           $parseErrors = $null
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)

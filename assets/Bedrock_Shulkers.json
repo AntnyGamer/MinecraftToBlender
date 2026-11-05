@@ -47,6 +47,8 @@
             "type = thisBlock.name.substring(thisBlock.name.indexOf(':') + 1)",
             "type = type.substring(0, type.length() - 11)",
             "type = type.endsWith('_') ? type.substring(0, type.length() - 1) : type",
+            "type = thisBlock.name == 'minecraft:shulker_box' && thisBlock.state.color != null ? thisBlock.state.color : type",
+            "type = type == 'silver' ? 'light_gray' : type",
             "type = type == 'undyed' ? '' : type",
             "type = type == '' ? 'shulker' : ('shulker_' + type)"
         ],

@@ -1,0 +1,92 @@
+{
+  "source": "Mojang/bedrock-samples",
+  "revision": "15701fa9c13923f12662984c32c124327e40e3d3",
+  "folder": "resource_pack/textures/entity/shulker",
+  "textures": [
+    {
+      "from": "shulker_black.png",
+      "to": "shulker_black.png",
+      "git_blob_sha1": "7642e08ce1466f1fe02e15879fa553a85b3cb97b"
+    },
+    {
+      "from": "shulker_blue.png",
+      "to": "shulker_blue.png",
+      "git_blob_sha1": "844c42821f09d29c88284e85c756a80612ddb938"
+    },
+    {
+      "from": "shulker_brown.png",
+      "to": "shulker_brown.png",
+      "git_blob_sha1": "45356bd4888dc0b1939cce3eac7dd23511331cfd"
+    },
+    {
+      "from": "shulker_cyan.png",
+      "to": "shulker_cyan.png",
+      "git_blob_sha1": "1bd4b97af51353fc77c8da4756a585a1b1c51cde"
+    },
+    {
+      "from": "shulker_gray.png",
+      "to": "shulker_gray.png",
+      "git_blob_sha1": "c2aa80b265ae242135254ca07165c9b3e366a107"
+    },
+    {
+      "from": "shulker_green.png",
+      "to": "shulker_green.png",
+      "git_blob_sha1": "6e0cf290e17c68425396d58595cff8fbd535ffe8"
+    },
+    {
+      "from": "shulker_light_blue.png",
+      "to": "shulker_light_blue.png",
+      "git_blob_sha1": "af0b29cf67c9ab3390809bf2e5ba197cb1605424"
+    },
+    {
+      "from": "shulker_lime.png",
+      "to": "shulker_lime.png",
+      "git_blob_sha1": "216e226009ac2985817ccca1219c5d8d60e64360"
+    },
+    {
+      "from": "shulker_magenta.png",
+      "to": "shulker_magenta.png",
+      "git_blob_sha1": "e177332bbb6cc6182b3b00eca45cecce8437562e"
+    },
+    {
+      "from": "shulker_orange.png",
+      "to": "shulker_orange.png",
+      "git_blob_sha1": "069221b29b5a2ffc1419f82abaee5b666a6c61ba"
+    },
+    {
+      "from": "shulker_pink.png",
+      "to": "shulker_pink.png",
+      "git_blob_sha1": "c7b5d8cb4b3533c2257c8f2fa06645252a772999"
+    },
+    {
+      "from": "shulker_purple.png",
+      "to": "shulker_purple.png",
+      "git_blob_sha1": "f5216ab00544462a73871fb82a92a588a5ef3c39"
+    },
+    {
+      "from": "shulker_red.png",
+      "to": "shulker_red.png",
+      "git_blob_sha1": "2b9d52a45b321bea1ed94890fdc85f518215c23d"
+    },
+    {
+      "from": "shulker_silver.png",
+      "to": "shulker_light_gray.png",
+      "git_blob_sha1": "4e9dd1088cfcf93f826a4d256b8556a4a0d898da"
+    },
+    {
+      "from": "shulker_undyed.png",
+      "to": "shulker.png",
+      "git_blob_sha1": "9ff54a42c3e6c86810dfd28039d5f49fa178525a"
+    },
+    {
+      "from": "shulker_white.png",
+      "to": "shulker_white.png",
+      "git_blob_sha1": "634bf5c94e68053fb114b4d9d696ecd84a956895"
+    },
+    {
+      "from": "shulker_yellow.png",
+      "to": "shulker_yellow.png",
+      "git_blob_sha1": "d85521bfd11467744f22e7fee7fc8293fe02b4d6"
+    }
+  ]
+}

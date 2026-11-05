@@ -83,7 +83,7 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 		_ = os.Remove(output)
 		return result{what:"Region preview",err:err,logFile:logFile}
 	}
-	loaded,err:=renderSampledPreview(filepath.Join(work,"miex_console.log"),output,x,z,size)
+	loaded,err:=renderSampledPreviewExpected(filepath.Join(work,"miex_console.log"),output,x,z,size,previewBatchCount(x,z,size))
 	if err!=nil {
 		_ = os.Remove(output)
 		return result{what:"Region preview",err:err,logFile:logFile}

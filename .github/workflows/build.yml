@@ -585,12 +585,16 @@ jobs:
           # GITHUB_TOKEN-created tags do not launch a duplicate workflow.
           # Rerunning this job is safe if its tag was already created.
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            existing_tag="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha' 2>/dev/null || true)"
-            if [ -z "$existing_tag" ]; then
+            # gh api may print JSON/null on a 404. Test its exit status,
+            # not command-substitution text, before deciding a tag exists.
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" \
+              --jq '.object.sha' > "$RUNNER_TEMP/release_tag_sha" 2>/dev/null; then
+              existing_tag="$(cat "$RUNNER_TEMP/release_tag_sha")"
+              test "$existing_tag" = "$GITHUB_SHA"
+            else
+              echo "Creating tested Release 1.0 tag: $RELEASE_TAG"
               gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
                 -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA"
-            else
-              test "$existing_tag" = "$GITHUB_SHA"
             fi
           fi
           test "$(tr -d '\r\n' < VERSION)" = '1.0.0'

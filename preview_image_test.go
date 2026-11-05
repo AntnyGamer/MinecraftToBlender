@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +111,26 @@ func TestPreviewRejectsExplicitMiExFailure(t *testing.T) {
 	if err:=os.WriteFile(log,[]byte(payload),0600);err!=nil {t.Fatal(err)}
 	_,err:=renderSampledPreview(log,filepath.Join(dir,"map.png"),0,0,512)
 	if err==nil { t.Fatal("MiEx failure incorrectly rendered as an empty valid region") }
+}
+
+func TestPreviewRejectsNativeMiExFailureAfterSuccessfulBatch(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "miex.log")
+	output := filepath.Join(dir, "map.png")
+	// MiEx printError emits status/error/stacktrace without a chunks field.
+	// A later failed batch must not turn the earlier success into a partial map.
+	payload := fmt.Sprintf("[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"layerCount\":1,\"image\":\"%s\"}]}\n", solidChunkImage(234, 12, 24))
+	payload += "[COMMAND] {\"status\":\"error\",\"error\":\"chunk database unavailable\",\"stacktrace\":[]}\n"
+	if err := os.WriteFile(logPath, []byte(payload), 0600); err != nil {
+		t.Fatal(err)
+	}
+	count, err := renderSampledPreview(logPath, output, 0, 0, 32)
+	if count != 0 || err == nil || !strings.Contains(err.Error(), "chunk database unavailable") {
+		t.Fatalf("native failure was hidden by an earlier batch: count=%d err=%v", count, err)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("failed preview published a partial image: %v", err)
+	}
 }
 
 func solidChunkImage(red, green, blue byte) string {

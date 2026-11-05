@@ -88,6 +88,11 @@ func TestMetadataForBothEditions(t *testing.T) {
 }
 
 func TestWorldSortingAndFallbackDates(t *testing.T) {
+	// Discovery also searches normal launcher roots. Isolate the fixture from
+	// real saves on developers' machines.
+	t.Setenv("APPDATA", "")
+	t.Setenv("LOCALAPPDATA", "")
+	t.Setenv("USERPROFILE", "")
 	root := t.TempDir()
 	older := filepath.Join(root, "Older")
 	newer := filepath.Join(root, "Newer")

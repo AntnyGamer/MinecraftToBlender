@@ -920,6 +920,11 @@ def deduplicate_exact_material_slots():
             continue
         values = array('i', [0]) * len(mesh.polygons)
         mesh.polygons.foreach_get('material_index', values)
+        # Blender can retain stale face indices after a material slot was
+        # removed. Preserve those meshes rather than crashing or guessing
+        # which material the user intended for their unassigned faces.
+        if any(val < 0 or val >= len(remap) for val in values):
+            continue
         for i, val in enumerate(values):
             values[i] = remap[val]
         mesh.materials.clear()

@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+# Pin a supported release compiler without raising the go.mod minimum.
+env:
+  BUILD_GO_VERSION: '1.27.3'
+
 # The same branch is built on both push and pull_request. Cancel superseded
 # builds instead of queueing duplicate Windows jobs on every review fix.
 concurrency:
@@ -21,7 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.BUILD_GO_VERSION }}
           cache: false
       - name: Vet_Go
         run: go vet ./...
@@ -61,7 +65,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.BUILD_GO_VERSION }}
           cache: false
       - name: Run_tests
         run: go test ./... -count=1 -timeout 3m
@@ -528,6 +532,9 @@ jobs:
           if ($versionInfo.FileVersion -ne $expected -or $versionInfo.ProductVersion -ne $expected) {
             throw "Compiled EXE version does not match VERSION ($expected): file=$($versionInfo.FileVersion), product=$($versionInfo.ProductVersion)"
           }
+      - name: Verify_normal_user_application_manifest
+        shell: powershell
+        run: ./tools/verify_windows_manifest.ps1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: MinecraftToBlender_v1_Windows

@@ -31,6 +31,9 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 	if !validWorldDir(world.path,world.edition) {
 		return result{what:"Region preview",err:fmt.Errorf("Minecraft world is no longer available")}
 	}
+	if pathsOverlap(world.path, toolsDir(workspace)) {
+		return result{what:"Region preview",err:fmt.Errorf("the converter workspace conflicts with the selected Minecraft save. Choose a workspace outside the world folder")}
+	}
 	tools,err:=toolsSetup(workspace)
 	if err!=nil {return result{what:"Region preview",err:err}}
 	logFile:=filepath.Join(workspace,"Minecraft_Blender_Preview.log")

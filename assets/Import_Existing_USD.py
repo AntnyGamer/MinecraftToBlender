@@ -69,7 +69,7 @@ def load_patched_importer(src):
     # MiEx has whitespace on blank lines between getNode and
     # getNodeIfMissing. Canonicalize blank lines in memory so strictly
     # checked source substitutions match the same official implementation.
-    contents = re.sub(r'(?m)^[ \\t]+$', '', contents)
+    contents = re.sub(r'(?m)^[ \t]+$', '', contents)
     # Upstream removes material nodes while iterating the same Blender
     # collection. Clear the collection atomically so no stale USD/default
     # shader or output node can survive before the Minecraft JSON graph is

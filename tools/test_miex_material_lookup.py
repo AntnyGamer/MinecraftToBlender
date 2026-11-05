@@ -103,7 +103,41 @@ def test_redundant_preview_shaders_are_skipped():
     assert "import_proxy=bool(options['import_type'] != 'render')" in updated
 
 
+def test_minecraft_shader_graph_starts_clean():
+    tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+              and node.name == "load_patched_importer")
+    strings = [node for node in ast.walk(fn)
+               if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+               and isinstance(node.value.value, str)]
+    original = [node.value.value for node in strings
+                if any(isinstance(t, ast.Name) and t.id == "original" for t in node.targets)
+                and "self.mat.node_tree.nodes.remove(node)" in node.value.value]
+    safe = [node.value.value for node in strings
+            if any(isinstance(t, ast.Name) and t.id == "safe" for t in node.targets)
+            and "self.mat.node_tree.nodes.clear()" in node.value.value]
+    assert original == [
+        "        for node in self.mat.node_tree.nodes:\n"
+        "            self.mat.node_tree.nodes.remove(node)"
+    ]
+    assert safe == ["        self.mat.node_tree.nodes.clear()"]
+    # The real Blender Nodes collection has a native .clear() method. Its
+    # intended semantics are to discard every old USD/default shader node.
+    class Nodes(list):
+        def remove(self, item):
+            raise AssertionError("Do not remove elements while iterating this collection")
+
+    nodes = Nodes([SimpleNamespace(name="Old USD shader"),
+                   SimpleNamespace(name="Old material output"),
+                   SimpleNamespace(name="Old texture")])
+    instance = SimpleNamespace(mat=SimpleNamespace(node_tree=SimpleNamespace(nodes=nodes)))
+    scope = {"self": instance}
+    exec(safe[0].strip(), scope)
+    assert not nodes, "The new Minecraft material graph must start with no stale nodes"
+
+
 if __name__ == "__main__":
     test_material_lookup()
     test_redundant_preview_shaders_are_skipped()
-    print("Pinned MiEx material-node lookup and USD preview import regressions passed.")
+    test_minecraft_shader_graph_starts_clean()
+    print("Pinned MiEx material graph reset, fast lookup and USD preview import regressions passed.")

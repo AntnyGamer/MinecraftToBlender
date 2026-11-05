@@ -72,10 +72,10 @@ def main():
     hanging = load("Bedrock_Hanging_Signs.json")
     variables = hanging["handler"][0]["variables"]
     attached = [value for value in variables if value.startswith("attached = ")]
-    assert attached == [
-        "attached = thisBlock.state.attached_bit != null ? "
-        "thisBlock.state.attached_bit == true : thisBlock.state.attached == true"
-    ]
+    assert attached == ["attached = thisBlock.state.attached_bit == true"]
+    # Pinned MiEx's ExprParser cannot parse nested == in the true arm of
+    # the previous ternary expression: it aborts resource pack initialization.
+    assert all(" ? " not in line for line in attached)
     assert "attachedName = attached ? '_attached' : ''" in variables
     assert any("attachedName + '_rot_'" in value for value in variables)
 

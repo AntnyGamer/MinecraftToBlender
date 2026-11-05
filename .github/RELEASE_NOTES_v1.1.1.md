@@ -9,6 +9,21 @@
 - Add explicit MiEx export-as-block entity selection, block-entity diagnostics, and generated material texture reference checks that prevent publishing a known-incomplete export.
 - Expand Windows/Go/Python validation for new behaviors.
 
+## Additional automatic Bedrock visual fidelity fixes
+- Fix Bedrock hanging-sign chain model selection using the Bedrock `attached_bit` state.
+- Install Mojang's original 64×64 shulker-box atlases in Bedrock exports where missing, including the correct undyed and light-gray sheets. Verify all 17 pinned PNGs, preserve custom textures, avoid partially downloaded sets, and remove only hash-identical app-managed files when switching to Java or world resource packs.
+- Prevent shared Blender image textures with different color-space or alpha requirements from changing each other's appearance; continue sharing images when settings match.
+- Reset each MiEx material's old Blender shader nodes completely before rebuilding the Minecraft texture network, avoiding stray default/USD output nodes.
+
+## Blender project and texture display improvements
+- Add an opt-in **Block texture view** in the same Windows EXE. The saved Blender scene opens with a Standard color transform and active textures shown in Solid mode, while preserving the original geometry, material connections and UVs. Leave ambiguous layered/animated textures untouched. Off by default; biome tint, alpha and lighting still require Material Preview.
+- Use the same EXE to optimize an existing `.blend` project, writing an untouched-original numbered copy. Reduce excessive selection and relationship overlays, clean up identical material slots, and preserve original file compression. Optional bounded mesh batching remains Off by default.
+
+## Import performance refinements
+- Skip Blender's redundant USD PreviewSurface shader conversion before MiEx creates Minecraft material nodes. Preserve the material assignments.
+- Accelerate shader layout with cached per-column members, exact creation-order lookup, and shared-branch traversal caching. Automated comparisons verify identical shader-node placements.
+- No old MinecraftToBlender release migration, separate user-run scripts, or geometry-fidelity tradeoffs were added.
+
 ## Optional Minecraft-style water
 - Add an Off-by-default toggle that switches water materials from MiEx's noisy hashed/dithered alpha to Blender 5.2 smooth `BLENDED` transparency. Preserve Minecraft water geometry, UVs, biome color, water textures and existing alpha links; set modest constant alpha only when no image alpha connection exists. Disable layered translucency overlap to reduce multiple overlapping blue faces. This is intended to reduce pixelated holes at a distance; it cannot repair missing mesh faces, and blended water may sort or render more slowly on very large worlds.
 - This is not Minecraft's rendering engine and does not offer identical refraction, underwater effects or animated flowing water.

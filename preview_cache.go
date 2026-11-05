@@ -28,9 +28,13 @@ func previewWorldFingerprint(ctx context.Context, world string) (string, error) 
 		if entry.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("world contains a symbolic link: %s", path)
 		}
+		// Directory timestamps can change from indexing or a temporary
+		// LevelDB helper without changes to saved terrain. Track saved files
+		// rather than directory metadata so an unchanged world stays cached.
+		if entry.IsDir() { return nil }
 		info, err := entry.Info()
 		if err != nil { return err }
-		if !entry.IsDir() && !info.Mode().IsRegular() {
+		if !info.Mode().IsRegular() {
 			return fmt.Errorf("world contains a non-regular file: %s", path)
 		}
 		rel, err := filepath.Rel(world, path)
@@ -40,8 +44,8 @@ func previewWorldFingerprint(ctx context.Context, world string) (string, error) 
 		// Small world metadata files can change without changing length.
 		// Hash their actual bytes as well. Terrain DB changes are tracked by
 		// the metadata of every DB file, not just level.dat.
-		if !entry.IsDir() && (strings.EqualFold(entry.Name(), "level.dat") ||
-			strings.EqualFold(entry.Name(), "level.dat_old")) {
+		if strings.EqualFold(entry.Name(), "level.dat") ||
+			strings.EqualFold(entry.Name(), "level.dat_old") {
 			f, err := os.Open(path)
 			if err != nil { return err }
 			_, copyErr := io.Copy(hash, f)

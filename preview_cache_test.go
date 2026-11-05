@@ -90,4 +90,9 @@ func TestPreviewCacheCopiesWithoutDeletingSharedPng(t *testing.T) {
 	_ = os.Remove(second)
 	if err:=os.WriteFile(cached,[]byte("not a PNG"),0600);err!=nil{t.Fatal(err)}
 	if _,ok:=cachedPreview(cached,dir);ok {t.Fatal("accepted corrupted preview")}
+	if _,err:=os.Stat(cached);!os.IsNotExist(err) {t.Fatalf("invalid cache entry not cleared: %v",err)}
+	if err:=storePreviewCache(original,cacheDir,"stable");err!=nil{t.Fatalf("replacing corrupt cached image: %v",err)}
+	repaired,ok:=cachedPreview(cached,dir)
+	if !ok {t.Fatal("could not read repaired cache")}
+	_ = os.Remove(repaired)
 }

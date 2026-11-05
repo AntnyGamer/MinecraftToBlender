@@ -59,6 +59,33 @@ jobs:
           cache: false
       - name: Run_tests
         run: go test ./... -count=1 -timeout 3m
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Validate_pinned_MiEx_expression_parser
+        shell: pwsh
+        run: |
+          $jar = Join-Path $env:RUNNER_TEMP 'MiEx_parser_test.jar'
+          Invoke-WebRequest -Uri 'https://github.com/BramStoutProductions/MiEx/releases/download/v2.0.0.experimental-34/MiEx.jar' -OutFile $jar -TimeoutSec 180
+          $sha = (Get-FileHash -LiteralPath $jar -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne 'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707') {
+            throw "Pinned MiEx.jar SHA-256 mismatch: $sha"
+          }
+          javac -cp $jar -d $env:RUNNER_TEMP tools/MiExExpressionSmoke.java
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compile MiEx parser regression test' }
+          $exprs = [Collections.Generic.List[string]]::new()
+          foreach ($file in @('Bedrock_Beds.json','Bedrock_Shulkers.json','Bedrock_Signs.json','Bedrock_Hanging_Signs.json','Bedrock_Legacy_Banners.json')) {
+            $model = Get-Content -LiteralPath (Join-Path 'assets' $file) -Raw | ConvertFrom-Json
+            foreach ($handler in @($model.handler)) {
+              foreach ($expr in @($handler.variables)) {
+                if ($null -ne $expr -and "$expr".Trim()) { $exprs.Add([string]$expr) }
+              }
+            }
+          }
+          if ($exprs.Count -lt 30) { throw 'Missing expected Bedrock expression coverage' }
+          $exprs | & java -cp "$jar;$env:RUNNER_TEMP" MiExExpressionSmoke
+          if ($LASTEXITCODE -ne 0) { throw 'MiEx rejected a Bedrock expression: see Java exception above' }
       - name: Validate_PowerShell
         shell: powershell
         run: |

@@ -280,3 +280,35 @@ func TestPreviewCombinesSeparateMiExChunkBatches(t *testing.T) {
 		t.Fatalf("second preview chunk changed: %d,%d,%d", r>>8, g>>8, b>>8)
 	}
 }
+
+
+func TestPreviewRequiresEveryMiExBatch(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir,"preview.log")
+	imagePath := filepath.Join(dir,"preview.png")
+	one := fmt.Sprintf("[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"layerCount\":1,\"image\":\"%s\"}]}\n",solidChunkImage(44,55,66))
+	if err := os.WriteFile(logPath,[]byte(one),0600);err!=nil {t.Fatal(err)}
+	if _,err:=renderSampledPreviewExpected(logPath,imagePath,8,8,16,2);err==nil ||
+		!strings.Contains(err.Error(),"only 1 of 2 requested preview batches") {
+		t.Fatalf("missing MiEx chunk batch was not rejected: %v",err)
+	}
+	if _,err:=os.Stat(imagePath);!os.IsNotExist(err) {
+		t.Fatalf("missing batch produced a misleading image: %v",err)
+	}
+	if _,err:=renderSampledPreviewExpected(logPath,imagePath,8,8,16,1);err!=nil {
+		t.Fatalf("complete MiEx batch was rejected: %v",err)
+	}
+}
+
+func TestPreviewBatchCountMatchesExporterChunkGrid(t *testing.T) {
+	for _, sample := range []struct{ x,z,size,batches int } {
+		{8,8,16,1},
+		{0,0,1024,64},
+		{4,-470,1024,67}, // Actual nonaligned Bedrock region: 65 x 65 chunks.
+		{0,0,8192,144}, // Coarse 96 x 96 sample grid.
+	} {
+		if got:=previewBatchCount(sample.x,sample.z,sample.size);got!=sample.batches {
+			t.Fatalf("preview (%d,%d) size %d: %d batches, expected %d",sample.x,sample.z,sample.size,got,sample.batches)
+		}
+	}
+}

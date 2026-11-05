@@ -17,6 +17,11 @@ This remains **Release 1.0** (application version 1.0.0). Its new `release-1.0-*
 - Optional static-mesh batching reduces object overhead and removes exact unused copies of shading normals and unreferenced USD preview colors, while preserving geometry and actual biome tints. Existing Blender projects can be optimized into a separate copy.
 - Request preview images in sequential groups of at most 64, retaining every requested position and its original pixels. Report incremental progress, warn on idle output and count the final response after Java exits.
 - Reject a failed preview batch even if earlier batches succeeded, instead of displaying an incomplete map as a successful preview.
+- Cache preview maps for unchanged worlds, coordinates and options; discard damaged cache entries automatically. Repeated previews can reuse the existing PNG without running MiEx.
+- Show exact X/Z on hover and require confirmation before a map click changes the next export center. Reject missing MiEx response batches instead of accepting partially generated maps.
+- Reduce preview composition work by calculating per-axis sample coordinates once and repaint only the hover footer during mouse movement.
+- Preserve explicit dyed Bedrock bed and shulker-box identities when legacy metadata disagrees, including light-gray shulker state aliases. Validate all 16 dye colors in the pinned MiEx evaluator.
+- Stream managed texture hash checks with a fixed 64 KiB buffer, avoiding two complete in-memory file copies.
 - Preserve source saves, existing Blender projects and the previous completed export when a replacement fails. Older export checkpoints cannot bypass the corrected pipeline.
 
 ## Validation and limits
@@ -26,4 +31,4 @@ This remains **Release 1.0** (application version 1.0.0). Its new `release-1.0-*
 - A tested 11,303,330-face Blender scene retained every face and vertex while reducing mesh objects from 3,120 to 2,865 and its saved size from 3.37 GB to 2.25 GB. These are object/memory reductions; a new full-scene Material Preview FPS result has not been measured.
 - Enchanting books and conduit effects use static poses. Arbitrary add-on pottery patterns, custom entities and every resource pack are not covered. The exporter approximates Minecraft rendering; unusual assets still need visual checking.
 
-Java 21+ is required. MiEx and Minecraft texture resources are installed on demand. The release is built from the tagged source only after all build checks pass; uploaded files are downloaded again and verified against **SHA256SUMS.txt** before publication.
+Java 21+ is required. The build uses the current Go toolchain and refreshed Java setup action. MiEx and Minecraft texture resources are installed on demand. The release is built from the tagged source only after all build checks pass; uploaded files are downloaded again and verified against **SHA256SUMS.txt** before publication.

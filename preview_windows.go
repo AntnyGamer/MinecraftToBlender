@@ -20,6 +20,8 @@ var regionPreview struct {
 	imagePath string
 	worldPath string
 	minX, minZ, size int
+	hoverX, hoverZ int
+	hovered bool
 }
 var regionPreviewCallback uintptr
 var regionPreviewRegistered bool
@@ -34,6 +36,31 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 	if pathsOverlap(world.path, toolsDir(workspace)) {
 		return result{what:"Region preview",err:fmt.Errorf("the converter workspace conflicts with the selected Minecraft save. Choose a workspace outside the world folder")}
 	}
+
+	work := filepath.Join(workspace,"AppTools","MiEx_Work")
+	outDir := filepath.Join(work,"previews")
+	if err := os.MkdirAll(outDir,0755); err != nil {
+		return result{what:"Region preview",err:err}
+	}
+	cacheDir := filepath.Join(outDir,"cache")
+	fingerprint, fingerprintErr := previewWorldFingerprint(ctx,world.path)
+	cacheKey := ""
+	if fingerprintErr == nil {
+		cacheKey = previewCacheKey(world.path,string(world.edition),dimension,useWorldPacks,size,x,z,appVersion(),fingerprint)
+		if cached,ok := cachedPreview(filepath.Join(cacheDir,cacheKey+".png"),outDir);ok {
+			if err := ctx.Err(); err != nil {
+				_ = os.Remove(cached)
+				return result{what:"Region preview",err:err}
+			}
+			guiLog("Preview cache: world files, coordinates and settings unchanged; reused the saved image without running MiEx.")
+			return result{what:"Region preview",output:cached,sourceWorld:world.path,minX:x-size/2,minZ:z-size/2,size:size}
+		}
+	} else if err := ctx.Err(); err != nil {
+		return result{what:"Region preview",err:err}
+	} else {
+		guiLog("Preview cache unavailable for this world; generating a fresh image: "+fingerprintErr.Error())
+	}
+
 	tools,err:=toolsSetup(workspace)
 	if err!=nil {return result{what:"Region preview",err:err}}
 	logFile:=filepath.Join(workspace,"Minecraft_Blender_Preview.log")
@@ -49,9 +76,6 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 	if err := ctx.Err(); err != nil {
 		return result{what:"Region preview",err:err,logFile:logFile}
 	}
-	work:=filepath.Join(workspace,"AppTools","MiEx_Work")
-	outDir:=filepath.Join(work,"previews")
-	if err:=os.MkdirAll(outDir,0755);err!=nil {return result{what:"Region preview",err:err}}
 	imageFile, err := os.CreateTemp(outDir, "Preview_*.png")
 	if err != nil {return result{what:"Region preview",err:err,logFile:logFile}}
 	output := imageFile.Name()
@@ -59,7 +83,7 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 		_ = os.Remove(output)
 		return result{what:"Region preview",err:err,logFile:logFile}
 	}
-	loaded,err:=renderSampledPreview(filepath.Join(work,"miex_console.log"),output,x,z,size)
+	loaded,err:=renderSampledPreviewExpected(filepath.Join(work,"miex_console.log"),output,x,z,size,previewBatchCount(x,z,size))
 	if err!=nil {
 		_ = os.Remove(output)
 		return result{what:"Region preview",err:err,logFile:logFile}
@@ -67,6 +91,17 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 	if err := ctx.Err(); err != nil {
 		_ = os.Remove(output)
 		return result{what:"Region preview",err:err,logFile:logFile}
+	}
+	// Never cache a snapshot if its source world changed while MiEx was reading.
+	if cacheKey != "" {
+		endFingerprint, err := previewWorldFingerprint(ctx,world.path)
+		if err == nil && endFingerprint == fingerprint {
+			if err := storePreviewCache(output,cacheDir,cacheKey); err != nil {
+				guiLog("Preview cache could not be saved: "+err.Error())
+			}
+		} else {
+			guiLog("Preview cache skipped because the source world changed during generation or could not be rechecked.")
+		}
 	}
 	guiLog(fmt.Sprintf("Preview ready: %d real chunk images decoded. Small and medium regions use exact X/Z placement; huge regions use coarse color samples. Gray indicates unavailable or unrendered data.",loaded))
 	return result{what:"Region preview",output:output,logFile:logFile,sourceWorld:world.path,minX:x-size/2,minZ:z-size/2,size:size}
@@ -85,7 +120,10 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 		pGetClientRect.Call(hwnd,uintptr(unsafe.Pointer(&r)))
 		pFillRect.Call(dc,uintptr(unsafe.Pointer(&r)),ui.brushBg)
 		buttonText(dc,"Sampled Minecraft region",rect{32,20,544,46},theme.white,ui.fonts[5],0)
-		if regionPreview.bitmap!=0 {
+		// Hover updates invalidate only the footer; avoid invoking GDI+ to
+		// redraw the 512x512 map when its pixels cannot have changed.
+		if regionPreview.bitmap!=0 && ps.RcPaint.Top < 582 && ps.RcPaint.Bottom > 70 &&
+			ps.RcPaint.Left < 544 && ps.RcPaint.Right > 32 {
 			var gfx uintptr
 			if status,_,_:=pGdipCreateGraphics.Call(dc,uintptr(unsafe.Pointer(&gfx)));status==0 && gfx!=0 {
 				// Pixel-art maps should keep block edges crisp when enlarged.
@@ -95,24 +133,52 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 				pGdipDeleteGraphics.Call(gfx)
 			}
 		}
-		buttonText(dc,"Click to set X/Z. Large maps are approximate sampled views.",rect{32,592,544,620},theme.muted,ui.fonts[3],0)
+		buttonText(dc,"Hover to inspect X/Z. Click to choose after confirmation.",rect{32,592,544,620},theme.muted,ui.fonts[3],0)
+		if regionPreview.hovered {
+			buttonText(dc,fmt.Sprintf("Hovered coordinates: X=%d   Z=%d",regionPreview.hoverX,regionPreview.hoverZ),rect{32,620,544,646},theme.white,ui.fonts[3],0)
+		} else {
+			buttonText(dc,"Gray areas indicate unavailable/unrendered chunks.",rect{32,620,544,646},theme.muted,ui.fonts[3],0)
+		}
 		pEndPaint.Call(hwnd,uintptr(unsafe.Pointer(&ps)))
 		return 0
-	case wmLButtonDown:
-		// A preview may remain open while an export is running; never change
-		// coordinates after the export settings have already been captured.
-		if app.busy {
-			return 0
+	case wmMouseMove:
+		x,y:=int(int16(uint16(lp))),int(int16(uint16(lp>>16)))
+		worldX,worldZ,inside:=previewCoordinates(regionPreview.minX,regionPreview.minZ,regionPreview.size,x,y)
+		if !regionPreview.hovered || regionPreview.hoverX!=worldX || regionPreview.hoverZ!=worldZ || !inside {
+			if inside {
+				regionPreview.hoverX,regionPreview.hoverZ=worldX,worldZ
+			}
+			if regionPreview.hovered!=inside || inside {
+				regionPreview.hovered=inside
+				footer:=rect{Left:32,Top:618,Right:544,Bottom:649}
+				pInvalidate.Call(hwnd,uintptr(unsafe.Pointer(&footer)),0)
+			}
 		}
+		ev:=trackMouseEvent{Size:uint32(unsafe.Sizeof(trackMouseEvent{})),Flags:0x2,Window:hwnd}
+		pTrackMouseEvent.Call(uintptr(unsafe.Pointer(&ev)))
+		return 0
+	case wmMouseLeave:
+		if regionPreview.hovered {
+			regionPreview.hovered=false
+			footer:=rect{Left:32,Top:618,Right:544,Bottom:649}
+				pInvalidate.Call(hwnd,uintptr(unsafe.Pointer(&footer)),0)
+		}
+		return 0
+	case wmLButtonDown:
+		if app.busy { return 0 }
 		if !previewWorldMatches(regionPreview.worldPath) {
 			alert("Preview belongs to another world", "The selected Minecraft world has changed. Generate a new preview for this world.", mbWarn)
 			pDestroyWindow.Call(hwnd)
 			return 0
 		}
 		x,y:=int(int16(uint16(lp))),int(int16(uint16(lp>>16)))
-		if x>=32 && x<544 && y>=70 && y<582 && regionPreview.size>0 {
-			worldX:=regionPreview.minX+((x-32)*regionPreview.size)/512
-			worldZ:=regionPreview.minZ+((y-70)*regionPreview.size)/512
+		worldX,worldZ,inside:=previewCoordinates(regionPreview.minX,regionPreview.minZ,regionPreview.size,x,y)
+		if inside {
+			currentX,currentZ:=strings.TrimSpace(getText(idX)),strings.TrimSpace(getText(idZ))
+			question:=fmt.Sprintf("Set export center to X=%d, Z=%d?\n\nCurrent export center: X=%s, Z=%s\n\nThis changes the region for the NEXT preview/export. The world itself is unchanged.",worldX,worldZ,currentX,currentZ)
+			if alert("Confirm preview coordinates",question,mbWarn|mbYesNo)!=idYes {
+				return 0
+			}
 			setText(app.ctrls[idX],strconv.Itoa(worldX))
 			setText(app.ctrls[idZ],strconv.Itoa(worldZ))
 			pDestroyWindow.Call(hwnd)
@@ -136,6 +202,7 @@ func previewProc(hwnd uintptr, m uint32, wp, lp uintptr) uintptr {
 		regionPreview.token=0
 		regionPreview.imagePath = ""
 		regionPreview.worldPath = ""
+		regionPreview.hovered = false
 		return 0
 	}
 	r,_,_:=pDefWndProc.Call(hwnd,uintptr(m),wp,lp)
@@ -161,6 +228,7 @@ func openPreviewWindow(path string,minX,minZ,size int,worldPath string) {
 		regionPreviewRegistered=true
 	}
 	regionPreview.minX,regionPreview.minZ,regionPreview.size=minX,minZ,size
+	regionPreview.hovered=false
 	startup:=gdipStartupInput{Version:1}
 	if status,_,_:=pGdiplusStartup.Call(uintptr(unsafe.Pointer(&regionPreview.token)),uintptr(unsafe.Pointer(&startup)),0);status!=0 {
 		_ = os.Remove(path)

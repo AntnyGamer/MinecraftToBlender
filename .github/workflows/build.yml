@@ -69,7 +69,7 @@ jobs:
           cache: false
       - name: Run_tests
         run: go test ./... -count=1 -timeout 3m
-      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '21'
@@ -141,6 +141,23 @@ jobs:
             throw 'Git blob SHA1 verifier incorrectly rejected known bytes'
           }
           if (Test-GitBlobSha1 $sample ('0' * 40)) { throw 'Git blob verifier accepted a mismatched hash' }
+          # Streaming verification must keep the exact Git hash across several
+          # 64 KiB read boundaries, not just for the tiny texture fixture.
+          $largeSample = Join-Path $env:RUNNER_TEMP 'verified_git_blob_large.bin'
+          $largeBytes = New-Object byte[] 200003
+          for($i = 0; $i -lt $largeBytes.Length; $i++) { $largeBytes[$i] = [byte]($i % 251) }
+          [IO.File]::WriteAllBytes($largeSample, $largeBytes)
+          $header = [Text.Encoding]::ASCII.GetBytes(('blob ' + $largeBytes.Length + [char]0))
+          $expectedPayload = New-Object byte[] ($header.Length + $largeBytes.Length)
+          [Array]::Copy($header, 0, $expectedPayload, 0, $header.Length)
+          [Array]::Copy($largeBytes, 0, $expectedPayload, $header.Length, $largeBytes.Length)
+          $sha1 = [Security.Cryptography.SHA1]::Create()
+          try {
+            $expectedLarge = ([BitConverter]::ToString($sha1.ComputeHash($expectedPayload))).Replace('-', '').ToLowerInvariant()
+          } finally { $sha1.Dispose() }
+          if (-not (Test-GitBlobSha1 $largeSample $expectedLarge)) {
+            throw 'Streaming Git blob verification differs from the original full-buffer hash'
+          }
           $testBedDir = Join-Path $env:RUNNER_TEMP 'asset_cleanup/resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
           New-Item -ItemType Directory -Force -Path $testBedDir | Out-Null
           $testBedFile = Join-Path $testBedDir 'red.png'
@@ -545,7 +562,13 @@ jobs:
     # A release represents the tested tag, not whichever main build ran first.
     # Immutable release tags cannot be reused after deletion. Give replacement
     # Release 1.0 builds a fresh release-1.0-* tag and retain the display title.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/release-1.0-')
+    # Release 1.0 can also be published from a specially marked, fully tested
+    # main-branch merge. The tag is created only after all required checks pass.
+    # Normal pushes do not publish releases.
+    if: >-
+      github.event_name == 'push' &&
+      (startsWith(github.ref, 'refs/tags/release-1.0-') ||
+       (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release-1.0]')))
     needs: [metadata_tests, windows_build]
     runs-on: ubuntu-latest
     permissions:
@@ -556,9 +579,20 @@ jobs:
       - name: Publish_and_verify_Release_1_0
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/release-1.0-') && github.ref_name || format('release-1.0-{0}', github.run_id) }}
         run: |
           set -euo pipefail
+          # GITHUB_TOKEN-created tags do not launch a duplicate workflow.
+          # Rerunning this job is safe if its tag was already created.
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            existing_tag="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha' 2>/dev/null || true)"
+            if [ -z "$existing_tag" ]; then
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA"
+            else
+              test "$existing_tag" = "$GITHUB_SHA"
+            fi
+          fi
           test "$(tr -d '\r\n' < VERSION)" = '1.0.0'
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')" = "$GITHUB_SHA"
           mkdir -p release verified-release

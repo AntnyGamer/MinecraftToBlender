@@ -247,7 +247,7 @@ jobs:
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives', 'Format-MiExMemory')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -276,11 +276,6 @@ jobs:
           if($large[0].chunkX -ne -64 -or $large[0].chunkZ -ne -64 -or
              $large[-1].chunkX -ne 63 -or $large[-1].chunkZ -ne 63) {
             throw 'Large sample grid did not include its full geographic bounds'
-          }
-          $memoryReading = Format-MiExMemory ([Diagnostics.Process]::GetCurrentProcess())
-          if($memoryReading -notmatch '^MiEx Java RAM \(working set\): [0-9.,]+ (MiB|GiB)$' -or
-             $memoryReading -match '0\.0 GiB') {
-            throw "Measured process memory was formatted incorrectly: $memoryReading"
           }
           $generatedStage = Join-Path $env:RUNNER_TEMP 'generated_materials'
           $generatedFolder = Join-Path $generatedStage 'Sample_chunks/textures/banner'

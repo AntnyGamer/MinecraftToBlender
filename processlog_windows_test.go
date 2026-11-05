@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +12,23 @@ import (
 	"testing"
 	"time"
 )
+
+func TestCancelledProcessPreservesExistingLog(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "previous.log")
+	if err := os.WriteFile(logFile, []byte("previous diagnostics"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := runProcess(ctx, "nonexistent.exe", nil, logFile)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled process returned %v", err)
+	}
+	data, err := os.ReadFile(logFile)
+	if err != nil || string(data) != "previous diagnostics" {
+		t.Fatalf("cancelled operation replaced previous diagnostics: %q, %v", data, err)
+	}
+}
 
 func TestRunProcessPreservesLargeLogs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)

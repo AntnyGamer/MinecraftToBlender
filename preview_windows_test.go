@@ -26,7 +26,7 @@ func TestCancelledPreviewDoesNotStartOrCreateWorkspace(t *testing.T) {
 
 func TestPreviewMatchesOnlySelectedWorld(t *testing.T) {
 	previous := app.selectedWorld
-	defer func(){ app.selectedWorld = previous }()
+	defer func() { app.selectedWorld = previous }()
 	source := filepath.Join(t.TempDir(), "MinecraftSaves", "World A")
 	app.selectedWorld = &localWorld{path: source}
 	if !previewWorldMatches(source) || !previewWorldMatches(strings.ToUpper(source)) {
@@ -38,5 +38,34 @@ func TestPreviewMatchesOnlySelectedWorld(t *testing.T) {
 	app.selectedWorld = nil
 	if previewWorldMatches(source) {
 		t.Fatal("preview should not edit coordinates when no world is selected")
+	}
+}
+
+func TestPreviewRejectsSaveWorkspaceOverlapBeforeWriting(t *testing.T) {
+	for _, layout := range []string{"inside-save", "nested-inside-save", "save-inside-tools"} {
+		t.Run(layout, func(t *testing.T) {
+			root := t.TempDir()
+			world := filepath.Join(root, "save")
+			workspace := world
+			if layout == "nested-inside-save" {
+				workspace = filepath.Join(world, "new-workspace")
+			} else if layout == "save-inside-tools" {
+				workspace = root
+				world = filepath.Join(toolsDir(workspace), "save")
+			}
+			writeFixtureWorld(t, world, bedrockEdition, "Untouched save", 1750000000)
+			before, err := digestDirectory(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := runPreview(context.Background(), localWorld{path: world, edition: bedrockEdition}, workspace, "overworld", false, 16, 0, 0)
+			if result.err == nil || !strings.Contains(result.err.Error(), "workspace conflicts") {
+				t.Fatalf("unsafe preview workspace accepted: %v", result.err)
+			}
+			after, err := digestDirectory(context.Background(), root)
+			if err != nil || after != before {
+				t.Fatalf("rejected preview changed the Minecraft save/workspace: %v", err)
+			}
+		})
 	}
 }

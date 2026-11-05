@@ -35,3 +35,32 @@ func TestConfirmedBlenderImport(t *testing.T) {
 		t.Fatalf("valid result rejected: ok=%v err=%v", ok, err)
 	}
 }
+
+func TestProcessCompletionAfterHugeDiagnosticLine(t *testing.T) {
+	for _, marker := range []string{blenderImportSuccess, blenderOptimizeSuccess} {
+		p := filepath.Join(t.TempDir(), "large.log")
+		prefix := strings.Repeat("x", 9*1024*1024)
+		if err := os.WriteFile(p, []byte(prefix+"\n"+marker), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := confirmedProcessResult(p, marker); err != nil || !ok {
+			t.Fatalf("completion after huge diagnostic rejected: %v, %v", ok, err)
+		}
+		if err := os.WriteFile(p, []byte(prefix), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := confirmedProcessResult(p, marker); err != nil || ok {
+			t.Fatalf("huge unsuccessful log: %v, %v", ok, err)
+		}
+		// Move the marker through every possible split at the read boundary.
+		for split := 1; split < len(marker); split++ {
+			padding := strings.Repeat("x", 64*1024+len(marker)-split)
+			if err := os.WriteFile(p, []byte(padding+marker), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if ok, err := confirmedProcessResult(p, marker); err != nil || !ok {
+				t.Fatalf("split %d rejected: %v, %v", split, ok, err)
+			}
+		}
+	}
+}

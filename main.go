@@ -692,6 +692,9 @@ func officialMiExImporter(ctx context.Context, tools string) (string, error) {
 }
 
 func runProcess(ctx context.Context, name string, args []string, logfile string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(logfile), 0755); err != nil {
 		return err
 	}
@@ -700,7 +703,11 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 		return err
 	}
 	defer f.Close()
-	cmd := exec.Command(name, args...)
+	executable, err := trustedSystemExecutable(name)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(executable, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 	// One shared pipe preserves combined diagnostic information without blocking on stderr.
 	r, wpipe := io.Pipe()
@@ -789,9 +796,12 @@ func runProcess(ctx context.Context, name string, args []string, logfile string)
 	case <-ctx.Done():
 		// PowerShell starts a Java subprocess. Terminate the process tree, not only its parent.
 		killCtx, stopKill := context.WithTimeout(context.Background(), 8*time.Second)
-		killCmd := exec.CommandContext(killCtx, "taskkill.exe", "/T", "/F", "/PID", strconv.Itoa(appPID))
-		killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-		killErr := killCmd.Run()
+		killPath, killErr := trustedSystemExecutable("taskkill.exe")
+		if killErr == nil {
+			killCmd := exec.CommandContext(killCtx, killPath, "/T", "/F", "/PID", strconv.Itoa(appPID))
+			killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+			killErr = killCmd.Run()
+		}
 		stopKill()
 		if killErr != nil {
 			// Fall back to killing the parent when taskkill is unavailable.
@@ -882,8 +892,8 @@ func doOptimizeExistingBlend(ctx context.Context, src, blender, tools string, ba
 	if err != nil || output.Size() == 0 {
 		return "", fmt.Errorf("Blender did not save an optimized copy; see %s", logFile)
 	}
-	logContent, err := os.ReadFile(logFile)
-	if err != nil || !bytes.Contains(logContent, []byte("RESULT: EXISTING BLENDER PROJECT OPTIMIZED.")) {
+	confirmed, err := confirmedProcessResult(logFile, blenderOptimizeSuccess)
+	if err != nil || !confirmed {
 		return "", fmt.Errorf("Blender did not confirm a completed optimization; see %s", logFile)
 	}
 	guiLog("Optimized Blender copy saved: " + target)
@@ -1251,7 +1261,12 @@ func openFolder(path string) {
 		}
 		path = parent
 	}
-	cmd := exec.Command("explorer.exe", path)
+	explorer, err := trustedSystemExecutable("explorer.exe")
+	if err != nil {
+		alert("Cannot open output folder", err.Error(), mbError)
+		return
+	}
+	cmd := exec.Command(explorer, path)
 	if err := cmd.Start(); err != nil {
 		alert("Cannot open output folder", err.Error(), mbError)
 	} else {

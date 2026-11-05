@@ -198,6 +198,20 @@ assert original_materials == remapped_materials
 assert dup.data.materials == [stone, wood]
 assert dup.data.updated == 1
 
+# Existing Blender projects can retain material indices whose slots were
+# removed. Cleanup must leave the entire mesh intact instead of failing or
+# assigning a guessed material, even after encountering earlier valid faces.
+for stale_index in (2, 32767):
+    stale = Obj("stale_slots", Mesh([stone, stone], faces=4))
+    stale.data.polygons.indices = [1, 0, stale_index, 1]
+    all_objects.append(stale)
+    original_slots = list(stale.data.materials)
+    original_indices = list(stale.data.polygons.indices)
+    assert scope["deduplicate_exact_material_slots"]() == 0
+    assert stale.data.materials == original_slots
+    assert stale.data.polygons.indices == original_indices
+    assert stale.data.updated == 0
+
 # Never use approximate material similarity: different shader datablocks,
 # even if they share the same name, must be retained independently.
 same_name = Mat(stone.name)

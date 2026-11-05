@@ -36,13 +36,21 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 		}
 		var response struct {
 			Status string `json:"status"`
+			Error string `json:"error"`
 			Chunks []previewChunk `json:"chunks"`
 		}
-		if err := json.Unmarshal(line[10:], &response); err != nil || response.Chunks == nil {
+		if err := json.Unmarshal(line[10:], &response); err != nil {
 			continue
 		}
 		if response.Status != "" && response.Status != "success" {
-			return 0, fmt.Errorf("MiEx rejected the chunk-preview command: %s", response.Status)
+			message := response.Error
+			if message == "" {
+				message = response.Status
+			}
+			return 0, fmt.Errorf("MiEx rejected a preview command: %s", message)
+		}
+		if response.Chunks == nil {
+			continue
 		}
 		sawChunkResponse = true
 		for _, ch := range response.Chunks {

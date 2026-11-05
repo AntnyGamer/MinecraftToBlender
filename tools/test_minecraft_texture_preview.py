@@ -23,7 +23,33 @@ screens = [
     NS(areas=[NS(spaces=[solid, camera])]),
     NS(areas=[NS(spaces=[material])]),
 ]
-bpy = NS(context=NS(scene=scene), data=NS(screens=screens))
+class Nodes(list):
+    def __init__(self, contents, active):
+        super().__init__(contents)
+        self.active = active
+
+
+def shader(image=None):
+    return NS(type="TEX_IMAGE", image=image)
+
+
+mat_node = NS(type="BSDF_PRINCIPLED")
+base_image = shader(object())
+overlay_image = shader(object())
+other_image = shader(object())
+missing_image = shader()
+base_nodes = Nodes([mat_node, base_image], mat_node)
+layered_nodes = Nodes([mat_node, overlay_image, other_image], mat_node)
+selected_nodes = Nodes([base_image], base_image)
+missing_nodes = Nodes([mat_node, missing_image], mat_node)
+materials = [
+    NS(use_nodes=True, node_tree=NS(nodes=base_nodes)),
+    NS(use_nodes=True, node_tree=NS(nodes=layered_nodes)),
+    NS(use_nodes=True, node_tree=NS(nodes=selected_nodes)),
+    NS(use_nodes=True, node_tree=NS(nodes=missing_nodes)),
+    NS(use_nodes=False),
+]
+bpy = NS(context=NS(scene=scene), data=NS(screens=screens, materials=materials))
 ns = {"bpy": bpy, "log": lambda *args: messages.append(args)}
 exec(code, ns)
 original_objects = scene.objects
@@ -38,6 +64,10 @@ assert material.shading.color_type == "MATERIAL"
 assert camera.type == "IMAGE_EDITOR"
 assert scene.objects is original_objects
 assert scene.world is original_world
+assert base_nodes.active is base_image
+assert layered_nodes.active is mat_node, "Ambiguous layered texture must be left alone"
+assert selected_nodes.active is base_image
+assert missing_nodes.active is mat_node
 
 # Reapplying the optional preference must be safe and repeatable.
 assert ns["apply_minecraft_texture_preview"]() == 1
@@ -50,4 +80,4 @@ assert "'--minecraft-view' in flags" in source
 assert "if minecraft_view:" in source
 assert "apply_minecraft_texture_preview()" in source
 assert "'--minecraft-view'" in source
-print("Minecraft viewport colors and Solid textures are opt-in; material/geometry/shading modes unchanged.")
+print("Minecraft texture preview is opt-in, activates only unambiguous image nodes, preserves shaders/geometry and other shading modes.")

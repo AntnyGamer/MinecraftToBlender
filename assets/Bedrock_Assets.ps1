@@ -97,3 +97,89 @@ function Remove-ManagedBedrockBedTextures([string]$miexDir,[string]$manifestPath
         }
     }
 }
+
+# The Mojang Bedrock shulker sheets share the 64x64 entity UV atlas layout
+# used by MiEx, but Bedrock calls light gray "silver" and undyed "undyed".
+# The pinned manifest maps these two names to the importer's Java-style paths.
+function Ensure-BedrockShulkerTextures([string]$miexDir,[string]$manifestPath) {
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if($manifest.source -ne 'Mojang/bedrock-samples' -or
+       $manifest.revision -notmatch '^[0-9a-f]{40}$' -or
+       $manifest.folder -ne 'resource_pack/textures/entity/shulker' -or
+       @($manifest.textures).Count -ne 17) {
+        throw 'Pinned Mojang Bedrock shulker-texture manifest is malformed.'
+    }
+    $targetDir = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/shulker'
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+    $staged = New-Object System.Collections.ArrayList
+    $failed = $false
+    try {
+        foreach($entry in $manifest.textures) {
+            if($entry.from -notmatch '^shulker_[a-z_]+\.png$' -or
+               $entry.to -notmatch '^shulker(?:_[a-z_]+)?\.png$' -or
+               $entry.git_blob_sha1 -notmatch '^[0-9a-f]{40}$') {
+                throw 'Invalid filename or hash in pinned Mojang shulker texture manifest.'
+            }
+            $target = Join-Path $targetDir $entry.to
+            if(Test-Path -LiteralPath $target -PathType Leaf) {
+                if(-not (Test-GitBlobSha1 $target $entry.git_blob_sha1)) {
+                    # May be a customized Minecraft pack texture.
+                    Write-Warning ('Preserving existing custom shulker texture: ' + $target)
+                }
+                continue
+            }
+            $temp = $target + '.new'
+            $url = 'https://raw.githubusercontent.com/' + $manifest.source + '/' + $manifest.revision + '/' + $manifest.folder + '/' + $entry.from
+            try {
+                Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $temp -TimeoutSec 15 -ErrorAction Stop
+                if(-not (Test-GitBlobSha1 $temp $entry.git_blob_sha1) -or
+                   -not (Test-BedrockBedAtlas $temp)) {
+                    throw ('Bedrock shulker atlas validation failed: ' + $entry.from)
+                }
+                [void]$staged.Add(@{ from=$temp; to=$target })
+            } catch {
+                Write-Warning ('Official Bedrock shulker textures unavailable; keeping existing textures. ' + $_.Exception.Message)
+                $failed = $true
+                break
+            }
+        }
+        # Do not apply only some of the 17 official atlases, which could
+        # produce a mixed Java/Bedrock appearance after a failed download.
+        if(-not $failed) {
+            foreach($item in $staged) {
+                Move-Item -LiteralPath $item.from -Destination $item.to -ErrorAction Stop
+            }
+            Write-Host 'Bedrock shulker-box textures: verified official 64x64 atlases where absent.' -ForegroundColor Green
+        }
+    } finally {
+        foreach($item in $staged) {
+            if(Test-Path -LiteralPath $item.from) {
+                Remove-Item -LiteralPath $item.from -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
+function Remove-ManagedBedrockShulkerTextures([string]$miexDir,[string]$manifestPath) {
+    # Only managed, hash-identical Mojang files may be removed. Custom textures
+    # remain intact when changing to Java or world resource packs.
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if($manifest.source -ne 'Mojang/bedrock-samples' -or
+       $manifest.folder -ne 'resource_pack/textures/entity/shulker' -or
+       $manifest.revision -notmatch '^[0-9a-f]{40}$' -or
+       @($manifest.textures).Count -ne 17) {
+        throw 'Pinned Mojang Bedrock shulker-texture manifest is malformed.'
+    }
+    $targetDir = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/shulker'
+    if(-not (Test-Path -LiteralPath $targetDir -PathType Container)) { return }
+    foreach($entry in $manifest.textures) {
+        if($entry.to -notmatch '^shulker(?:_[a-z_]+)?\.png$' -or
+           $entry.git_blob_sha1 -notmatch '^[0-9a-f]{40}$') {
+            throw 'Invalid filename or hash in pinned Mojang shulker texture manifest.'
+        }
+        $target = Join-Path $targetDir $entry.to
+        if(Test-GitBlobSha1 $target $entry.git_blob_sha1) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction Stop
+        }
+    }
+}

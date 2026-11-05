@@ -1,4 +1,48 @@
-# Optional official vanilla Bedrock bed textures for MiEx's Java-style model paths.
+# Bedrock reader overlay and official vanilla textures for MiEx model paths.
+function Install-BedrockReaderClass([string]$sourceJar, [string]$classPath) {
+    $expectedClass = '7bb02805dc9c2c2dd8f3bea78b5c73fdfe4a19740c746f57f96b269eac2a90cb'
+    if((Get-FileHash -LiteralPath $sourceJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+       'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707' -or
+       (Get-FileHash -LiteralPath $classPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedClass) {
+        throw 'Unrecognized MiEx JAR or Bedrock reader overlay. Refusing an unverified patch.'
+    }
+    $root = Join-Path (Split-Path -Parent $sourceJar) 'bedrock_reader'
+    $target = Join-Path $root 'nl/bramstout/mcworldexporter/world/bedrock/ChunkBedrock.class'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+    [IO.File]::Copy($classPath, $target, $true)
+    Write-Host 'Bedrock block-entity reader: corrected section bounds; original MiEx.jar unchanged.'
+    return $root
+}
+
+function Ensure-BannerBaseAlias([string]$miexDir) {
+    # Recent Java assets moved this sheet into entity/banner/. Pinned MiEx
+    # still requests entity/banner_base for the pole/crossbar material.
+    $target = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/banner_base.png'
+    $source = Join-Path $miexDir 'resources/base_resource_pack/assets/minecraft/textures/entity/banner/banner_base.png'
+    $tga = [IO.Path]::ChangeExtension($target, '.tga')
+    if((Test-Path -LiteralPath $target) -or (Test-Path -LiteralPath $tga)) { return }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+    if(Test-Path -LiteralPath $source -PathType Leaf) {
+        [IO.File]::Copy($source, $target, $false)
+        return
+    }
+    # First-run MiEx may not have installed its Java textures yet. Its image
+    # loader and Blender also support Mojang's original Bedrock TGA sheet.
+    $temp = $tga + '.' + [guid]::NewGuid().ToString('N') + '.partial'
+    try {
+        $url = 'https://raw.githubusercontent.com/Mojang/bedrock-samples/15701fa9c13923f12662984c32c124327e40e3d3/resource_pack/textures/entity/banner/banner_base.tga'
+        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $temp -TimeoutSec 15 -ErrorAction Stop
+        if(-not (Test-GitBlobSha1 $temp '91a21d0511a0d0cf0c2ad14261126eee2af53814')) {
+            throw 'Official banner base texture hash mismatch.'
+        }
+        Move-Item -LiteralPath $temp -Destination $tga -ErrorAction Stop
+    } catch {
+        Write-Warning ('Banner pole texture unavailable: ' + $_.Exception.Message)
+    } finally {
+        if(Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+    }
+}
+
 # Files are downloaded on the user's machine only; the EXE does not ship game art.
 function Test-GitBlobSha1([string]$path,[string]$expected) {
     if(-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }

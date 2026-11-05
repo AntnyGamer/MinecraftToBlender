@@ -74,6 +74,18 @@ jobs:
           if ($sha -ne 'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707') {
             throw "Pinned MiEx.jar SHA-256 mismatch: $sha"
           }
+          $rebuilt = Join-Path $env:RUNNER_TEMP 'Bedrock_ChunkReader.class'
+          python tools/build_bedrock_reader_patch.py --jar $jar --output $rebuilt
+          if ($LASTEXITCODE -ne 0) { throw 'Could not rebuild pinned Bedrock reader' }
+          if ((Get-FileHash $rebuilt).Hash -ne (Get-FileHash assets/Bedrock_ChunkReader.class).Hash) {
+            throw 'Bundled Bedrock reader differs from reproducible source patch'
+          }
+          . ./assets/Bedrock_Assets.ps1
+          $readerRoot = Install-BedrockReaderClass $jar (Resolve-Path assets/Bedrock_ChunkReader.class)
+          javac -cp $jar -d $env:RUNNER_TEMP tools/MiExBedrockRegression.java
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compile Bedrock semantic regression' }
+          java -cp "$readerRoot;$jar;$env:RUNNER_TEMP" MiExBedrockRegression
+          if ($LASTEXITCODE -ne 0) { throw 'Bedrock model runtime regression failed' }
           javac -cp $jar -d $env:RUNNER_TEMP tools/MiExExpressionSmoke.java
           if ($LASTEXITCODE -ne 0) { throw 'Could not compile MiEx parser regression test' }
           $exprs = [Collections.Generic.List[string]]::new()

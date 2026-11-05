@@ -53,6 +53,10 @@ func TestResumeCheckpointRequiresIdenticalFilesAndSettings(t *testing.T) {
 	if verifiedResumeCheckpoint(context.Background(),checkpoint,key,world,out) {t.Fatal("changed USD accepted")}
 	write(out,"#usda 1.0")
 	changed:=key
+	if len(key.PipelineHash) != 64 {t.Fatal("resume identity must include the embedded export pipeline hash")}
+	changed.PipelineHash=""
+	if verifiedResumeCheckpoint(context.Background(),checkpoint,changed,world,out) {t.Fatal("checkpoint from the old rendering pipeline accepted")}
+	changed=key
 	changed.Dimension="the_nether"
 	if verifiedResumeCheckpoint(context.Background(),checkpoint,changed,world,out) {t.Fatal("changed dimension accepted")}
 }

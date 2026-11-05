@@ -416,9 +416,13 @@ def apply_minecraft_water_materials():
     for material in bpy.data.materials:
         if not is_minecraft_water_material(material.name) or not material.use_nodes:
             continue
-        shader = material.node_tree.nodes.get('MAT')
-        if shader is None or shader.type != 'BSDF_PRINCIPLED':
+        # MiEx expands the JSON node key MAT into MAT_<texture>_<hash>.
+        # Use the actual node type rather than the unexpanded template key.
+        shaders = [node for node in material.node_tree.nodes.values()
+                   if node.type == 'BSDF_PRINCIPLED']
+        if len(shaders) != 1:
             continue
+        shader = shaders[0]
         alpha = shader.inputs.get('Alpha')
         roughness = shader.inputs.get('Roughness')
         if alpha is None or roughness is None:
@@ -481,7 +485,10 @@ def apply_minecraft_texture_preview():
     for screen in bpy.data.screens:
         for area in screen.areas:
             for space in area.spaces:
-                if space.type == 'VIEW_3D' and space.shading.type == 'SOLID':
+                if space.type == 'VIEW_3D':
+                    # This explicit option must also switch a saved Material
+                    # Preview/Rendered workspace into the requested fast view.
+                    space.shading.type = 'SOLID'
                     space.shading.color_type = 'TEXTURE'
                     changed += 1
     log('MINECRAFT TEXTURE PREVIEW: Standard color transform,',
@@ -663,6 +670,13 @@ def terrain_mesh_batch_key(ob):
     # Thus chunk X=-1 Z=-2 becomes mesh_chunk__1__2_<hash> in USD.
     # Recognize both that upstream-safe form and raw signed names.
     match = re.search(r'mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)', ob.name, re.I)
+    # Blender's USD importer names each mesh after its texture. The chunk
+    # coordinates live on its region_<n>_chunk_<x>_<z> parent instead.
+    parent = ob.parent
+    while match is None and parent is not None:
+        match = re.fullmatch(r'region_\d+_chunk_(_?-?\d+)_(_?-?\d+)(?:\.\d+)?',
+                             parent.name, re.I)
+        parent = parent.parent
     if match is None:
         return None
 

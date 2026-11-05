@@ -612,6 +612,7 @@ try {
     # Keep the pinned MiEx JAR unchanged. Raytracing previously exhausted
     # 24 GB of Java heap, so it stays off. Face-only succeeded in testing.
     $runJar = $jar
+    $bedrockClassRoot = $null
 
     # Official MiEx example resource pack for Blender EEVEE materials only.
     # It does not contain custom block textures and is not the world's custom pack.
@@ -671,6 +672,10 @@ try {
         Abort 'Bedrock asset helper is missing.'
     }
     . $bedrockAssetHelper
+    if($Edition -eq 'bedrock') {
+        $bedrockClassRoot = Install-BedrockReaderClass $jar (Join-Path $base 'Bedrock_ChunkReader.class')
+    }
+    if(-not $UseWorldResourcePacks) { Ensure-BannerBaseAlias $miexDir }
     $bedTextureManifest = Join-Path $base 'Bedrock_Bed_Textures.json'
     # Bedrock uses a different 64x64 bed atlas layout from Java. The Bedrock
     # model UVs match Mojang's geometry.bed and must use the matching sheets.
@@ -758,14 +763,14 @@ try {
         }
         # Bedrock's integer block entity X/Z refer to the block origin, whereas
         # the entity frame model expects the horizontal center of that block.
-        $frameObj | Add-Member -MemberType NoteProperty -Name posX -Value 'thisEntity.state.x + 0.5' -Force
-        $frameObj | Add-Member -MemberType NoteProperty -Name posZ -Value 'thisEntity.state.z + 0.5' -Force
+        $frameObj | Add-Member -MemberType NoteProperty -Name posX -Value 'thisEntity.state.x != null ? (0.5 + thisEntity.state.x) : 0.0' -Force
+        $frameObj | Add-Member -MemberType NoteProperty -Name posZ -Value 'thisEntity.state.z != null ? (0.5 + thisEntity.state.z) : 0.0' -Force
         $frameOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities'
         New-Item -ItemType Directory -Force -Path $frameOverrideDir | Out-Null
         $frameOutput = $frameObj | ConvertTo-Json -Depth 80
         $frameReparsed = $frameOutput | ConvertFrom-Json
-        if($frameReparsed.posX -ne 'thisEntity.state.x + 0.5' -or
-           $frameReparsed.posZ -ne 'thisEntity.state.z + 0.5') {
+        if($frameReparsed.posX -ne $frameObj.posX -or
+           $frameReparsed.posZ -ne $frameObj.posZ) {
             Abort 'Frame entity model override failed validation.'
         }
         [System.IO.File]::WriteAllText($frameOverridePath, $frameOutput + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
@@ -881,6 +886,9 @@ try {
     } else { $heapGiB = 8 }
     Write-Host "Java heap cap: ${heapGiB}G"
     $javaArgs = '-Xmx{0}G -jar "{1}" -cli -cliAutoQuit -storeGenTexInExport -skipWorldResourcePackCheck -commandFile "{2}"' -f $heapGiB, $runJar, $cmdFile
+    if($bedrockClassRoot) {
+        $javaArgs = '-Xmx{0}G -cp "{1};{2}" nl.bramstout.mcworldexporter.MCWorldExporter -cli -cliAutoQuit -storeGenTexInExport -skipWorldResourcePackCheck -commandFile "{3}"' -f $heapGiB, $bedrockClassRoot, $jar, $cmdFile
+    }
     Write-Host "MiEx stdout log: $log"
     Write-Host "MiEx stderr log: $stderrLog"
     Write-Host 'Java warnings alone do NOT stop the export.' -ForegroundColor DarkCyan

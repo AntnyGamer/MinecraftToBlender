@@ -44,7 +44,7 @@ def make_material(name, node_type="BSDF_PRINCIPLED", linked_alpha=True):
                   surface_render_method="DITHERED",
                   use_transparency_overlap=True,
                   blend_method="HASHED",
-                  node_tree=NS(nodes={"MAT": shader}, links=links))
+                  node_tree=NS(nodes={name: shader}, links=links))
     return material, shader, links
 
 

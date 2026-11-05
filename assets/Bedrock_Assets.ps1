@@ -67,16 +67,24 @@ function Ensure-BannerBaseAlias([string]$miexDir) {
 # Files are downloaded on the user's machine only; the EXE does not ship game art.
 function Test-GitBlobSha1([string]$path,[string]$expected) {
     if(-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
-    $bytes = [System.IO.File]::ReadAllBytes($path)
-    $prefix = [System.Text.Encoding]::ASCII.GetBytes(('blob ' + $bytes.Length + [char]0))
-    $payload = New-Object byte[] ($prefix.Length + $bytes.Length)
-    [System.Array]::Copy($prefix, 0, $payload, 0, $prefix.Length)
-    [System.Array]::Copy($bytes, 0, $payload, $prefix.Length, $bytes.Length)
+    $stream = [System.IO.File]::OpenRead($path)
     $sha1 = [System.Security.Cryptography.SHA1]::Create()
     try {
-        $actual = ([System.BitConverter]::ToString($sha1.ComputeHash($payload))).Replace('-', '').ToLowerInvariant()
+        # Git hashes "blob <size>\0" followed by the exact file bytes.
+        # Stream the input instead of allocating two complete file copies.
+        $prefix = [System.Text.Encoding]::ASCII.GetBytes(('blob ' + $stream.Length + [char]0))
+        [void]$sha1.TransformBlock($prefix, 0, $prefix.Length, $prefix, 0)
+        $buffer = New-Object byte[] 65536
+        while(($length = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            [void]$sha1.TransformBlock($buffer, 0, $length, $buffer, 0)
+        }
+        [void]$sha1.TransformFinalBlock([byte[]]@(), 0, 0)
+        $actual = ([System.BitConverter]::ToString($sha1.Hash)).Replace('-', '').ToLowerInvariant()
         return $actual -eq $expected
-    } finally { $sha1.Dispose() }
+    } finally {
+        $stream.Dispose()
+        $sha1.Dispose()
+    }
 }
 function Test-BedrockBedAtlas([string]$path) {
     if(-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }

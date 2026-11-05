@@ -13,14 +13,17 @@ func TestReleaseVersionMatchesBuildAndDocumentation(t *testing.T) {
 	if !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(version) {
 		t.Fatalf("invalid release version %q", version)
 	}
+	// Release 1.0 has a short public label, but the executable keeps the
+	// standard three-part package version and four-part Windows file version.
+	release := strings.TrimSuffix(version, ".0")
 	cases := []struct {
 		path string
 		want string
 	}{
-		{".github/workflows/build.yml", "gh release create v" + version + " "},
-		{".github/workflows/build.yml", "--notes-file .github/RELEASE_NOTES_v" + version + ".md"},
-		{"README.md", "**Version:** v" + version},
-		{".github/RELEASE_NOTES_v" + version + ".md", "# MinecraftToBlender v" + version},
+		{".github/workflows/build.yml", "gh release create v" + release + " "},
+		{".github/workflows/build.yml", "--notes-file .github/RELEASE_NOTES_v" + release + ".md"},
+		{"README.md", "**Version:** v" + release},
+		{".github/RELEASE_NOTES_v" + release + ".md", "# Release " + release},
 	}
 	for _, tc := range cases {
 		data, err := os.ReadFile(tc.path)

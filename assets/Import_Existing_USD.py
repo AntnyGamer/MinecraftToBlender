@@ -66,6 +66,10 @@ def stage_report(src, variant):
 def load_patched_importer(src):
     """Patch two known weak points in the pinned official addon, in memory only."""
     contents = src.read_text(encoding='utf-8-sig')
+    # MiEx has whitespace on blank lines between getNode and
+    # getNodeIfMissing. Canonicalize blank lines in memory so strictly
+    # checked source substitutions match the same official implementation.
+    contents = re.sub(r'(?m)^[ \t]+$', '', contents)
     # Upstream removes material nodes while iterating the same Blender
     # collection. Clear the collection atomically so no stale USD/default
     # shader or output node can survive before the Minecraft JSON graph is

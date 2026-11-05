@@ -2,7 +2,7 @@
 
 <p align="center"><img src="branding/logo.svg" alt="MinecraftToBlender logo" width="112" height="112"></p>
 
-**Version:** v1.1.2  
+**Version:** v1.0  
 **Platform:** Windows 10/11 (64-bit)  
 **Languages:** Go (Win32 interface), PowerShell, Python
 
@@ -27,7 +27,7 @@ Use the **same MinecraftToBlender EXE**: open **Import USD**, browse to an exist
 
 **Automatic Bedrock visual accuracy fixes:** Bedrock hanging signs now use the saved `attached_bit` state to select the correct attached-chain model, rather than relying only on Java's `attached` state. For imported custom-material textures, the Blender importer avoids modifying another material's color-space/alpha settings when a shared image file needs different interpretations; an image datablock is copied only for that genuine conflict. Normal identical texture settings still share images. These corrections require no new options and do not alter the source Minecraft world. Real world screenshots are still needed for pixel-by-pixel fidelity verification.
 
-### Export options (v1.1.2)
+### Export options (v1.0)
 
 **Minecraft-style water (optional, Off by default):** Use the toggle in **Export options** before either **Export to Blender** or **Import USD**. The imported Blender water retains the MiEx water mesh, UV coordinates, and existing biome-tinted color textures, and switches just those water materials from MiEx's noisy hashed transparency to Blender 5.2's smoothly blended transparency. Existing texture-alpha connections remain intact, and materials with no texture alpha receive a conservative 0.80 constant opacity. This is a **Blender approximation**, not the proprietary Minecraft Bedrock/Java rendering engine: it cannot reproduce all underwater fog, real-time lighting, animated current flow, or water screen-space effects. Blended surfaces can lower Blender viewport frame rates or have depth-sorting issues on huge oceans, so the default remains Off. The toggle changes Blender shading only; USD-only exports and original world files are unaffected. Reimport an existing USD to switch the effect without re-exporting Minecraft terrain. The existing materials remain the default for all other blocks.
 
@@ -42,7 +42,7 @@ Use the **same MinecraftToBlender EXE**: open **Import USD**, browse to an exist
 
 Use **Export options** in the sidebar to choose the Overworld, Nether or End, select whether to export item frames, paintings, armor stands and display entities, and control the optional safe resume checkpoint. All six previously supported entity types remain enabled by default.
 
-**Preview region** requests every chunk in the selected area when it covers at most **9,216 chunks** (usually an area up to roughly 1,536×1,536 blocks). Its top-down MiEx images are placed at their exact Minecraft X/Z block coordinates, without stitching distant chunks together. This is more accurate but can take longer than v1.1.0's sparse preview on large saves. For larger areas, preview work is bounded to a maximum of 96×96 sampled chunks and the preview becomes a **coarse color overview**, not a detailed map of actual block geometry. Missing, empty, or transparent chunk images remain gray; a screenshot alone cannot establish whether those cells are unsaved terrain or a MiEx decoding failure. Click to update center X/Z; clicks from a preview of a different selected world are rejected. The preview takes a read-only world snapshot and may take time on large saves; temporary preview images are removed after closing the map.
+**Preview region** requests every chunk in the selected area when it covers at most **9,216 chunks** (usually an area up to roughly 1,536×1,536 blocks). Its top-down MiEx images are placed at their exact Minecraft X/Z block coordinates, without stitching distant chunks together. This is more accurate but can take longer than sparse preview sampling on large saves. For larger areas, preview work is bounded to a maximum of 96×96 sampled chunks and the preview becomes a **coarse color overview**, not a detailed map of actual block geometry. Missing, empty, or transparent chunk images remain gray; a screenshot alone cannot establish whether those cells are unsaved terrain or a MiEx decoding failure. Click to update center X/Z; clicks from a preview of a different selected world are rejected. The preview takes a read-only world snapshot and may take time on large saves; temporary preview images are removed after closing the map.
 
 **Check readiness** reports installed Java/Blender versions, available RAM and workspace disk space, and basic region/dimension validity. Export also asks about detected warnings before starting. These are early warnings, not guarantees.
 

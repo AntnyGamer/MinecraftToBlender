@@ -48,6 +48,8 @@ jobs:
         run: python tools/test_blender_texture_audit.py
       - name: Validate_MiEx_shader_lookup
         run: python tools/test_miex_material_lookup.py
+      - name: Validate_complete_pinned_MiEx_importer_patch
+        run: python tools/test_pinned_miex_importer.py
 
   windows_build:
     runs-on: windows-latest
@@ -510,18 +512,19 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Publish_v1_1_2_release
+      - name: Publish_Release_1_0
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.1.2 >/dev/null 2>&1; then
-            echo "Release v1.1.2 already exists; leaving it unchanged."
-            exit 0
+          # The Release 1.0 job runs only on a successful main build.
+          if ! gh release view v1.0 >/dev/null 2>&1; then
+            mkdir -p release
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
+            test -s release/MinecraftToBlender_v1.exe
+            (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
+            gh release create v1.0 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+              --target "$GITHUB_SHA" --title "Release 1.0" \
+              --notes-file .github/RELEASE_NOTES_v1.0.md
           fi
-          mkdir -p release
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
-          test -s release/MinecraftToBlender_v1.exe
-          (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
-          gh release create v1.1.2 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.1.2" \
-            --notes-file .github/RELEASE_NOTES_v1.1.2.md
+          gh release view v1.0 --json assets --jq '.assets[].name' | grep -Fxq 'MinecraftToBlender_v1.exe'
+          gh release view v1.0 --json assets --jq '.assets[].name' | grep -Fxq 'SHA256SUMS.txt'

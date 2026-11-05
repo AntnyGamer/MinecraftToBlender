@@ -536,8 +536,9 @@ jobs:
 
   release:
     # A release represents the tested tag, not whichever main build ran first.
-    # Ordinary main pushes build artifacts without claiming to publish v1.0.
-    if: github.event_name == 'push' && github.ref == 'refs/tags/v1.0'
+    # Immutable release tags cannot be reused after deletion. Give replacement
+    # Release 1.0 builds a fresh release-1.0-* tag and retain the display title.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/release-1.0-')
     needs: [metadata_tests, windows_build]
     runs-on: ubuntu-latest
     permissions:
@@ -548,28 +549,29 @@ jobs:
       - name: Publish_and_verify_Release_1_0
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           test "$(tr -d '\r\n' < VERSION)" = '1.0.0'
-          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/v1.0" --jq '.sha')" = "$GITHUB_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')" = "$GITHUB_SHA"
           mkdir -p release verified-release
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
           test -s release/MinecraftToBlender_v1.exe
           (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
           # Keep uploads private until the actual downloaded bytes match this
           # run's tested executable. An interrupted draft can be retried safely.
-          if ! gh release view v1.0 >/dev/null 2>&1; then
-            gh release create v1.0 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
               --draft --verify-tag --target "$GITHUB_SHA" --title "Release 1.0" \
               --notes-file .github/RELEASE_NOTES_v1.0.md
-          elif [ "$(gh release view v1.0 --json isDraft --jq '.isDraft')" = 'true' ]; then
-            gh release upload v1.0 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt --clobber
-            gh release edit v1.0 --title 'Release 1.0' --notes-file .github/RELEASE_NOTES_v1.0.md
+          elif [ "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = 'true' ]; then
+            gh release upload "$RELEASE_TAG" release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt --clobber
+            gh release edit "$RELEASE_TAG" --title 'Release 1.0' --notes-file .github/RELEASE_NOTES_v1.0.md
           fi
-          gh release download v1.0 --pattern MinecraftToBlender_v1.exe --pattern SHA256SUMS.txt --dir verified-release
+          gh release download "$RELEASE_TAG" --pattern MinecraftToBlender_v1.exe --pattern SHA256SUMS.txt --dir verified-release
           cmp release/SHA256SUMS.txt verified-release/SHA256SUMS.txt
           (cd verified-release && sha256sum --check SHA256SUMS.txt)
-          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/v1.0" --jq '.sha')" = "$GITHUB_SHA"
-          gh release edit v1.0 --draft=false --prerelease=false --latest --title 'Release 1.0'
-          test "$(gh release view v1.0 --json isDraft,isPrerelease --jq '(.isDraft == false) and (.isPrerelease == false)')" = 'true'
-          gh release view v1.0 --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')" = "$GITHUB_SHA"
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest --title 'Release 1.0'
+          test "$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq '(.isDraft == false) and (.isPrerelease == false)')" = 'true'
+          gh release view "$RELEASE_TAG" --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"

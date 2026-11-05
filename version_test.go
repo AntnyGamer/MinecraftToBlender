@@ -20,7 +20,8 @@ func TestReleaseVersionMatchesBuildAndDocumentation(t *testing.T) {
 		path string
 		want string
 	}{
-		{".github/workflows/build.yml", "gh release create v" + release + " "},
+		{".github/workflows/build.yml", "--title \"Release " + release + "\""},
+		{".github/workflows/build.yml", "refs/tags/release-" + release + "-"},
 		{".github/workflows/build.yml", "--notes-file .github/RELEASE_NOTES_v" + release + ".md"},
 		{"README.md", "**Version:** v" + release},
 		{".github/RELEASE_NOTES_v" + release + ".md", "# Release " + release},

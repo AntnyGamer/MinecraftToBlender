@@ -516,7 +516,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Release assets must be published before clearing older releases.
+          # The Release 1.0 job runs only on a successful main build.
           if ! gh release view v1.0 >/dev/null 2>&1; then
             mkdir -p release
             gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
@@ -528,11 +528,3 @@ jobs:
           fi
           gh release view v1.0 --json assets --jq '.assets[].name' | grep -Fxq 'MinecraftToBlender_v1.exe'
           gh release view v1.0 --json assets --jq '.assets[].name' | grep -Fxq 'SHA256SUMS.txt'
-          # Only delete the 11 explicitly requested historical release
-          # records after Release 1.0 has both validated assets. Preserve
-          # Git tags and commit history; no cleanup runs on PR branches.
-          for old_tag in v1.0.0 v1.0.1 v1.0.2 v1.0.3 v1.0.4 v1.0.5 v1.0.6 v1.0.7 v1.1.0 v1.1.1 v1.1.2; do
-            if gh release view "$old_tag" >/dev/null 2>&1; then
-              gh release delete "$old_tag" --yes
-            fi
-          done

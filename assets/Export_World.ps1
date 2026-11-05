@@ -70,6 +70,16 @@ function Ensure-PinnedFile([string]$url,[string]$dest,[string]$expected) {
     Get-WebFile $url $dest
     Test-Hash $dest $expected
 }
+function Get-MiExJavaArguments([int]$heapGiB,[string]$jar,[string]$readerRoot,[string]$commandFile,[bool]$useWorldPacks) {
+    $launchArgs = '-Xmx{0}G -jar "{1}" -cli -cliAutoQuit -storeGenTexInExport -commandFile "{2}"' -f $heapGiB, $jar, $commandFile
+    if($readerRoot) {
+        $launchArgs = '-Xmx{0}G -cp "{1};{2}" nl.bramstout.mcworldexporter.MCWorldExporter -cli -cliAutoQuit -storeGenTexInExport -commandFile "{3}"' -f $heapGiB, $readerRoot, $jar, $commandFile
+    }
+    # The CLI flag overrides MIEX_SKIP_WORLD_RESOURCEPACK_CHECK=0. Passing it
+    # unconditionally prevents loadWorld from discovering bundled world packs.
+    if(-not $useWorldPacks) { $launchArgs += ' -skipWorldResourcePackCheck' }
+    return $launchArgs
+}
 function Start-CapturedProcess([string]$exe,[string]$arguments,[string]$folder,[string]$stdout,[string]$stderr) {
     # System.Diagnostics.Process exposes a reliable ExitCode on Windows
     # PowerShell 5.1, unlike Start-Process -PassThru on some Windows builds.
@@ -177,7 +187,7 @@ function New-PreviewChunkCommands([object[]]$chunks, [int]$batchSize = 64) {
 function Update-PreviewChunkProgress([string]$logPath, [int]$requestedChunks, [int]$batchSize) {
     if(-not (Test-Path -LiteralPath $logPath -PathType Leaf)) { return }
     # Read newly appended log bytes only. A MiEx chunk response can contain
-    # large base64 PNG data; never repeatedly parse the complete console log.
+    # large base64 image data; never repeatedly parse the complete console log.
     $stream = [IO.File]::Open($logPath, [IO.FileMode]::Open,
         [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
     try {
@@ -677,6 +687,7 @@ try {
     # Keep the pinned MiEx JAR unchanged. Raytracing previously exhausted
     # 24 GB of Java heap, so it stays off. Face-only succeeded in testing.
     $runJar = $jar
+    $bedrockClassRoot = $null
 
     # Official MiEx example resource pack for Blender EEVEE materials only.
     # It does not contain custom block textures and is not the world's custom pack.
@@ -736,13 +747,20 @@ try {
         Abort 'Bedrock asset helper is missing.'
     }
     . $bedrockAssetHelper
+    if($Edition -eq 'bedrock') {
+        $bedrockClassRoot = Install-BedrockReaderClass $jar (Join-Path $base 'Bedrock_ChunkReader.class')
+    }
+    Ensure-BannerBaseAlias $miexDir
     $bedTextureManifest = Join-Path $base 'Bedrock_Bed_Textures.json'
     # Bedrock uses a different 64x64 bed atlas layout from Java. The Bedrock
     # model UVs match Mojang's geometry.bed and must use the matching sheets.
     # Keep official, hash-verified files cached; never silently render beds
     # black when the required files could not be installed.
     $shulkerTextureManifest = Join-Path $base 'Bedrock_Shulker_Textures.json'
-    if($Edition -eq 'bedrock' -and -not $UseWorldResourcePacks) {
+    if($Edition -eq 'bedrock') {
+        # A world pack can override just one block. Keep matching vanilla
+        # Bedrock fallbacks for every texture it doesn't replace. MiEx loads
+        # the world pack ABOVE BlenderEEVEE, so its own textures still win.
         Ensure-BedrockBedTextures $miexDir $bedTextureManifest
         # Bedrock's actual 64x64 shulker atlases match the MiEx UV layout,
         # but the undyed and light-gray images have Bedrock-only filenames.
@@ -761,6 +779,10 @@ try {
         'Bedrock_Hanging_Signs.json' = 'hanging_sign.json'
         'Bedrock_Legacy_Banners.json' = 'legacy_banners.json'
         'Bedrock_Frame_Blocks.json' = 'frame_blocks.json'
+        'Bedrock_Skulls.json' = 'skull.json'
+        'Bedrock_Decorated_Pots.json' = 'decorated_pot.json'
+        'Bedrock_Conduits.json' = 'conduit.json'
+        'Bedrock_Enchanting_Table.json' = 'enchanting_table.json'
     }
     if($Edition -eq 'bedrock') {
         New-Item -ItemType Directory -Force -Path $blockOverrideDir | Out-Null
@@ -775,7 +797,7 @@ try {
             }
             Copy-Item -LiteralPath $source -Destination (Join-Path $blockOverrideDir $entry.Value) -Force -ErrorAction Stop
         }
-        Write-Host 'Enabled Bedrock-specific beds, shulker orientation, and legacy sign text models.' -ForegroundColor Green
+        Write-Host 'Enabled Bedrock beds, shulkers, signs, heads, decorated pots, conduits and enchanting books.' -ForegroundColor Green
     } else {
         # Remove any overrides created for an earlier Bedrock export in this workspace.
         foreach($name in $bedrockBlockOverrides.Values) {
@@ -783,6 +805,7 @@ try {
             if(Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction Stop }
         }
     }
+    Set-BedrockDetailModels $miexDir $base $Edition
     $frameStateFolder = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/blockstates'
     $frameOverridePath = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities/item_frame.json'
     # Previous versions installed empty frame blockstates. When MiEx did not
@@ -823,14 +846,14 @@ try {
         }
         # Bedrock's integer block entity X/Z refer to the block origin, whereas
         # the entity frame model expects the horizontal center of that block.
-        $frameObj | Add-Member -MemberType NoteProperty -Name posX -Value 'thisEntity.state.x + 0.5' -Force
-        $frameObj | Add-Member -MemberType NoteProperty -Name posZ -Value 'thisEntity.state.z + 0.5' -Force
+        $frameObj | Add-Member -MemberType NoteProperty -Name posX -Value 'thisEntity.state.x != null ? (0.5 + thisEntity.state.x) : 0.0' -Force
+        $frameObj | Add-Member -MemberType NoteProperty -Name posZ -Value 'thisEntity.state.z != null ? (0.5 + thisEntity.state.z) : 0.0' -Force
         $frameOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities'
         New-Item -ItemType Directory -Force -Path $frameOverrideDir | Out-Null
         $frameOutput = $frameObj | ConvertTo-Json -Depth 80
         $frameReparsed = $frameOutput | ConvertFrom-Json
-        if($frameReparsed.posX -ne 'thisEntity.state.x + 0.5' -or
-           $frameReparsed.posZ -ne 'thisEntity.state.z + 0.5') {
+        if($frameReparsed.posX -ne $frameObj.posX -or
+           $frameReparsed.posZ -ne $frameObj.posZ) {
             Abort 'Frame entity model override failed validation.'
         }
         [System.IO.File]::WriteAllText($frameOverridePath, $frameOutput + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
@@ -947,7 +970,7 @@ try {
         $heapGiB = [int][math]::Max(2, [math]::Min(24, [math]::Floor($ramGiB * 0.5)))
     } else { $heapGiB = 8 }
     Write-Host "Java heap cap: ${heapGiB}G"
-    $javaArgs = '-Xmx{0}G -jar "{1}" -cli -cliAutoQuit -storeGenTexInExport -skipWorldResourcePackCheck -commandFile "{2}"' -f $heapGiB, $runJar, $cmdFile
+    $javaArgs = Get-MiExJavaArguments $heapGiB $runJar $bedrockClassRoot $cmdFile ([bool]$UseWorldResourcePacks)
     Write-Host "MiEx stdout log: $log"
     Write-Host "MiEx stderr log: $stderrLog"
     Write-Host 'Java warnings alone do NOT stop the export.' -ForegroundColor DarkCyan
@@ -1015,6 +1038,11 @@ try {
         }
     }
     $code = Finish-CapturedProcess $capture -PreviewOnly:$PreviewOnly
+    if($PreviewOnly) {
+        # The process can exit before the next poll, with its last response
+        # still in the captured pipe. Count it after both streams are drained.
+        Update-PreviewChunkProgress $log $probeChunks.Count 64
+    }
     if($PreviewOnly -and $worldPackName) {
         try {
             # FileUtil.getResourcePackDir uses the MiEx process working dir,

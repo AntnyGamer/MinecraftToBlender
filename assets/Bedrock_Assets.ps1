@@ -1,4 +1,69 @@
-# Optional official vanilla Bedrock bed textures for MiEx's Java-style model paths.
+# Bedrock reader overlay and official vanilla textures for MiEx model paths.
+function Install-BedrockReaderClass([string]$sourceJar, [string]$classPath) {
+    $expectedClass = 'f1cb94f95ed619139acdfe0ed2207fe21531613b9a160d818e792034c20718d5'
+    if((Get-FileHash -LiteralPath $sourceJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+       'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707' -or
+       (Get-FileHash -LiteralPath $classPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedClass) {
+        throw 'Unrecognized MiEx JAR or Bedrock reader overlay. Refusing an unverified patch.'
+    }
+    $root = Join-Path (Split-Path -Parent $sourceJar) 'bedrock_reader'
+    $target = Join-Path $root 'nl/bramstout/mcworldexporter/world/bedrock/ChunkBedrock.class'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+    [IO.File]::Copy($classPath, $target, $true)
+    Write-Host 'Bedrock block-entity reader: corrected section bounds; original MiEx.jar unchanged.'
+    return $root
+}
+
+function Set-BedrockDetailModels([string]$miexDir,[string]$assetDir,[string]$edition) {
+    $files = @{
+        'Bedrock_Armor_Stand.json' = 'entities/armor_stand.json'
+        'Bedrock_Armor_Boots.json' = 'attachments/boots.json'
+        'Bedrock_Armor_Chestplate.json' = 'attachments/chestplate.json'
+        'Bedrock_Armor_Helmet.json' = 'attachments/helmet.json'
+        'Bedrock_Armor_Leggings.json' = 'attachments/leggings.json'
+    }
+    foreach($entry in $files.GetEnumerator()) {
+        $target = Join-Path $miexDir ('resources/BlenderEEVEE/builtins/minecraft/' + $entry.Value)
+        if($edition -eq 'bedrock') {
+            $source = Join-Path $assetDir $entry.Key
+            [void](Get-Content -LiteralPath $source -Raw | ConvertFrom-Json)
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+            Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop
+        } elseif(Test-Path -LiteralPath $target -PathType Leaf) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction Stop
+        }
+    }
+}
+
+function Ensure-BannerBaseAlias([string]$miexDir) {
+    # Recent Java assets moved this sheet into entity/banner/. Pinned MiEx
+    # still requests entity/banner_base for the pole/crossbar material.
+    $target = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/banner_base.png'
+    $source = Join-Path $miexDir 'resources/base_resource_pack/assets/minecraft/textures/entity/banner/banner_base.png'
+    $tga = [IO.Path]::ChangeExtension($target, '.tga')
+    if((Test-Path -LiteralPath $target) -or (Test-Path -LiteralPath $tga)) { return }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+    if(Test-Path -LiteralPath $source -PathType Leaf) {
+        [IO.File]::Copy($source, $target, $false)
+        return
+    }
+    # First-run MiEx may not have installed its Java textures yet. Its image
+    # loader and Blender also support Mojang's original Bedrock TGA sheet.
+    $temp = $tga + '.' + [guid]::NewGuid().ToString('N') + '.partial'
+    try {
+        $url = 'https://raw.githubusercontent.com/Mojang/bedrock-samples/15701fa9c13923f12662984c32c124327e40e3d3/resource_pack/textures/entity/banner/banner_base.tga'
+        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $temp -TimeoutSec 15 -ErrorAction Stop
+        if(-not (Test-GitBlobSha1 $temp '91a21d0511a0d0cf0c2ad14261126eee2af53814')) {
+            throw 'Official banner base texture hash mismatch.'
+        }
+        Move-Item -LiteralPath $temp -Destination $tga -ErrorAction Stop
+    } catch {
+        Write-Warning ('Banner pole texture unavailable: ' + $_.Exception.Message)
+    } finally {
+        if(Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+    }
+}
+
 # Files are downloaded on the user's machine only; the EXE does not ship game art.
 function Test-GitBlobSha1([string]$path,[string]$expected) {
     if(-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
@@ -82,8 +147,9 @@ function Ensure-BedrockBedTextures([string]$miexDir,[string]$manifestPath) {
 }
 
 function Remove-ManagedBedrockBedTextures([string]$miexDir,[string]$manifestPath) {
-    # Don't let an earlier Bedrock export's fallback textures override Java or
-    # a later world supplied resource pack. Never remove non-matching files.
+    # Don't let Bedrock's differently arranged bed atlas override Java.
+    # Bedrock world packs have higher priority and retain these fallbacks.
+    # Never remove non-matching files.
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $targetDir = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
     if(-not (Test-Path -LiteralPath $targetDir -PathType Container)) { return }
@@ -162,7 +228,7 @@ function Ensure-BedrockShulkerTextures([string]$miexDir,[string]$manifestPath) {
 
 function Remove-ManagedBedrockShulkerTextures([string]$miexDir,[string]$manifestPath) {
     # Only managed, hash-identical Mojang files may be removed. Custom textures
-    # remain intact when changing to Java or world resource packs.
+    # remain intact when changing to Java. Bedrock world packs retain fallbacks.
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if($manifest.source -ne 'Mojang/bedrock-samples' -or
        $manifest.folder -ne 'resource_pack/textures/entity/shulker' -or

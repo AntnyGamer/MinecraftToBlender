@@ -1,0 +1,91 @@
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$parseErrors = $null
+$source = Join-Path $PSScriptRoot '../assets/Export_World.ps1'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    (Resolve-Path $source), [ref]$tokens, [ref]$parseErrors)
+if($parseErrors.Count -gt 0) { throw $parseErrors }
+foreach($name in @('Get-PreviewChunkCoordinates', 'New-PreviewChunkCommands',
+                  'Update-PreviewChunkProgress', 'Start-CapturedProcess',
+                  'Finish-CapturedProcess', 'Format-MiExMemory')) {
+    $definitions = @($ast.FindAll({ param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq $name
+    }, $true))
+    if($definitions.Count -ne 1) { throw "Missing preview helper: $name" }
+    . ([ScriptBlock]::Create($definitions[0].Extent.Text))
+}
+
+$chunks = @(Get-PreviewChunkCoordinates -32 31 -32 31)
+$commands = @(New-PreviewChunkCommands $chunks 64)
+if($chunks.Count -ne 4096 -or $commands.Count -ne 64) {
+    throw 'Expected 4096 positions in 64 preview batches'
+}
+$sent = @($commands | ForEach-Object {
+    if($_.command -ne 'getChunk' -or $_.image -ne $true -or
+       @($_.chunks).Count -gt 64 -or @($_.chunks).Count -lt 1) {
+        throw 'Invalid preview batch shape'
+    }
+    $_.chunks
+})
+$expectedKeys = @($chunks | ForEach-Object { "$($_.chunkX),$($_.chunkZ)" })
+$actualKeys = @($sent | ForEach-Object { "$($_.chunkX),$($_.chunkZ)" })
+if(($actualKeys -join ';') -ne ($expectedKeys -join ';')) {
+    throw 'Preview batches lost, duplicated or reordered source coordinates'
+}
+$tail = @(New-PreviewChunkCommands $chunks[0..64] 64)
+if($tail.Count -ne 2 -or @($tail[1].chunks).Count -ne 1) {
+    throw 'Final partial preview batch was not preserved'
+}
+if(@(New-PreviewChunkCommands @() 64).Count -ne 0) {
+    throw 'Empty preview created commands'
+}
+
+$fixture = Join-Path ([IO.Path]::GetTempPath()) ('miex-preview-test-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $fixture | Out-Null
+$log = Join-Path $fixture 'progress.log'
+$stdout = Join-Path $fixture 'stdout.log'
+$stderr = Join-Path $fixture 'stderr.log'
+try {
+    $script:previewLogCursor = [long]0
+    $script:previewPendingLine = ''
+    $script:previewBatchesFinished = 0
+    $script:previewLastResponse = [DateTime]::UtcNow
+    $success = '[COMMAND] {"status":"success","chunks":[]}'
+    [IO.File]::WriteAllText($log, $success + [Environment]::NewLine)
+    Update-PreviewChunkProgress $log 65 64
+    Update-PreviewChunkProgress $log 65 64
+    if($script:previewBatchesFinished -ne 1) { throw 'Repeated poll counted progress twice' }
+    [IO.File]::AppendAllText($log, '[COMMAND] {"status":"error","chunks":[]}' + [Environment]::NewLine)
+    [IO.File]::AppendAllText($log, $success.Substring(0, 20))
+    Update-PreviewChunkProgress $log 65 64
+    if($script:previewBatchesFinished -ne 1) { throw 'Error or incomplete response counted as success' }
+    [IO.File]::AppendAllText($log, $success.Substring(20) + [Environment]::NewLine)
+    $messages = @(Update-PreviewChunkProgress $log 65 64 6>&1)
+    if($script:previewBatchesFinished -ne 2 -or ($messages -join '') -notmatch '65/65') {
+        throw 'Completed partial response or final batch count was lost'
+    }
+    # A fast child can exit before its first poll. Exercise the real captured
+    # pipes and final drain rather than relying on a synthetic file alone.
+    $script:previewLogCursor = [long]0
+    $script:previewPendingLine = ''
+    $script:previewBatchesFinished = 0
+    $child = @'
+[Console]::Out.WriteLine('[COMMAND] {"status":"success","chunks":[]}')
+exit 0
+'@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child))
+    $shell = (Get-Process -Id $PID).Path
+    $capture = Start-CapturedProcess $shell "-NoLogo -NoProfile -NonInteractive -EncodedCommand $encoded" $fixture $stdout $stderr
+    $code = Finish-CapturedProcess $capture -PreviewOnly
+    Update-PreviewChunkProgress $stdout 1 64
+    if($code -ne 0 -or $script:previewBatchesFinished -ne 1) {
+        throw 'Final response from an exited child was lost'
+    }
+} finally {
+    foreach($path in @($log, $stdout, $stderr)) {
+        if(Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+    }
+    Remove-Item -LiteralPath $fixture -Force
+}
+Write-Host 'Lossless preview batches, incremental/partial progress and final pipe drain passed.'

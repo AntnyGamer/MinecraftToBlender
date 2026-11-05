@@ -25,6 +25,7 @@ type resumeIdentity struct {
 	WorldPacks bool
 	Entities string
 	AppVersion string
+	PipelineHash string
 }
 
 type resumeCheckpoint struct {
@@ -36,10 +37,22 @@ type resumeCheckpoint struct {
 func makeResumeIdentity(world string,edition worldEdition,name string,options exportOptions,size,x,z,minY,maxY int,worldPacks bool) resumeIdentity {
 	full,err:=filepath.Abs(world)
 	if err!=nil {full=world}
+	hasher := sha256.New()
+	entries, _ := payload.ReadDir("assets")
+	for _, entry := range entries {
+		if entry.IsDir() { continue }
+		// Blender display/import changes can reuse the same verified USD.
+		// Only export/model/texture assets invalidate expensive Minecraft work.
+		if entry.Name() != "Export_World.ps1" && entry.Name() != "Convert_USD_To_Crate.py" && !strings.HasPrefix(entry.Name(), "Bedrock_") { continue }
+		data, _ := payload.ReadFile("assets/" + entry.Name())
+		_, _ = fmt.Fprintf(hasher, "%s\x00%d\x00", entry.Name(), len(data))
+		_, _ = hasher.Write(data)
+	}
 	return resumeIdentity{
 		WorldPath:filepath.Clean(full),Edition:string(edition),ExportName:name,
 		Dimension:options.Dimension,Size:size,X:x,Z:z,MinY:minY,MaxY:maxY,
 		WorldPacks:worldPacks,Entities:options.EntityList(),AppVersion:appVersion(),
+		PipelineHash:hex.EncodeToString(hasher.Sum(nil)),
 	}
 }
 

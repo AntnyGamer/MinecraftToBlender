@@ -95,11 +95,10 @@ def main():
         assert doc["blocks"], name
         sign_text = text_of(doc)
         assert "signText" in sign_text, name
-        assert "thisBlock.state.Text" in sign_text, name
-        assert "thisBlock.state.FrontText" in sign_text, name
-        # Legacy front text can coexist with a modern back-text compound.
-        # The fallback must not drop the other side of the sign.
-        assert "'BackText': thisBlock.state.BackText" in sign_text, name
+        # Native reader normalization preserves optional fields and both sides;
+        # expression dictionaries with missing/null values are unsafe in MiEx.
+        assert '"state": "thisBlock.state"' in sign_text, name
+        assert "'BackText':" not in sign_text, name
 
     manifest = load("Bedrock_Bed_Textures.json")
     assert manifest["source"] == "Mojang/bedrock-samples"
@@ -155,6 +154,11 @@ def main():
     assert "'Bedrock_Frame_Blocks.json' = 'frame_blocks.json'" in exporter
     assert "-Name 'exportEntityAsBlocks'" in exporter
     assert "entities=$true" in exporter
+    for name in ("Bedrock_Skulls.json", "Bedrock_Decorated_Pots.json", "Bedrock_Conduits.json", "Bedrock_Enchanting_Table.json"):
+        detail = load(name)
+        check_block_names(detail)
+        assert name in exporter
+    assert "Set-BedrockDetailModels $miexDir $base $Edition" in exporter
     assert "Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest" in exporter
     # The source Bedrock sheets must be present: removing them previously
     # produced black beds because the referenced material had no usable PNG.

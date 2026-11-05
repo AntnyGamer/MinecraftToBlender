@@ -169,6 +169,13 @@ nested_background = Obj("mesh_chunk_1_0_background", Mesh([stone], faces=5))
 nested_background.parent = NS(name="background", parent=None, animation_data=None,
                               constraints=[], hide_render=False)
 assert key(nested_background) is None, "Do not merge proxy or background meshes"
+actual_usd_mesh = Obj("minecraft_block_stone_df8d0afd", Mesh([stone], faces=5))
+actual_usd_mesh.parent = NS(name="region_1_chunk_1_0", parent=None,
+                          animation_data=None, constraints=[], hide_render=False)
+assert key(actual_usd_mesh) == key(terrain[0]), "Real MiEx texture-named meshes use their chunk parent"
+actual_usd_mesh.parent.parent = NS(name="entities", parent=None,
+                                 animation_data=None, constraints=[], hide_render=False)
+assert key(actual_usd_mesh) is None, "Parent-coordinate lookup must retain entity-branch exclusion"
 
 before_faces = sum(len(obj.data.polygons) for obj in all_objects)
 joined = scope["batch_static_terrain_meshes"]()

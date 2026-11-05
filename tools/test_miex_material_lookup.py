@@ -150,7 +150,12 @@ def test_shared_image_color_and_alpha_are_isolated():
         and "node.image = bpy.data.images.load(imagePath, check_existing=True)" in node.value.value
     ]
     assert len(safe_strings) == 1
-    safe_code = compile(textwrap.dedent(safe_strings[0]), "<shared-image>", "exec")
+    # Test only the post-load sharing policy. The full upstream wrapper
+    # includes an except-block 'continue' belonging to import_node's loop.
+    # Executing that isolated wrapper outside its loop would be invalid Python.
+    policy_start = safe_strings[0].index("                        # Blender stores")
+    policy = textwrap.dedent(safe_strings[0][policy_start:])
+    safe_code = compile(policy, "<shared-image>", "exec")
 
     class Image:
         def __init__(self, users, colorspace="sRGB", alpha="STRAIGHT"):
@@ -170,7 +175,7 @@ def test_shared_image_color_and_alpha_are_isolated():
                 assert check_existing
                 return image
 
-        node = SimpleNamespace(image=None)
+        node = SimpleNamespace(image=image)
         data = {"attributes": {
             "colorspace_settings": {"value": colorspace},
             "alpha_mode": {"value": alpha},

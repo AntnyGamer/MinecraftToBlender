@@ -247,10 +247,20 @@ jobs:
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives', 'Format-MiExMemory')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
+          }
+          # Sample the real Windows PowerShell process, including its PID and
+          # private/working-set terminology. Tiny launcher memory must never
+          # be presented as a verified MiEx JVM working set.
+          $memoryReport = Format-MiExMemory ([System.Diagnostics.Process]::GetCurrentProcess())
+          if ($memoryReport -notmatch 'MiEx JVM:' -and $memoryReport -notmatch 'MiEx JVM memory: unavailable') {
+            throw ('Unexpected MiEx memory telemetry: ' + $memoryReport)
+          }
+          if ($memoryReport -match 'Java RAM \(working set\): 10 MiB') {
+            throw 'Stale launcher working set was incorrectly presented as JVM memory'
           }
           # Verify exact preview coordinates and bounded large-area sampling.
           $small = @(Get-PreviewChunkCoordinates -1 0 -1 0)

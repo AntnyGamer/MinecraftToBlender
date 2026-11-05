@@ -2,6 +2,8 @@
 
 Download **MinecraftToBlender_v1.exe** below. This replacement includes the merged Bedrock accuracy, Blender memory and region-preview fixes. Make a **fresh Bedrock export** to recover colors, patterns and entity data omitted by earlier builds.
 
+This remains **Release 1.0** (application version 1.0.0). Its new `release-1.0-*` tag is required because GitHub permanently reserves the old immutable release tag after deletion.
+
 ## Minecraft accuracy
 
 - Restore Bedrock bed colors, banner patterns, item-frame data, shulker facing and legacy sign text. Use matching Bedrock bed/shulker texture atlases and retain vanilla fallbacks beneath partial world resource packs.

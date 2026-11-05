@@ -141,20 +141,26 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 		}
 		out.SetNRGBA(x, y, pixel)
 	}
+	// Every output column/row maps to a single world coordinate.
+	// Compute those mappings once instead of repeating float division and
+	// modulus for each of the 65,536 output pixels.
+	var chunkXAt, chunkZAt, localXAt, localZAt [256]int
+	for i := 0; i < 256; i++ {
+		worldX, worldZ := minX+i*size/256, minZ+i*size/256
+		// Signed right shift is floor division for both positive and
+		// negative chunk coordinates; & 15 is the matching local offset.
+		chunkXAt[i], chunkZAt[i] = worldX>>4, worldZ>>4
+		localXAt[i], localZAt[i] = worldX&15, worldZ&15
+	}
 	if exact {
 		for y := 0; y < 256; y++ {
-			worldZ := minZ + y*size/256
-			chunkZ := int(math.Floor(float64(worldZ) / 16))
-			localZ := ((worldZ % 16) + 16) % 16
+			chunkZ, localZ := chunkZAt[y], localZAt[y]
 			for x := 0; x < 256; x++ {
-				worldX := minX + x*size/256
-				chunkX := int(math.Floor(float64(worldX) / 16))
-				data, ok := tiles[[2]int{chunkX, chunkZ}]
+				data, ok := tiles[[2]int{chunkXAt[x], chunkZ}]
 				if !ok {
 					continue // Missing or unloaded chunks remain visibly gray.
 				}
-				localX := ((worldX % 16) + 16) % 16
-				paintPixel(x, y, data, (localZ*16+localX)*4)
+				paintPixel(x, y, data, (localZ*16+localXAt[x])*4)
 			}
 		}
 	} else {
@@ -189,15 +195,15 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 			index = max(0, min(samples-1, index))
 			return first + int(math.Floor(float64(last-first)*float64(index)/float64(samples-1)))
 		}
+		var sampleXAt, sampleZAt [256]int
+		for i := 0; i < 256; i++ {
+			sampleXAt[i] = nearestSample(chunkXAt[i], firstChunkX, lastChunkX)
+			sampleZAt[i] = nearestSample(chunkZAt[i], firstChunkZ, lastChunkZ)
+		}
 		for y := 0; y < 256; y++ {
-			worldZ := minZ + y*size/256
-			chunkZ := int(math.Floor(float64(worldZ) / 16))
-			sampleZ := nearestSample(chunkZ, firstChunkZ, lastChunkZ)
+			sampleZ := sampleZAt[y]
 			for x := 0; x < 256; x++ {
-				worldX := minX + x*size/256
-				chunkX := int(math.Floor(float64(worldX) / 16))
-				sampleX := nearestSample(chunkX, firstChunkX, lastChunkX)
-				if pixel, ok := average[[2]int{sampleX, sampleZ}]; ok {
+				if pixel, ok := average[[2]int{sampleXAt[x], sampleZ}]; ok {
 					out.SetNRGBA(x, y, pixel)
 				}
 			}

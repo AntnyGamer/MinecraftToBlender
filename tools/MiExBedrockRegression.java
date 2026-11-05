@@ -198,9 +198,14 @@ public final class MiExBedrockRegression {
             bed.addElement(NbtTagByte.newNonPooledInstance("color",(byte)dye));
             bed.addElement(NbtTagByte.newNonPooledInstance("head_piece_bit",(byte)1));
             bed.addElement(NbtTagInt.newNonPooledInstance("direction",0));
-            ExprContext ctx=evaluate("Bedrock_Beds.json","minecraft:black_bed",bed);
+            // Legacy Bedrock bed stores color in the block entity.
+            ExprContext ctx=evaluate("Bedrock_Beds.json","minecraft:bed",bed);
             expect(ctx.variables.get("color").asString(),COLORS[dye]);
             expect(ctx.variables.get("part").asString(),"head");
+            // A named Bedrock color must not be replaced by a default/stale
+            // metadata Color=0, which previously turned dyed beds white.
+            ExprContext named=evaluate("Bedrock_Beds.json","minecraft:black_bed",bed);
+            expect(named.variables.get("color").asString(),"black");
             NbtTagCompound banner=props();
             banner.addElement(NbtTagInt.newNonPooledInstance("Base",15-dye));
             NbtTagCompound pattern=props();
@@ -220,6 +225,20 @@ public final class MiExBedrockRegression {
                 expect(ctx.variables.get("rotX").asFloat(),direction==0?180f:direction==1?0f:90f);
             }
         }
+        // Older Bedrock worlds encode shulker dye in a 'color' block state,
+        // whereas newer worlds have separate IDs for every dyed shulker box.
+        for(String dye:COLORS) {
+            NbtTagCompound legacy=props();
+            legacy.addElement(NbtTagString.newNonPooledInstance("color",dye.equals("light_gray")?"silver":dye));
+            ExprContext legacyCtx=evaluate("Bedrock_Shulkers.json","minecraft:shulker_box",legacy);
+            expect(legacyCtx.variables.get("type").asString(),"shulker_"+dye);
+            ExprContext explicitCtx=evaluate("Bedrock_Shulkers.json","minecraft:"+dye+"_shulker_box",legacy);
+            expect(explicitCtx.variables.get("type").asString(),"shulker_"+dye);
+        }
+        NbtTagCompound conflicting=props();
+        conflicting.addElement(NbtTagString.newNonPooledInstance("color","white"));
+        expect(evaluate("Bedrock_Shulkers.json","minecraft:red_shulker_box",conflicting)
+            .variables.get("type").asString(),"shulker_red");
         NbtTagCompound ominous=props();
         ominous.addElement(NbtTagInt.newNonPooledInstance("Base",0));
         ominous.addElement(NbtTagInt.newNonPooledInstance("Type",1));

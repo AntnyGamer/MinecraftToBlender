@@ -185,7 +185,7 @@ function Format-MiExMemory([System.Diagnostics.Process]$process) {
             foreach($item in $items) { $byPid[[int]$item.ProcessId] = $item }
             foreach($item in $items) {
                 if($item.Name -notin @('java.exe','javaw.exe') -or
-                   -not ($item.CommandLine -match '(?i)MiEx\\.jar')) { continue }
+                   -not ($item.CommandLine -match '(?i)MiEx\.jar')) { continue }
                 $parent = [int]$item.ParentProcessId
                 $descendant = $false
                 for($depth = 0; $depth -lt 10; $depth++) {

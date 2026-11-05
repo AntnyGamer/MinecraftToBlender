@@ -614,10 +614,17 @@ try {
     # model UVs match Mojang's geometry.bed and must use the matching sheets.
     # Keep official, hash-verified files cached; never silently render beds
     # black when the required files could not be installed.
+    $shulkerTextureManifest = Join-Path $base 'Bedrock_Shulker_Textures.json'
     if($Edition -eq 'bedrock' -and -not $UseWorldResourcePacks) {
         Ensure-BedrockBedTextures $miexDir $bedTextureManifest
+        # Bedrock's actual 64x64 shulker atlases match the MiEx UV layout,
+        # but the undyed and light-gray images have Bedrock-only filenames.
+        # Preserve custom textures; if a download is unavailable, continue
+        # with existing MiEx/Java textures rather than failing the export.
+        Ensure-BedrockShulkerTextures $miexDir $shulkerTextureManifest
     } else {
         Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest
+        Remove-ManagedBedrockShulkerTextures $miexDir $shulkerTextureManifest
     }
     $blockOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/blockstates'
     $bedrockBlockOverrides = @{

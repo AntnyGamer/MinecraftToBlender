@@ -67,6 +67,18 @@ def main():
     assert "ground_sign_direction" in text_of(signs)
     assert "facing_direction" in text_of(signs)
 
+    # Bedrock hanging signs use attached_bit, not Java's attached state.
+    # The attached model has the joined/single-point chain arrangement.
+    hanging = load("Bedrock_Hanging_Signs.json")
+    variables = hanging["handler"][0]["variables"]
+    attached = [value for value in variables if value.startswith("attached = ")]
+    assert attached == [
+        "attached = thisBlock.state.attached_bit != null ? "
+        "thisBlock.state.attached_bit == true : thisBlock.state.attached == true"
+    ]
+    assert "attachedName = attached ? '_attached' : ''" in variables
+    assert any("attachedName + '_rot_'" in value for value in variables)
+
     # These names aren't recognized by MiEx's Java-era banner builtin map.
     # Delegate to the actual builtin to retain patterns and vanilla UVs.
     banners = load("Bedrock_Legacy_Banners.json")

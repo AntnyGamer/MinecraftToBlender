@@ -187,7 +187,7 @@ function Update-PreviewChunkProgress([string]$logPath, [int]$requestedChunks, [i
             $script:previewBatchesFinished = 0
         }
         [void]$stream.Seek($script:previewLogCursor, [IO.SeekOrigin]::Begin)
-        $reader = New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8, $false, 8192, $true)
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $false, 8192, $true)
         try {
             $text = $script:previewPendingLine + $reader.ReadToEnd()
             $script:previewLogCursor = $stream.Position

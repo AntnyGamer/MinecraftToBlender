@@ -166,6 +166,58 @@ jobs:
             if($_.Exception.Message -eq 'A corrupt Bedrock bed texture was silently accepted') { throw }
           }
           [IO.File]::Copy($customSample,$damaged,$true)
+          # Bedrock shulker atlas tests reuse real 64x64 PNG mocks and their
+          # verified Git blob hashes; official assets must not erase custom
+          # textures or leave a partially installed pack after a download error.
+          $shulkerNames = @('black','blue','brown','cyan','gray','green','light_blue',
+            'lime','magenta','orange','pink','purple','red','silver','undyed','white','yellow')
+          $shulkerManifest = Join-Path $env:RUNNER_TEMP 'mock_shulker_manifest.json'
+          $shulkerEntries = @($shulkerNames | ForEach-Object {
+            $from = 'shulker_' + $_ + '.png'
+            $to = if($_ -eq 'silver') { 'shulker_light_gray.png' } elseif($_ -eq 'undyed') { 'shulker.png' } else { $from }
+            @{from=$from;to=$to;git_blob_sha1=$expectedBedBlob}
+          })
+          @{source='Mojang/bedrock-samples'; revision=('b' * 40); folder='resource_pack/textures/entity/shulker';
+            textures=$shulkerEntries} | ConvertTo-Json -Depth 7 |
+            Set-Content -LiteralPath $shulkerManifest -Encoding UTF8
+          $shulkerDir = Join-Path $installDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/shulker'
+          New-Item -ItemType Directory -Force -Path $shulkerDir | Out-Null
+          [IO.File]::Copy($customSample,(Join-Path $shulkerDir 'shulker_white.png'))
+          $script:assetDownloads = 0
+          Ensure-BedrockShulkerTextures $installDir $shulkerManifest
+          if($script:assetDownloads -ne 16) { throw 'Wrong count of Bedrock shulker images downloaded' }
+          foreach($entry in $shulkerEntries) {
+            $path = Join-Path $shulkerDir $entry.to
+            if(-not (Test-BedrockBedAtlas $path)) { throw ('Invalid shulker atlas: ' + $entry.to) }
+            if($entry.to -eq 'shulker_white.png') {
+              if(Test-GitBlobSha1 $path $expectedBedBlob) { throw 'Custom white shulker texture was overwritten' }
+            } elseif(-not (Test-GitBlobSha1 $path $expectedBedBlob)) {
+              throw ('Missing verified Bedrock shulker atlas: ' + $entry.to)
+            }
+          }
+          [IO.File]::Copy($customSample,(Join-Path $shulkerDir 'shulker_red.png'),$true)
+          Remove-ManagedBedrockShulkerTextures $installDir $shulkerManifest
+          if(-not (Test-Path (Join-Path $shulkerDir 'shulker_white.png')) -or
+             -not (Test-Path (Join-Path $shulkerDir 'shulker_red.png')) -or
+             (Test-Path (Join-Path $shulkerDir 'shulker.png'))) {
+            throw 'Bedrock shulker cleanup removed custom textures or retained managed vanilla files'
+          }
+          # A failed network request must not install only a subset of colors.
+          $script:assetDownloads = 0
+          function Invoke-WebRequest {
+            [CmdletBinding()]
+            param([switch]$UseBasicParsing,[string]$Uri,[string]$OutFile,[int]$TimeoutSec)
+            $script:assetDownloads++
+            if($script:assetDownloads -eq 2) { throw 'Simulated network outage' }
+            [IO.File]::WriteAllBytes($OutFile, $script:sourceBedBytes)
+          }
+          Ensure-BedrockShulkerTextures $installDir $shulkerManifest
+          if($script:assetDownloads -ne 2 -or
+             (Test-Path (Join-Path $shulkerDir 'shulker.png')) -or
+             (Test-Path (Join-Path $shulkerDir 'shulker_black.png')) -or
+             @(Get-ChildItem -LiteralPath $shulkerDir -Filter '*.new').Count -ne 0) {
+            throw 'Interrupted shulker download installed partial textures or left temporary files'
+          }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
           foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {

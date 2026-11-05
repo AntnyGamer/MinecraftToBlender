@@ -50,3 +50,32 @@ func TestBlenderOutputPathLimit(t *testing.T) {
 		t.Fatalf("expected limit error; got %v", err)
 	}
 }
+
+func TestExistingBlenderProjectGetsNewOutput(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "MyWorld.blend")
+	if err := os.WriteFile(source, []byte("original project"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	target, err := blenderOutputPath(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "MyWorld_2.blend"); target != want {
+		t.Fatalf("existing Blender project target = %q, want %q", target, want)
+	}
+	if err := os.WriteFile(target, []byte("optimized project"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	other, err := blenderOutputPath(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "MyWorld_3.blend"); other != want {
+		t.Fatalf("second optimization target = %q, want %q", other, want)
+	}
+	data, err := os.ReadFile(source)
+	if err != nil || string(data) != "original project" {
+		t.Fatalf("optimizing existing Blender project altered original file: %q, %v", data, err)
+	}
+}

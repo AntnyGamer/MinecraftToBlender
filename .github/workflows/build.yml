@@ -30,6 +30,20 @@ jobs:
         run: python tools/verify_bedrock_assets.py
       - name: Validate_Blender_scene_performance
         run: python tools/test_blender_scene_performance.py
+      - name: Validate_MiEx_material_node_layout_optimization
+        run: python tools/test_miex_layout_lookup.py
+      - name: Validate_bulk_import_selection_optimization
+        run: python tools/test_import_selection.py
+      - name: Validate_existing_Blender_project_optimization
+        run: python tools/test_existing_blend_optimizer.py
+      - name: Validate_opt_in_fast_Blender_viewport
+        run: python tools/test_fast_viewport.py
+      - name: Validate_opt_in_Minecraft_water
+        run: python tools/test_minecraft_water.py
+      - name: Validate_opt_in_Minecraft_texture_preview
+        run: python tools/test_minecraft_texture_preview.py
+      - name: Validate_Blender_static_bounds_fastpath
+        run: python tools/test_blender_bounds_fastpath.py
       - name: Validate_Blender_texture_audit
         run: python tools/test_blender_texture_audit.py
       - name: Validate_MiEx_shader_lookup
@@ -80,40 +94,170 @@ jobs:
           # original download behavior, without any network dependency.
           $installDir = Join-Path $env:RUNNER_TEMP 'asset_install'
           $bedNames = @('white','orange','magenta','light_blue','yellow','lime','pink','gray','light_gray','cyan','purple','blue','brown','green','red','black')
+          # Test with real PNG data rather than the old "hello world" mock,
+          # which previously passed while producing a black bed in Blender.
+          Add-Type -AssemblyName System.Drawing
+          $vanillaSample = Join-Path $env:RUNNER_TEMP 'bedrock_vanilla_sample.png'
+          $customSample = Join-Path $env:RUNNER_TEMP 'bedrock_user_sample.png'
+          $image = [Drawing.Bitmap]::new(64,64)
+          try {
+            $image.SetPixel(4,4,[Drawing.Color]::Red)
+            $image.Save($vanillaSample,[Drawing.Imaging.ImageFormat]::Png)
+          } finally { $image.Dispose() }
+          $image = [Drawing.Bitmap]::new(64,64)
+          try {
+            $image.SetPixel(4,4,[Drawing.Color]::Blue)
+            $image.Save($customSample,[Drawing.Imaging.ImageFormat]::Png)
+          } finally { $image.Dispose() }
+          if(-not (Test-BedrockBedAtlas $vanillaSample) -or
+             -not (Test-BedrockBedAtlas $customSample) -or
+             (Test-BedrockBedAtlas $sample)) {
+            throw '64x64 Bedrock PNG validation rejected a valid atlas or accepted invalid bytes'
+          }
+          $script:sourceBedBytes = [IO.File]::ReadAllBytes($vanillaSample)
+          $prefix = [Text.Encoding]::ASCII.GetBytes(('blob ' + $script:sourceBedBytes.Length + [char]0))
+          $payload = New-Object byte[] ($prefix.Length + $script:sourceBedBytes.Length)
+          [Array]::Copy($prefix,0,$payload,0,$prefix.Length)
+          [Array]::Copy($script:sourceBedBytes,0,$payload,$prefix.Length,$script:sourceBedBytes.Length)
+          $sha1 = [Security.Cryptography.SHA1]::Create()
+          try {
+            $expectedBedBlob = ([BitConverter]::ToString($sha1.ComputeHash($payload))).Replace('-','').ToLowerInvariant()
+          } finally { $sha1.Dispose() }
           $installManifest = Join-Path $env:RUNNER_TEMP 'asset_install_manifest.json'
           @{ source='Mojang/bedrock-samples'; revision=('a' * 40); folder='resource_pack/textures/entity/bed';
-             textures=@($bedNames | ForEach-Object { @{from=($_ + '.png');to=($_ + '.png');git_blob_sha1='3b18e512dba79e4c8300dd08aeb37f8e728b8dad'} }) } |
+             textures=@($bedNames | ForEach-Object { @{from=($_ + '.png');to=($_ + '.png');git_blob_sha1=$expectedBedBlob} }) } |
             ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $installManifest -Encoding UTF8
           $installBedDir = Join-Path $installDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
           New-Item -ItemType Directory -Force -Path $installBedDir | Out-Null
-          foreach ($name in $bedNames) { [IO.File]::WriteAllText((Join-Path $installBedDir ($name + '.png')), 'user custom texture') }
+          foreach ($name in $bedNames) { [IO.File]::Copy($customSample,(Join-Path $installBedDir ($name + '.png'))) }
           $script:assetDownloads = 0
           function Invoke-WebRequest {
             [CmdletBinding()]
             param([switch]$UseBasicParsing,[string]$Uri,[string]$OutFile,[int]$TimeoutSec)
             $script:assetDownloads++
-            [IO.File]::WriteAllBytes($OutFile, [Text.Encoding]::UTF8.GetBytes("hello world`n"))
+            [IO.File]::WriteAllBytes($OutFile, $script:sourceBedBytes)
           }
           Ensure-BedrockBedTextures $installDir $installManifest
-          if ($script:assetDownloads -ne 0) { throw 'Installer downloaded over a user custom texture' }
+          if ($script:assetDownloads -ne 0) { throw 'Installer downloaded over a valid custom texture' }
           foreach ($name in $bedNames) {
-            if ([IO.File]::ReadAllText((Join-Path $installBedDir ($name + '.png'))) -ne 'user custom texture') {
-              throw ('Installer overwrote user customization: ' + $name)
+            $path = Join-Path $installBedDir ($name + '.png')
+            if (-not (Test-GitBlobSha1 $path $expectedBedBlob) -and
+                (Test-BedrockBedAtlas $path) -and
+                ([Convert]::ToBase64String([IO.File]::ReadAllBytes($path)) -eq
+                 [Convert]::ToBase64String([IO.File]::ReadAllBytes($customSample)))) {
+              continue
             }
+            throw ('Installer overwrote or corrupted user customization: ' + $name)
           }
           $missingBed = Join-Path $installBedDir 'red.png'
           Remove-Item -LiteralPath $missingBed -Force
           Ensure-BedrockBedTextures $installDir $installManifest
           if ($script:assetDownloads -ne 1 -or
-              -not (Test-GitBlobSha1 $missingBed '3b18e512dba79e4c8300dd08aeb37f8e728b8dad')) {
-            throw 'Missing managed bed texture was not installed and verified'
+              -not (Test-GitBlobSha1 $missingBed $expectedBedBlob) -or
+              -not (Test-BedrockBedAtlas $missingBed)) {
+            throw 'Missing managed bed PNG was not installed, decoded and verified'
+          }
+          $damaged = Join-Path $installBedDir 'orange.png'
+          [IO.File]::WriteAllText($damaged,'corrupt PNG')
+          try {
+            Ensure-BedrockBedTextures $installDir $installManifest
+            throw 'A corrupt Bedrock bed texture was silently accepted'
+          } catch {
+            if($_.Exception.Message -eq 'A corrupt Bedrock bed texture was silently accepted') { throw }
+          }
+          [IO.File]::Copy($customSample,$damaged,$true)
+          # Bedrock shulker atlas tests reuse real 64x64 PNG mocks and their
+          # verified Git blob hashes; official assets must not erase custom
+          # textures or leave a partially installed pack after a download error.
+          $shulkerNames = @('black','blue','brown','cyan','gray','green','light_blue',
+            'lime','magenta','orange','pink','purple','red','silver','undyed','white','yellow')
+          $shulkerManifest = Join-Path $env:RUNNER_TEMP 'mock_shulker_manifest.json'
+          $shulkerEntries = @($shulkerNames | ForEach-Object {
+            $from = 'shulker_' + $_ + '.png'
+            $to = if($_ -eq 'silver') { 'shulker_light_gray.png' } elseif($_ -eq 'undyed') { 'shulker.png' } else { $from }
+            @{from=$from;to=$to;git_blob_sha1=$expectedBedBlob}
+          })
+          @{source='Mojang/bedrock-samples'; revision=('b' * 40); folder='resource_pack/textures/entity/shulker';
+            textures=$shulkerEntries} | ConvertTo-Json -Depth 7 |
+            Set-Content -LiteralPath $shulkerManifest -Encoding UTF8
+          $shulkerDir = Join-Path $installDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/shulker'
+          New-Item -ItemType Directory -Force -Path $shulkerDir | Out-Null
+          [IO.File]::Copy($customSample,(Join-Path $shulkerDir 'shulker_white.png'))
+          $script:assetDownloads = 0
+          Ensure-BedrockShulkerTextures $installDir $shulkerManifest
+          if($script:assetDownloads -ne 16) { throw 'Wrong count of Bedrock shulker images downloaded' }
+          foreach($entry in $shulkerEntries) {
+            $path = Join-Path $shulkerDir $entry.to
+            if(-not (Test-BedrockBedAtlas $path)) { throw ('Invalid shulker atlas: ' + $entry.to) }
+            if($entry.to -eq 'shulker_white.png') {
+              if(Test-GitBlobSha1 $path $expectedBedBlob) { throw 'Custom white shulker texture was overwritten' }
+            } elseif(-not (Test-GitBlobSha1 $path $expectedBedBlob)) {
+              throw ('Missing verified Bedrock shulker atlas: ' + $entry.to)
+            }
+          }
+          [IO.File]::Copy($customSample,(Join-Path $shulkerDir 'shulker_red.png'),$true)
+          Remove-ManagedBedrockShulkerTextures $installDir $shulkerManifest
+          if(-not (Test-Path (Join-Path $shulkerDir 'shulker_white.png')) -or
+             -not (Test-Path (Join-Path $shulkerDir 'shulker_red.png')) -or
+             (Test-Path (Join-Path $shulkerDir 'shulker.png'))) {
+            throw 'Bedrock shulker cleanup removed custom textures or retained managed vanilla files'
+          }
+          # A failed network request must not install only a subset of colors.
+          $script:assetDownloads = 0
+          function Invoke-WebRequest {
+            [CmdletBinding()]
+            param([switch]$UseBasicParsing,[string]$Uri,[string]$OutFile,[int]$TimeoutSec)
+            $script:assetDownloads++
+            if($script:assetDownloads -eq 2) { throw 'Simulated network outage' }
+            [IO.File]::WriteAllBytes($OutFile, $script:sourceBedBytes)
+          }
+          Ensure-BedrockShulkerTextures $installDir $shulkerManifest
+          if($script:assetDownloads -ne 2 -or
+             (Test-Path (Join-Path $shulkerDir 'shulker.png')) -or
+             (Test-Path (Join-Path $shulkerDir 'shulker_black.png')) -or
+             @(Get-ChildItem -LiteralPath $shulkerDir -Filter '*.new').Count -ne 0) {
+            throw 'Interrupted shulker download installed partial textures or left temporary files'
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
+          }
+          # Verify exact preview coordinates and bounded large-area sampling.
+          $small = @(Get-PreviewChunkCoordinates -1 0 -1 0)
+          if($small.Count -ne 4 -or
+             (@($small | Where-Object { $_.chunkX -eq -1 -and $_.chunkZ -eq -1 })).Count -ne 1 -or
+             (@($small | Where-Object { $_.chunkX -eq 0 -and $_.chunkZ -eq 0 })).Count -ne 1) {
+            throw 'Negative chunk coordinates were dropped or reordered'
+          }
+          $exact = @(Get-PreviewChunkCoordinates -36 35 -36 35)
+          if($exact.Count -ne 5184) { throw "A 1152-block region did not request full chunk coverage: $($exact.Count)" }
+          $large = @(Get-PreviewChunkCoordinates -64 63 -64 63)
+          if($large.Count -ne 9216) { throw "Large preview did not honor its sample cap: $($large.Count)" }
+          if($large[0].chunkX -ne -64 -or $large[0].chunkZ -ne -64 -or
+             $large[-1].chunkX -ne 63 -or $large[-1].chunkZ -ne 63) {
+            throw 'Large sample grid did not include its full geographic bounds'
+          }
+          $memoryReading = Format-MiExMemory ([Diagnostics.Process]::GetCurrentProcess())
+          if($memoryReading -notmatch '^MiEx Java RAM \(working set\): [0-9.,]+ (MiB|GiB)$' -or
+             $memoryReading -match '0\.0 GiB') {
+            throw "Measured process memory was formatted incorrectly: $memoryReading"
+          }
+          $generatedStage = Join-Path $env:RUNNER_TEMP 'generated_materials'
+          $generatedFolder = Join-Path $generatedStage 'Sample_chunks/textures/banner'
+          New-Item -ItemType Directory -Force -Path $generatedFolder | Out-Null
+          $generatedRef = '{"texture":"./Sample_chunks/textures/banner/banner_abc.png"}'
+          try {
+            [void](Assert-GeneratedTextureFiles $generatedStage 'Sample' $generatedRef)
+            throw 'Missing generated banner image passed validation'
+          } catch {
+            if($_.Exception.Message -eq 'Missing generated banner image passed validation') { throw }
+          }
+          [IO.File]::WriteAllBytes((Join-Path $generatedFolder 'banner_abc.png'), [byte[]](1,2,3))
+          if((Assert-GeneratedTextureFiles $generatedStage 'Sample' $generatedRef) -ne 1) {
+            throw 'Generated banner image was not accepted or deduplicated'
           }
           $packRoot = Join-Path $env:RUNNER_TEMP 'preview_pack_cleanup'
           $ownedName = 'MinecraftToBlender_Preview_' + ('a' * 32)
@@ -334,18 +478,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Publish_v1_1_0_release
+      - name: Publish_v1_1_1_release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.1.0 >/dev/null 2>&1; then
-            echo "Release v1.1.0 already exists; leaving it unchanged."
+          if gh release view v1.1.1 >/dev/null 2>&1; then
+            echo "Release v1.1.1 already exists; leaving it unchanged."
             exit 0
           fi
           mkdir -p release
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
           test -s release/MinecraftToBlender_v1.exe
           (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
-          gh release create v1.1.0 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.1.0" \
-            --notes-file .github/RELEASE_NOTES_v1.1.0.md
+          gh release create v1.1.1 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.1.1" \
+            --notes-file .github/RELEASE_NOTES_v1.1.1.md

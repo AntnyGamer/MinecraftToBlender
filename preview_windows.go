@@ -65,7 +65,7 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 		_ = os.Remove(output)
 		return result{what:"Region preview",err:err,logFile:logFile}
 	}
-	guiLog(fmt.Sprintf("Preview ready: %d distinct Minecraft chunks rendered. Gray areas are unsampled or unavailable.",loaded))
+	guiLog(fmt.Sprintf("Preview ready: %d real chunk images decoded. Small and medium regions use exact X/Z placement; huge regions use coarse color samples. Gray indicates unavailable or unrendered data.",loaded))
 	return result{what:"Region preview",output:output,logFile:logFile,sourceWorld:world.path,minX:x-size/2,minZ:z-size/2,size:size}
 }
 

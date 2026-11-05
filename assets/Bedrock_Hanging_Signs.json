@@ -30,10 +30,10 @@
         {
             "variables": [
                 "type = thisBlock.name.substring(thisBlock.name.indexOf(':') + 1)",
-                "rotY = thisBlock.state.rotation != null ? (22.5 * thisBlock.state.rotation) : 0.0",
+                "rotY = thisBlock.state.rotation != null ? (22.5 * thisBlock.state.rotation) : (thisBlock.state.ground_sign_direction != null ? (22.5 * thisBlock.state.ground_sign_direction) : 0.0)",
                 "isWall = false",
-                "attached = thisBlock.state.attached == true",
-                "rotModelI = thisBlock.state.rotation != null ? (0 + thisBlock.state.rotation) : 0",
+                "attached = thisBlock.state.attached_bit != null ? thisBlock.state.attached_bit == true : thisBlock.state.attached == true",
+                "rotModelI = thisBlock.state.rotation != null ? (0 + thisBlock.state.rotation) : (thisBlock.state.ground_sign_direction != null ? (0 + thisBlock.state.ground_sign_direction) : 0)",
                 "rotModelI = rotModelI > 3 ? (rotModelI - 4) : rotModelI",
                 "rotModelI = rotModelI > 3 ? (rotModelI - 4) : rotModelI",
                 "rotModelI = rotModelI > 3 ? (rotModelI - 4) : rotModelI",
@@ -49,11 +49,16 @@
         {
             "condition": "thisBlock.name.endsWith('_wall_hanging_sign')",
             "variables": [
+                "face = thisBlock.state.facing != null ? thisBlock.state.facing : thisBlock.state['minecraft:cardinal_direction']",
+                "face = face == null && thisBlock.state.facing_direction == 2 ? 'north' : face",
+                "face = face == null && thisBlock.state.facing_direction == 3 ? 'south' : face",
+                "face = face == null && thisBlock.state.facing_direction == 4 ? 'west' : face",
+                "face = face == null && thisBlock.state.facing_direction == 5 ? 'east' : face",
                 "rotY = 0",
-                "rotY = thisBlock.state.facing == 'north' ? 180.0 : rotY",
-                "rotY = thisBlock.state.facing == 'east' ? 270.0 : rotY",
-                "rotY = thisBlock.state.facing == 'south' ? 0.0 : rotY",
-                "rotY = thisBlock.state.facing == 'west' ? 90.0 : rotY",
+                "rotY = face == 'north' ? 180.0 : rotY",
+                "rotY = face == 'east' ? 270.0 : rotY",
+                "rotY = face == 'south' ? 0.0 : rotY",
+                "rotY = face == 'west' ? 90.0 : rotY",
                 "isWall = true",
                 "rotYModel = rotY",
                 "modelName = 'minecraft:block/' + type"

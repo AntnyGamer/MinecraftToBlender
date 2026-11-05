@@ -277,6 +277,27 @@ const (
 	uiEntityHeading  = 228
 )
 
+func batchMeshesLabel() string {
+	if app.batchMeshes {
+		return "Batch meshes: On"
+	}
+	return "Batch meshes: Off"
+}
+
+func minecraftWaterLabel() string {
+	if app.minecraftWater {
+		return "Minecraft-style water: On"
+	}
+	return "Minecraft-style water: Off"
+}
+
+func texturePreviewLabel() string {
+	if app.texturePreview {
+		return "Block texture view: On"
+	}
+	return "Block texture view: Off"
+}
+
 func autoOpenBlenderLabel() string {
 	if app.autoOpenBlender {
 		return "Auto-open Blender: On"
@@ -298,13 +319,13 @@ func createControls() {
 	ui.brushLog, _, _ = pCreateBrush.Call(uintptr(theme.logBg))
 
 	uiLabel(uiBrand, "MINECRAFT", 2, theme.sideText, theme.side)
-	uiLabel(uiBrandSub, "TO BLENDER", 3, theme.sideMuted, theme.side)
+	uiLabel(uiBrandSub, "TO BLENDER", 2, theme.sideText, theme.side)
 	uiLabel(uiNavHeader, "CONVERT", 3, theme.sideMuted, theme.side)
 	uiLabel(uiTitle, "Export a Minecraft world", 0, theme.white, theme.bg)
 	uiLabel(uiSubtitle, "Choose a Java or Bedrock save directly from your Minecraft world library.", 3, theme.muted, theme.bg)
 	uiLabel(uiVersion, "VERSION "+appVersion(), 3, theme.accent, theme.bg)
 	uiButton(idTabExport, "Export world")
-	uiButton(idTabImport, "Import USD")
+	uiButton(idTabImport, "Import / optimize")
 	uiButton(idTabSettings, "Settings")
 	uiButton(idTabOptions, "Export options")
 
@@ -335,16 +356,16 @@ func createControls() {
 	uiButton(idBoth, "Export to Blender")
 	uiButton(idExport, "USD only")
 
-	uiLabel(uiImportTitle, "Existing MiEx export", 2, theme.white, theme.card)
-	uiLabel(uiImportInfo, "Already have a USD? Skip the world export.", 3, theme.muted, theme.card)
-	uiLabel(uiUsdLabel, "MAIN MIEX USD FILE", 3, theme.muted, theme.card)
+	uiLabel(uiImportTitle, "Existing USD or Blender file", 2, theme.white, theme.card)
+	uiLabel(uiImportInfo, "Import a USD or optimize an existing .blend copy.", 3, theme.muted, theme.card)
+	uiLabel(uiUsdLabel, "MIEX USD OR BLENDER PROJECT", 3, theme.muted, theme.card)
 	uiField(idUSD, "")
 	uiButton(idUSDBrowse, "Browse")
 	uiLabel(uiBlenderLabel, "BLENDER INSTALLATION", 3, theme.muted, theme.card)
 	uiField(idBlender, detectBlender())
 	uiButton(idBlenderBrowse, "Browse")
-	uiLabel(uiImportHint, "Saves a new .blend beside the USD. Original files remain untouched.", 3, theme.quiet, theme.card)
-	uiButton(idImport, "Create Blender project")
+	uiLabel(uiImportHint, "Creates a new .blend copy; never replaces the original.", 3, theme.quiet, theme.card)
+	uiButton(idImport, "Create / optimize project")
 
 	uiLabel(uiSettingsTitle, "App settings", 2, theme.white, theme.card)
 	uiLabel(uiSettingsInfo, "Choose your workspace and export preferences.", 3, theme.muted, theme.card)
@@ -368,6 +389,9 @@ func createControls() {
 	uiButton(idEntityStands, "Armor stands: On")
 	uiButton(idEntityDisplays, "Displays: On")
 	uiButton(idResume, "Safe resume: Off")
+	uiButton(idBatchMeshes, batchMeshesLabel())
+	uiButton(idWaterStyle, minecraftWaterLabel())
+	uiButton(idTexturePreview, texturePreviewLabel())
 	uiLabel(uiOptionsNote, "Resume reuses verified completed USD only; partial chunks are never trusted.", 3, theme.quiet, theme.card)
 
 	uiLabel(uiActivityTitle, "Activity", 2, theme.white, theme.card)
@@ -431,7 +455,7 @@ func layoutUI() {
 	}
 
 	move(uiBrand, 55, 28, 145, 28)
-	move(uiBrandSub, 22, 69, 175, 19)
+	move(uiBrandSub, 55, 48, 145, 24)
 	move(uiNavHeader, 22, 119, 167, 22)
 	for i, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions} {
 		move(id, 13, 148+i*53, 179, 46)
@@ -447,7 +471,7 @@ func layoutUI() {
 
 	move(uiTitle, contentX, 23, contentW-5, 37)
 	move(uiSubtitle, contentX, 66, contentW-5, 22)
-	move(uiVersion, contentR-135, 9, 135, 19)
+	move(uiVersion, contentR-135, 13, 135, 27)
 
 	x := contentX + 22
 	w := contentW - 44
@@ -567,31 +591,37 @@ func layoutUI() {
 		move(uiPrefsNote, x, top+324, w, 48)
 	}
 	if compact {
-		move(uiOptionsTitle, x, top+14, w, 25)
-		move(uiOptionsInfo, x, top+42, w, 18)
-		move(idDimension, x, top+64, w, 33)
-		move(idPreview, x, top+104, (w-10)/2, 33)
-		move(idPreflight, x+(w-10)/2+10, top+104, (w-10)/2, 33)
-		move(uiEntityHeading, x, top+145, w, 18)
-		move(idEntityFrames, x, top+166, (w-10)/2, 32)
-		move(idEntityPaintings, x+(w-10)/2+10, top+166, (w-10)/2, 32)
-		move(idEntityStands, x, top+205, (w-10)/2, 32)
-		move(idEntityDisplays, x+(w-10)/2+10, top+205, (w-10)/2, 32)
-		move(idResume, x, top+244, w, 32)
-		move(uiOptionsNote, x, top+282, w, 26)
+		move(uiOptionsTitle, x, top+12, w, 25)
+		move(uiOptionsInfo, x, top+40, w, 18)
+		move(idDimension, x, top+62, w, 33)
+		move(idPreview, x, top+101, (w-10)/2, 31)
+		move(idPreflight, x+(w-10)/2+10, top+101, (w-10)/2, 31)
+		move(uiEntityHeading, x, top+141, w, 18)
+		move(idEntityFrames, x, top+162, (w-10)/2, 29)
+		move(idEntityPaintings, x+(w-10)/2+10, top+162, (w-10)/2, 29)
+		move(idEntityStands, x, top+198, (w-10)/2, 29)
+		move(idEntityDisplays, x+(w-10)/2+10, top+198, (w-10)/2, 29)
+		move(idResume, x, top+233, (w-10)/2, 29)
+		move(idBatchMeshes, x+(w-10)/2+10, top+233, (w-10)/2, 29)
+		move(idWaterStyle, x, top+267, (w-10)/2, 29)
+		move(idTexturePreview, x+(w-10)/2+10, top+267, (w-10)/2, 29)
+		move(uiOptionsNote, x, top+299, w, 18)
 	} else {
-		move(uiOptionsTitle, x, top+28, w, 27)
-		move(uiOptionsInfo, x, top+60, w, 19)
-		move(idDimension, x, top+89, w, 39)
-		move(idPreview, x, top+139, (w-12)/2, 40)
-		move(idPreflight, x+(w-12)/2+12, top+139, (w-12)/2, 40)
-		move(uiEntityHeading, x, top+192, w, 18)
-		move(idEntityFrames, x, top+218, (w-12)/2, 40)
-		move(idEntityPaintings, x+(w-12)/2+12, top+218, (w-12)/2, 40)
-		move(idEntityStands, x, top+269, (w-12)/2, 40)
-		move(idEntityDisplays, x+(w-12)/2+12, top+269, (w-12)/2, 40)
-		move(idResume, x, top+317, w, 39)
-		move(uiOptionsNote, x, top+360, w, 20)
+		move(uiOptionsTitle, x, top+22, w, 27)
+		move(uiOptionsInfo, x, top+54, w, 19)
+		move(idDimension, x, top+82, w, 36)
+		move(idPreview, x, top+130, (w-12)/2, 36)
+		move(idPreflight, x+(w-12)/2+12, top+130, (w-12)/2, 36)
+		move(uiEntityHeading, x, top+173, w, 18)
+		move(idEntityFrames, x, top+196, (w-12)/2, 37)
+		move(idEntityPaintings, x+(w-12)/2+12, top+196, (w-12)/2, 37)
+		move(idEntityStands, x, top+241, (w-12)/2, 37)
+		move(idEntityDisplays, x+(w-12)/2+12, top+241, (w-12)/2, 37)
+		move(idResume, x, top+284, (w-12)/2, 36)
+		move(idBatchMeshes, x+(w-12)/2+12, top+284, (w-12)/2, 36)
+		move(idWaterStyle, x, top+326, (w-12)/2, 36)
+		move(idTexturePreview, x+(w-12)/2+12, top+326, (w-12)/2, 36)
+		move(uiOptionsNote, x, top+366, w, 18)
 	}
 
 	a := ui.activityTop
@@ -616,7 +646,7 @@ func layoutUI() {
 	for _, id := range []int{uiSettingsTitle, uiSettingsInfo, uiWorkspaceLabel, uiPrefsNote, uiPacksHint, uiAutoOpenHint, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
 		show(id, ui.tab == 2)
 	}
-	for _, id := range []int{uiOptionsTitle, uiOptionsInfo, uiOptionsNote, uiEntityHeading, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume} {
+	for _, id := range []int{uiOptionsTitle, uiOptionsInfo, uiOptionsNote, uiEntityHeading, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idBatchMeshes, idWaterStyle, idTexturePreview} {
 		show(id, ui.tab == 3)
 	}
 	// In compact mode these actions sit near the bottom of the setup card.
@@ -639,8 +669,8 @@ func switchTab(id int) {
 		setText(app.ctrls[uiTitle], "Export a Minecraft world")
 		setText(app.ctrls[uiSubtitle], "Choose a Java or Bedrock world, adjust the region, and create a Blender project.")
 	case 1:
-		setText(app.ctrls[uiTitle], "Import into Blender")
-		setText(app.ctrls[uiSubtitle], "Turn an existing MiEx USD into a Blender project without re-exporting.")
+		setText(app.ctrls[uiTitle], "Import or optimize")
+		setText(app.ctrls[uiSubtitle], "Use an existing USD or optimize a saved Blender project without re-exporting.")
 	case 2:
 		setText(app.ctrls[uiTitle], "Settings & workspace")
 		setText(app.ctrls[uiSubtitle], "Choose where exports, tools, and completed models are saved.")
@@ -652,7 +682,7 @@ func switchTab(id int) {
 	refreshButtons()
 }
 func refreshButtons() {
-	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idAutoOpenBlender, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
+	for _, id := range []int{idTabExport, idTabImport, idTabSettings, idTabOptions, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idBatchMeshes, idWaterStyle, idExport, idBoth, idImport, idCancel, idFollow, idSelectBedrock, idSelectJava, idWorldPacks, idAutoOpenBlender, idWorldBrowse, idUSDBrowse, idBlenderBrowse, idWorkspaceBrowse, idFolder, idBlendOpen} {
 		if h := app.ctrls[id]; h != 0 {
 			pInvalidate.Call(h, 0, 1)
 		}
@@ -729,7 +759,8 @@ func paintButton(lp uintptr) uintptr {
 		}
 	} else if (id == idEntityFrames && app.entityFrames) || (id == idEntityPaintings && app.entityPaintings) ||
 		(id == idEntityStands && app.entityStands) || (id == idEntityDisplays && app.entityDisplays) ||
-		(id == idResume && app.resumeEnabled) {
+		(id == idResume && app.resumeEnabled) || (id == idBatchMeshes && app.batchMeshes) ||
+		(id == idWaterStyle && app.minecraftWater) || (id == idTexturePreview && app.texturePreview) {
 		fill, fg = theme.accentDark, color(29, 78, 179)
 		if hover || focused {
 			fill = color(200, 223, 255)

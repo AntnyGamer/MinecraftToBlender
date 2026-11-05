@@ -36,3 +36,16 @@ func TestReadinessWarnsWhenWorkspaceIsAFile(t *testing.T) {
 		t.Fatalf("expected workspace file warning, got %q", joined)
 	}
 }
+
+func TestReadinessVersionCommandsStayHidden(t *testing.T) {
+	cmd := hiddenCheckCommand(context.Background(), "java.exe", "-version")
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.HideWindow ||
+		cmd.SysProcAttr.CreationFlags&createNoWindow == 0 {
+		t.Fatalf("Java readiness subprocess would show a console: %+v", cmd.SysProcAttr)
+	}
+	blender := hiddenCheckCommand(context.Background(), "blender.exe", "--version")
+	if blender.SysProcAttr == nil || !blender.SysProcAttr.HideWindow ||
+		blender.SysProcAttr.CreationFlags&createNoWindow == 0 {
+		t.Fatalf("Blender readiness subprocess would show a console: %+v", blender.SysProcAttr)
+	}
+}

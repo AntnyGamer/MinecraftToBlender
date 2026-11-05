@@ -5,6 +5,7 @@ compatibility guards. The source importer is never overwritten.
 """
 import sys
 import types
+import re
 import time
 from collections import Counter
 from pathlib import Path
@@ -32,21 +33,28 @@ def stage_report(src, variant):
             path_parts = str(prim.GetPath()).split('/', 3)
             group = path_parts[2] if len(path_parts) > 2 else 'other'
             examples[group] += 1
-            faces = UsdGeom.Mesh(prim).GetFaceVertexCountsAttr().Get()
-            if faces is not None:
-                face_count = len(faces)
-                stats['faces'] += face_count
-                # Individual block prototypes are reusable source meshes, not
-                # proof of actual solid terrain in the imported world.
-                if group not in ('individualBlocksBaseMeshes', 'entities', 'prototypes'):
-                    stats['world_mesh_faces'] += face_count
-                    stats['world_meshes'] += 1
+            # OpenUSD exposes the native face count directly. Avoid returning
+            # potentially millions of faceVertexCounts values into Python
+            # solely to call len() on them; preserve the full terrain checks.
+            mesh = UsdGeom.Mesh(prim)
+            face_count = mesh.GetFaceCount() if hasattr(mesh, 'GetFaceCount') else len(mesh.GetFaceVertexCountsAttr().Get() or ())
+            stats['faces'] += face_count
+            # Individual block prototypes are reusable source meshes, not
+            # proof of actual solid terrain in the imported world.
+            if group not in ('individualBlocksBaseMeshes', 'entities', 'prototypes'):
+                stats['world_mesh_faces'] += face_count
+                stats['world_meshes'] += 1
         elif prim.IsA(UsdGeom.PointInstancer):
             stats['instancers'] += 1
             inst = UsdGeom.PointInstancer(prim)
-            indices = inst.GetProtoIndicesAttr().Get()
-            if indices is not None:
-                stats['instances'] += len(indices)
+            # Count prototype instances in native USD without copying the
+            # potentially large protoIndices array into Python.
+            if hasattr(inst, 'GetInstanceCount'):
+                stats['instances'] += inst.GetInstanceCount()
+            else:
+                indices = inst.GetProtoIndicesAttr().Get()
+                if indices is not None:
+                    stats['instances'] += len(indices)
     log('USD variant:', variant, 'layers:', len(stage.GetUsedLayers()))
     log('USD mesh definitions:', stats['meshes'], 'mesh faces:', stats['faces'])
     log('USD point instancers:', stats['instancers'], 'instanced positions:', stats['instances'])
@@ -58,6 +66,29 @@ def stage_report(src, variant):
 def load_patched_importer(src):
     """Patch two known weak points in the pinned official addon, in memory only."""
     contents = src.read_text(encoding='utf-8-sig')
+    # Upstream removes material nodes while iterating the same Blender
+    # collection. Clear the collection atomically so no stale USD/default
+    # shader or output node can survive before the Minecraft JSON graph is
+    # built. This is the full reset already intended by the original code.
+    original = '''        for node in self.mat.node_tree.nodes:
+            self.mat.node_tree.nodes.remove(node)'''
+    safe = '''        self.mat.node_tree.nodes.clear()'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx material reset changed; refusing unverified cleanup.')
+    contents = contents.replace(original, safe, 1)
+
+    # MiEx immediately replaces Blender's USD PreviewSurface node networks
+    # from the Minecraft JSON materials. Import the USD material datablocks
+    # and geometry bindings, but skip this redundant temporary shader build.
+    usd_import = "mtl_name_collision_mode='REFERENCE_EXISTING',import_proxy="
+    if contents.count(usd_import) != 1:
+        raise RuntimeError('Pinned MiEx USD material import changed; refusing unverified speedup.')
+    contents = contents.replace(
+        usd_import,
+        "mtl_name_collision_mode='REFERENCE_EXISTING',import_usd_preview=False,import_proxy=",
+        1,
+    )
+    log('PERF: Skipped redundant USD PreviewSurface shader conversion; MiEx Minecraft shaders still imported.')
     original = '                        node.image = bpy.data.images.load(imagePath)'
     safe = '''                        try:
                             node.image = bpy.data.images.load(imagePath, check_existing=True)
@@ -69,7 +100,26 @@ def load_patched_importer(src):
                                     fallback = bpy.data.images.new('_MiEx_Unreadable_Texture', width=1, height=1, alpha=True)
                                     fallback.pixels[:] = (1.0, 0.0, 1.0, 1.0)
                                 node.image = fallback
-                            continue'''
+                            continue
+                        # Blender stores color space and alpha interpretation
+                        # on the shared Image datablock, not on the shader node.
+                        # A custom pack may reuse one file with different
+                        # interpretations. Copy only for a genuine mismatch
+                        # after an image is already used elsewhere, so setting
+                        # up this material cannot recolor other Minecraft
+                        # materials sharing the same file.
+                        attrs = data['attributes']
+                        space_attr = attrs.get('colorspace_settings', {})
+                        space = space_attr.get('value') if isinstance(space_attr, dict) else None
+                        if isinstance(space, list):
+                            color_conflict = bool(space) and node.image.colorspace_settings.name not in space
+                        else:
+                            color_conflict = isinstance(space, str) and node.image.colorspace_settings.name != space
+                        alpha_attr = attrs.get('alpha_mode', {})
+                        alpha = alpha_attr.get('value') if isinstance(alpha_attr, dict) else None
+                        alpha_conflict = isinstance(alpha, str) and node.image.alpha_mode != alpha
+                        if node.image.users > 1 and (color_conflict or alpha_conflict):
+                            node.image = node.image.copy()'''
     if contents.count(original) != 1:
         raise RuntimeError('Existing MiExImport.py does not match expected pinned importer. Nothing was modified.')
     contents = contents.replace(original, safe, 1)
@@ -103,12 +153,161 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('Pinned MiEx material node lookup changed; cannot apply verified optimization.')
     contents = contents.replace(original, faster, 1)
+    # Upstream's material node layout repeatedly scans the entire NodeGrid to
+    # find an already-placed node, which becomes quadratic for large graphs.
+    # Cache the same Blender-unique node names; preserve all rows, columns,
+    # connections, and resulting node positions.
+    original = '''                self.nodes : list[Node] = []
+                self.minColumn = 0
+                self.maxColumn = 0'''
+    faster = '''                self.nodes : list[Node] = []
+                self.byName = {}
+                self.columnSizes = {}
+                self.columnMembers = {0: []}
+                self.minColumn = 0
+                self.maxColumn = 0'''
+    if contents.count(original) != 1:
+        raise RuntimeError('MiEx layout grid constructor changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
+    original = '''            def getNode(self, node: bpy.types.Node) -> Node:
+                for node2 in self.nodes:
+                    if node2.node.name == node.name:
+                        return node2
+                node2 = Node(node, 0, len(self.getColumn(0)))
+                self.nodes.append(node2)
+                return node2
+
+            def getNodeIfMissing(self, node: bpy.types.Node) -> Node|None:
+                for node2 in self.nodes:
+                    if node2.node.name == node.name:
+                        return None
+                node2 = Node(node, 0, len(self.getColumn(0)))
+                self.nodes.append(node2)
+                return node2'''
+    faster = '''            def getNode(self, node: bpy.types.Node) -> Node:
+                node2 = self.byName.get(node.name)
+                if node2 is not None:
+                    return node2
+                node2 = Node(node, 0, self.columnSizes.get(0, 0))
+                self.nodes.append(node2)
+                self.byName[node.name] = node2
+                # Match the original full-grid enumeration order exactly.
+                node2.creation_index = len(self.nodes) - 1
+                self.columnMembers[0].append(node2)
+                self.columnSizes[0] = self.columnSizes.get(0, 0) + 1
+                return node2
+
+            def getNodeIfMissing(self, node: bpy.types.Node) -> Node|None:
+                if node.name in self.byName:
+                    return None
+                node2 = Node(node, 0, self.columnSizes.get(0, 0))
+                self.nodes.append(node2)
+                self.byName[node.name] = node2
+                # Match the original full-grid enumeration order exactly.
+                node2.creation_index = len(self.nodes) - 1
+                self.columnMembers[0].append(node2)
+                self.columnSizes[0] = self.columnSizes.get(0, 0) + 1
+                return node2'''
+    if contents.count(original) != 1:
+        raise RuntimeError('MiEx layout node lookup changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
+    original = '''            def setColumn(self, node:Node, column: int):
+                if node.column >= column:
+                    return
+                prevColumn = node.column
+                prevRow = node.row
+                node.row = len(self.getColumn(column))
+                node.column = column
+                for node in self.nodes:
+                    if node.column == prevColumn and node.row > prevRow:
+                        node.row -= 1
+                self.minColumn = min(self.minColumn, column)
+                self.maxColumn = max(self.maxColumn, column)'''
+    faster = '''            def setColumn(self, node:Node, column: int):
+                if node.column >= column:
+                    return
+                prevColumn = node.column
+                prevRow = node.row
+                newRow = self.columnSizes.get(column, 0)
+                self.columnSizes[prevColumn] -= 1
+                self.columnSizes[column] = newRow + 1
+                node.row = newRow
+                node.column = column
+                oldMembers = self.columnMembers[prevColumn]
+                oldMembers.remove(node)
+                self.columnMembers.setdefault(column, []).append(node)
+                for other in oldMembers:
+                    if other.row > prevRow:
+                        other.row -= 1
+                self.minColumn = min(self.minColumn, column)
+                self.maxColumn = max(self.maxColumn, column)'''
+    if contents.count(original) != 1:
+        raise RuntimeError('MiEx layout column movement changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
+    # MiEx originally walks every shader node each time it requests a
+    # column. With cached per-column membership, only relevant nodes need
+    # visiting. Sort by creation index to reproduce its exact list-insert
+    # ordering, including nodes moved between columns.
+    original = '''            def getColumn(self, column: int) -> list[Node]:
+                res : list[Node] = []
+                for node in self.nodes:
+                    if node.column == column:
+                        res.insert(node.row, node)
+                return res'''
+    faster = '''            def getColumn(self, column: int) -> list[Node]:
+                res : list[Node] = []
+                members = self.columnMembers.get(column, ())
+                for node in sorted(members, key=lambda item: item.creation_index):
+                    res.insert(node.row, node)
+                return res'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx material grid column lookup changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
+    # Shared upstream branches in Minecraft shader networks may reach the same
+    # node many times. A visit at the same or shallower column cannot add a new
+    # placement constraint: that node and its inputs were already processed at
+    # an equal or greater depth. Cache that proven deepest traversal to avoid
+    # revisiting whole branches without altering node positions.
+    original = '''        def placeInColumns(node: bpy.types.Node, nodeGrid: NodeGrid, column: int):
+            node2 = nodeGrid.getNode(node)
+            nodeGrid.setColumn(node2, column)
+
+            for i in range(len(node.inputs)): # type: ignore
+                if node.inputs[i].is_linked:
+                    link : bpy.types.NodeLink = node.inputs[i].links[0]
+                    placeInColumns(link.from_node, nodeGrid, column + 1)'''
+    faster = '''        seen_columns = {}
+
+        def placeInColumns(node: bpy.types.Node, nodeGrid: NodeGrid, column: int):
+            name = node.name
+            if seen_columns.get(name, -1) >= column:
+                return
+            seen_columns[name] = column
+            node2 = nodeGrid.getNode(node)
+            nodeGrid.setColumn(node2, column)
+
+            for i in range(len(node.inputs)): # type: ignore
+                if node.inputs[i].is_linked:
+                    link : bpy.types.NodeLink = node.inputs[i].links[0]
+                    placeInColumns(link.from_node, nodeGrid, column + 1)'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx graph placement traversal changed; refusing unverified patch.')
+    contents = contents.replace(original, faster, 1)
     module = types.ModuleType('miex_import_compat')
     module.__file__ = str(src)
     sys.modules[module.__name__] = module
     exec(compile(contents, str(src), 'exec'), module.__dict__)
     module.register()
     log('MiEx importer: loaded the existing official script with in-memory guards; original file unchanged.')
+
+
+def needs_evaluated_bounds(ob):
+    """Whether an object's visible extents can differ from its stored bounds."""
+    if getattr(ob, 'instance_type', 'NONE') != 'NONE':
+        return True
+    if len(getattr(ob, 'modifiers', ())):
+        return True
+    return ob.type == 'POINTCLOUD' and len(ob.data.points) > 0
 
 
 def scene_report():
@@ -122,9 +321,11 @@ def scene_report():
 
     counts = Counter()
     mesh_count = faces = terrain_faces = verts = cloud_count = points = geonodes = 0
+    evaluate_bounds = False
     # Avoid materializing and revisiting every scene object several times.
     for o in bpy.context.scene.objects:
         counts[o.type] += 1
+        evaluate_bounds = evaluate_bounds or needs_evaluated_bounds(o)
         if o.type == 'MESH':
             mesh_count += 1
             mesh_faces = len(o.data.polygons)
@@ -143,7 +344,7 @@ def scene_report():
     log('BLENDER point-cloud objects:', cloud_count, 'point positions:', points)
     log('BLENDER geometry-node modifiers on point clouds:', geonodes)
     log('BLENDER placeholder missing-texture image:', '_MiEx_Unreadable_Texture' in bpy.data.images)
-    return {'meshes': mesh_count, 'faces': faces, 'terrain_faces': terrain_faces, 'clouds': cloud_count, 'points': points}
+    return {'meshes': mesh_count, 'faces': faces, 'terrain_faces': terrain_faces, 'clouds': cloud_count, 'points': points, 'evaluate_bounds': evaluate_bounds}
 
 
 def audit_imported_textures(target):
@@ -190,6 +391,102 @@ def audit_imported_textures(target):
 
 
 
+def is_minecraft_water_material(name):
+    """Only MiEx water block texture materials, never water plants or cauldrons."""
+    name = name.lower()
+    return name.startswith('mat_') and (
+        'water_still' in name or 'water_flow' in name
+    )
+
+
+def apply_minecraft_water_materials():
+    """Keep MiEx's water textures, but avoid noisy dithered alpha in Blender.
+
+    MiEx's pinned importer sets every material's deprecated blend_method to
+    HASHED, which shows semi-transparent water as a speckled pixel mask in
+    EEVEE, especially when zoomed out. Blender 4.2+/5.x provides BLENDED
+    transparency for smooth water. Preserve the existing alpha links (which
+    may contain a water texture's own opacity), biome color and UV mapping.
+    """
+    count = 0
+    for material in bpy.data.materials:
+        if not is_minecraft_water_material(material.name) or not material.use_nodes:
+            continue
+        shader = material.node_tree.nodes.get('MAT')
+        if shader is None or shader.type != 'BSDF_PRINCIPLED':
+            continue
+        alpha = shader.inputs.get('Alpha')
+        roughness = shader.inputs.get('Roughness')
+        if alpha is None or roughness is None:
+            continue
+        # Do not strip original texture alpha connections: transparency already
+        # works in the user's world and would be altered by forcing 0.68.
+        if not alpha.is_linked:
+            alpha.default_value = 0.80
+        roughness.default_value = 0.24
+        specular = shader.inputs.get('Specular IOR Level')
+        if specular is not None:
+            specular.default_value = 0.3
+        if hasattr(material, 'surface_render_method'):
+            material.surface_render_method = 'BLENDED'
+            if hasattr(material, 'use_transparency_overlap'):
+                # Large waters often consist of many touching water faces.
+                # Keeping only the closest translucent surface avoids multiple
+                # overlapping blue layers and helps the forward renderer.
+                material.use_transparency_overlap = False
+        else:
+            # Blender before the surface_render_method API; not the supported
+            # version, but keep the same visible result when the fallback exists.
+            material.blend_method = 'BLEND'
+        # Water's original texture and biome-color shader network remain intact.
+        count += 1
+    log('MINECRAFT-STYLE WATER:', count,
+        'water texture materials using smooth blended alpha (no dithering).')
+    if count == 0:
+        log('WARNING: No MiEx water materials were found; water appearance was unchanged.')
+    return count
+
+
+def apply_minecraft_texture_preview():
+    """Opt-in Blender display preset; preserve all shader and mesh datablocks.
+
+    Standard leaves Minecraft's existing sRGB texture palette closer to its
+    ungraded colors than the default film-style AgX tone mapping. Solid-mode
+    TEXTURE shows the active image texture without requiring an EEVEE material
+    preview, which can be expensive for very large exported worlds. This is an
+    editor/display preference, not a replacement for the full shader network.
+    """
+    bpy.context.scene.view_settings.view_transform = 'Standard'
+    # Solid texture shading needs an active image node. Only assign one
+    # when a material has exactly one loaded texture and the existing active
+    # node is not already an image. Layered/animated materials are ambiguous.
+    activated = 0
+    for material in bpy.data.materials:
+        if not material.use_nodes:
+            continue
+        nodes = material.node_tree.nodes
+        active = nodes.active
+        if active is not None and active.type == 'TEX_IMAGE':
+            continue
+        images = [node for node in nodes
+                  if node.type == 'TEX_IMAGE' and node.image is not None]
+        if len(images) == 1:
+            nodes.active = images[0]
+            activated += 1
+    changed = 0
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            for space in area.spaces:
+                if space.type == 'VIEW_3D' and space.shading.type == 'SOLID':
+                    space.shading.color_type = 'TEXTURE'
+                    changed += 1
+    log('MINECRAFT TEXTURE PREVIEW: Standard color transform,',
+        changed, 'solid 3D views display active textures,',
+        activated, 'single-texture materials made active.',
+        'Full biome tint, alpha and lighting still require Material Preview.')
+    return changed
+
+
 def clear_objects():
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
@@ -209,51 +506,63 @@ def import_world(src, import_type):
     return scene_report()
 
 
-def frame_actual_scene():
+def initial_view_distance(world_span):
+    """Open near the selected area's center, not a full-world overview.
+
+    On a large 1024-block export the old 1.35x size made the default
+    viewpoint more than a thousand blocks away. Blender's Home shortcut
+    remains available to frame the entire scene.
+    """
+    return max(12.0, min(180.0, float(world_span) * 0.30))
+
+
+def frame_actual_scene(evaluate_instances=True):
     """Frame real visible geometry, including Geometry Nodes instances.
 
     Do not unhide hidden prototype meshes; the previous repair tool did that
     and could make disconnected objects appear to float in otherwise blank space.
     """
-    dg = bpy.context.evaluated_depsgraph_get()
     bounds_min = Vector((float('inf'),) * 3)
     bounds_max = Vector((float('-inf'),) * 3)
     encountered = 0
     true_instances = 0
-    # A prototype may appear thousands of times. Its local bounding box is
-    # unchanged between instances, so reuse its eight corner vectors.
-    instance_corners = {}
-    try:
-        for instance in dg.object_instances:
-            ob = instance.object
-            if ob.type != 'MESH':
-                continue
-            if not instance.is_instance:
-                original = getattr(ob, 'original', ob)
-                try:
-                    if not original.visible_get():
-                        continue
-                except Exception:
-                    pass
-            else:
-                true_instances += 1
-            if instance.is_instance:
-                key = ob.as_pointer()
-                corners = instance_corners.get(key)
-                if corners is None:
-                    corners = tuple(Vector(p) for p in ob.bound_box)
-                    if len(instance_corners) < 512:
-                        instance_corners[key] = corners
-            else:
-                corners = (Vector(p) for p in ob.bound_box)
-            for p in corners:
-                world_p = instance.matrix_world @ p
-                for axis in range(3):
-                    bounds_min[axis] = min(bounds_min[axis], world_p[axis])
-                    bounds_max[axis] = max(bounds_max[axis], world_p[axis])
-            encountered += 1
-    except Exception as exc:
-        log('WARNING: Evaluated Geometry Nodes bounds were incomplete:', repr(exc))
+    if evaluate_instances:
+        dg = bpy.context.evaluated_depsgraph_get()
+        # A prototype may appear thousands of times. Reuse its eight corners.
+        instance_corners = {}
+        try:
+            for instance in dg.object_instances:
+                ob = instance.object
+                if ob.type != 'MESH':
+                    continue
+                if not instance.is_instance:
+                    original = getattr(ob, 'original', ob)
+                    try:
+                        if not original.visible_get():
+                            continue
+                    except Exception:
+                        pass
+                else:
+                    true_instances += 1
+                if instance.is_instance:
+                    key = ob.as_pointer()
+                    corners = instance_corners.get(key)
+                    if corners is None:
+                        corners = tuple(Vector(p) for p in ob.bound_box)
+                        if len(instance_corners) < 512:
+                            instance_corners[key] = corners
+                else:
+                    corners = (Vector(p) for p in ob.bound_box)
+                for p in corners:
+                    world_p = instance.matrix_world @ p
+                    for axis in range(3):
+                        bounds_min[axis] = min(bounds_min[axis], world_p[axis])
+                        bounds_max[axis] = max(bounds_max[axis], world_p[axis])
+                encountered += 1
+        except Exception as exc:
+            log('WARNING: Evaluated Geometry Nodes bounds were incomplete:', repr(exc))
+    else:
+        log('PHASE: Using stored mesh bounds; skipping redundant scene-wide dependency graph evaluation.')
     if not encountered:
         for ob in bpy.context.scene.objects:
             if ob.type != 'MESH' or not ob.visible_get():
@@ -270,17 +579,251 @@ def frame_actual_scene():
     center = (bounds_min + bounds_max) * 0.5
     dimensions = bounds_max - bounds_min
     size = max(dimensions)
+    focus_distance = initial_view_distance(size)
     log('VISIBLE geometry bounds center:', tuple(round(x, 2) for x in center))
     log('VISIBLE geometry dimensions:', tuple(round(x, 2) for x in dimensions))
     log('Evaluated mesh elements:', encountered, 'from node/other instances:', true_instances)
+    log('INITIAL VIEW: center terrain, distance:', round(focus_distance, 2), 'units; press Home for the full-area overview.')
     for screen in bpy.data.screens:
         for area in screen.areas:
             if area.type == 'VIEW_3D':
                 space = area.spaces.active
                 space.region_3d.view_location = center
-                space.region_3d.view_distance = max(10.0, size * 1.35)
-                space.clip_end = max(space.clip_end, 1000.0, size * 5)
+                space.region_3d.view_distance = focus_distance
+                space.clip_end = max(space.clip_end, 1000.0, size * 2)
     # IMPORTANT: Never set hide_viewport or hide_set False on hidden meshes here.
+    return center, dimensions
+
+
+def is_conservatively_opaque_terrain_material(material):
+    """Keep alpha-blended and unusual Minecraft geometry out of mesh joining."""
+    name = material.name.lower()
+    if 'minecraft_block_' not in name:
+        return False
+    if any(token in name for token in (
+        'water', 'glass', 'ice', 'leaves', 'leaf', 'slime', 'honey',
+        'portal', 'grass', 'vine', 'plant', 'fire', 'torch', 'banner',
+        'bed', 'sign', 'shulker', 'frame', 'cobweb', 'kelp', 'coral',
+        'sea_pickle', 'lantern', 'chain', 'fence', 'door', 'rail',
+    )):
+        return False
+    return any(token in name for token in (
+        'stone', 'deepslate', 'dirt', 'sand', 'gravel', 'granite',
+        'diorite', 'andesite', 'bricks', 'planks', 'terracotta',
+        'concrete', 'basalt', 'obsidian', 'tuff', 'netherrack',
+        'blackstone', 'ore', 'copper_block', 'clay', 'mud',
+        'log', 'wood', 'stripped_',
+    ))
+
+
+def terrain_mesh_batch_key(ob):
+    """Identify compatible static opaque terrain faces in nearby MiEx chunks.
+
+    No entities, instancers, water, modifiers, shared mesh data, animations,
+    non-default object colors, or mixed materials. Preserve UV/color layers
+    and don't merge across more than a 2x2 MiEx export-chunk neighborhood.
+    """
+    if ob.type != 'MESH' or not ob.visible_get() or ob.hide_get():
+        return None
+    if ob.hide_render or ob.hide_viewport or ob.instance_type != 'NONE':
+        return None
+    if ob.modifiers or ob.constraints or ob.animation_data or ob.children:
+        return None
+    if ob.data.users != 1 or ob.data.shape_keys is not None:
+        return None
+    if ob.vertex_groups or len(ob.material_slots) != 1:
+        return None
+    if ob.material_slots[0].link != 'DATA':
+        return None
+    mat = ob.material_slots[0].material
+    if mat is None or not is_conservatively_opaque_terrain_material(mat):
+        return None
+    if getattr(mat, 'surface_render_method', 'DITHERED') == 'BLENDED':
+        return None
+    if tuple(ob.color) != (1.0, 1.0, 1.0, 1.0):
+        return None
+    # Preserve per-object metadata used by Blender/USD users.
+    if len(ob.keys()) or len(ob.data.keys()):
+        return None
+    if ob.parent is not None:
+        parent = ob.parent
+        while parent is not None:
+            if parent.name.partition('.')[0].lower() in (
+                'entities', 'prototypes', 'individualblocksbasemeshes', 'background'
+            ):
+                return None
+            if parent.animation_data or parent.constraints or parent.hide_render:
+                return None
+            parent = parent.parent
+    # MiEx's Util.makeSafeName changes a negative '-' sign to '_'.
+    # Thus chunk X=-1 Z=-2 becomes mesh_chunk__1__2_<hash> in USD.
+    # Recognize both that upstream-safe form and raw signed names.
+    match = re.search(r'mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)', ob.name, re.I)
+    if match is None:
+        return None
+
+    def coordinate(text):
+        return -int(text[1:]) if text.startswith('_') else int(text)
+
+    # These coordinates are MiEx export-chunk coordinates, not block values.
+    # Batch at most nearby 2x2 chunks, not the entire 1024x1024 landscape.
+    area = (coordinate(match.group(1)) // 2, coordinate(match.group(2)) // 2)
+    uv = tuple((layer.name, getattr(layer, 'active_render', False)) for layer in ob.data.uv_layers)
+    colors = tuple((attr.name, attr.domain, attr.data_type) for attr in ob.data.color_attributes)
+    attributes = tuple((attr.name, attr.domain, attr.data_type)
+                       for attr in getattr(ob.data, 'attributes', ()))
+    return (area, mat.as_pointer(), uv, colors, attributes)
+
+
+def batch_static_terrain_meshes(max_faces=75000, max_objects=8):
+    """Optional bounded Blender Join: fewer draw calls, all polygons retained.
+
+    This changes individual terrain object boundaries/editing but should not
+    change the visual result. The mode never deletes terrain faces. The
+    original USD remains an untouched, fully separated source.
+    """
+    groups = {}
+    before = 0
+    for ob in tuple(bpy.context.scene.objects):
+        key = terrain_mesh_batch_key(ob)
+        if key is None:
+            continue
+        face_count = len(ob.data.polygons)
+        if face_count == 0 or face_count > max_faces:
+            continue
+        before += 1
+        groups.setdefault(key, []).append(ob)
+
+    joined = 0
+    combined_faces = 0
+    active_obj = bpy.context.view_layer.objects.active
+    active_name = active_obj.name if active_obj is not None else None
+    selected_names = tuple(ob.name for ob in bpy.context.selected_objects)
+    try:
+        bpy.ops.object.select_all(action='DESELECT')
+
+        def flush(batch, face_count):
+            nonlocal joined, combined_faces
+            if len(batch) < 2:
+                return
+            for ob in batch:
+                ob.select_set(True)
+            active = batch[0]
+            bpy.context.view_layer.objects.active = active
+            outcome = bpy.ops.object.join()
+            if 'FINISHED' not in outcome:
+                raise RuntimeError('Blender declined a selected terrain mesh join')
+            if len(active.data.polygons) != face_count:
+                raise RuntimeError('Terrain batching changed polygon count; refusing the Blender file')
+            joined += len(batch) - 1
+            combined_faces += face_count
+            active.select_set(False)
+
+        for group in groups.values():
+            # Bound individual joins to avoid expensive huge meshes that hurt
+            # Blender's frustum culling despite having fewer draw calls.
+            batch = []
+            faces = 0
+            for ob in sorted(group, key=lambda obj: obj.name):
+                count = len(ob.data.polygons)
+                if batch and (len(batch) >= max_objects or faces + count > max_faces):
+                    flush(batch, faces)
+                    batch = []
+                    faces = 0
+                batch.append(ob)
+                faces += count
+            flush(batch, faces)
+    finally:
+        bpy.ops.object.select_all(action='DESELECT')
+        # Keep names, not object pointers: Blender invalidates the original
+        # object references after joining, and the imported scene can start
+        # with many selected objects.
+        for name in selected_names:
+            ob = bpy.context.view_layer.objects.get(name)
+            if ob is not None:
+                ob.select_set(True)
+        if active_name:
+            active = bpy.context.view_layer.objects.get(active_name)
+            if active is not None:
+                bpy.context.view_layer.objects.active = active
+    log('MESH BATCHING:', joined, 'static terrain objects merged,',
+        combined_faces, 'faces preserved in bounded batches from',
+        before, 'eligible objects; original USD unchanged.')
+    if joined == 0:
+        log('MESH BATCHING: no eligible similarly-materialed nearby meshes; '
+            'no viewport speedup is expected from this option.')
+    return joined
+
+
+def deduplicate_exact_material_slots():
+    """Remove only identical material datablock slots; zero visual change.
+
+    MiEx and Blender Join can leave multiple slots referring to the *same*
+    shader datablock. Remapping their face indices to one slot reduces
+    redundant material-group submissions. Different materials are untouched.
+    """
+    cleaned = 0
+    visited = set()
+    from array import array
+    for ob in bpy.context.scene.objects:
+        if ob.type != 'MESH' or ob.data.users != 1:
+            continue
+        mesh = ob.data
+        if mesh.as_pointer() in visited:
+            continue
+        visited.add(mesh.as_pointer())
+        slots = list(mesh.materials)
+        if len(slots) < 2 or any(mat is None for mat in slots):
+            continue
+        unique = []
+        positions = {}
+        remap = []
+        for mat in slots:
+            key = mat.as_pointer()
+            if key not in positions:
+                positions[key] = len(unique)
+                unique.append(mat)
+            remap.append(positions[key])
+        if len(unique) == len(slots):
+            continue
+        if any(slot.link != 'DATA' for slot in ob.material_slots):
+            continue
+        values = array('i', [0]) * len(mesh.polygons)
+        mesh.polygons.foreach_get('material_index', values)
+        for i, val in enumerate(values):
+            values[i] = remap[val]
+        mesh.materials.clear()
+        for mat in unique:
+            mesh.materials.append(mat)
+        mesh.polygons.foreach_set('material_index', values)
+        mesh.update()
+        cleaned += len(slots) - len(unique)
+    log('MATERIAL DRAW GROUPS:', cleaned,
+        'duplicate slots referencing the exact same material datablock removed,'
+        ' without changing any mesh faces or shaders.')
+    return cleaned
+
+
+
+def clear_bulk_import_selection(min_meshes=128):
+    """Avoid thousands of imported-mesh selection outlines at first open.
+
+    Selection is an editor state, not geometry or material data. USD import may
+    select everything; drawing and testing thousands of orange outlines can
+    burden the viewport. Small scenes retain their initial selection.
+    """
+    selected = tuple(bpy.context.selected_objects)
+    mesh_count = sum(
+        ob.type == 'MESH' and ob.visible_get() for ob in selected
+    )
+    if mesh_count < min_meshes:
+        return 0
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = None
+    log('VIEWPORT: cleared initial selection for', mesh_count,
+        'visible imported meshes to avoid bulk outline/selection overhead; '
+        'all objects remain visible and selectable.')
+    return mesh_count
 
 
 def hide_relationship_lines():
@@ -291,11 +834,83 @@ def hide_relationship_lines():
                     space.overlay.show_relationship_lines = False
 
 
+
+
+def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
+    """Optimize the Blender project already loaded by the EXE, saving a copy."""
+    source = Path(bpy.data.filepath).resolve() if bpy.data.filepath else None
+    if source is None or not source.is_file():
+        raise RuntimeError('Open an existing .blend in Blender before optimizing.')
+    if source == target or target.exists():
+        raise RuntimeError('Optimization must save to a new .blend, never overwrite the original.')
+    if not target.parent.is_dir():
+        raise RuntimeError('The target Blender project folder does not exist.')
+
+    meshes = tuple(ob for ob in bpy.context.scene.objects if ob.type == 'MESH')
+    before_faces = sum(len(ob.data.polygons) for ob in meshes)
+    if before_faces == 0:
+        raise RuntimeError('This .blend has no terrain mesh faces to optimize.')
+
+    log('OPTIMIZING EXISTING BLENDER FILE:', source)
+    log('BLENDER VERSION:', bpy.app.version_string)
+    log('BEFORE: mesh objects:', len(meshes), 'faces:', before_faces)
+    phase_start = time.monotonic()
+    cleared = clear_bulk_import_selection()
+    # Large saved projects can still draw thousands of parent-child lines.
+    # Like a fresh MiEx import, hide only this editor overlay; geometry,
+    # material datablocks and parent relationships remain unchanged.
+    if len(meshes) >= 128:
+        hide_relationship_lines()
+    joined = batch_static_terrain_meshes() if batch_meshes else 0
+    slots = deduplicate_exact_material_slots()
+    if minecraft_view:
+        apply_minecraft_texture_preview()
+    after_meshes = tuple(ob for ob in bpy.context.scene.objects if ob.type == 'MESH')
+    after_faces = sum(len(ob.data.polygons) for ob in after_meshes)
+    if before_faces != after_faces:
+        raise RuntimeError('Mesh faces changed during optimization; refusing to save.')
+    log('AFTER: mesh objects:', len(after_meshes), 'faces:', after_faces)
+    log('OPTIMIZED: selected outlines cleared:', cleared,
+        'joined objects:', joined, 'duplicate material slots:', slots)
+    log('[PERF] Existing project optimization:', round(time.monotonic() - phase_start, 2), 'seconds')
+
+    # Preserve compressed vs uncompressed projects. Blender 3+ writes Zstd;
+    # older Blender versions used gzip for compressed .blend files.
+    with source.open('rb') as handle:
+        signature = handle.read(4)
+    compressed_source = (signature == bytes((0x28, 0xb5, 0x2f, 0xfd))
+                         or signature[:2] == bytes((0x1f, 0x8b)))
+    phase_start = time.monotonic()
+    bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=compressed_source)
+    log('[PERF] Saving optimized Blender copy:', round(time.monotonic() - phase_start, 2), 'seconds')
+    if not target.is_file() or target.stat().st_size == 0:
+        raise RuntimeError('Blender did not save the optimized project.')
+    log('OUTPUT .blend saved:', target)
+    log('RESULT: EXISTING BLENDER PROJECT OPTIMIZED. Original file unchanged.')
+
+
 def main():
     arguments = sys.argv[sys.argv.index('--') + 1:]
-    if len(arguments) != 3:
-        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file')
-    src, importer, target = [Path(arg).resolve() for arg in arguments]
+    if '--optimize-blend' in arguments:
+        flags = arguments[1:]
+        allowed = {'--optimize-blend', '--batch-static-meshes', '--minecraft-view'}
+        if (len(arguments) < 2 or len(flags) != len(set(flags))
+                or '--optimize-blend' not in flags or not set(flags) <= allowed):
+            raise RuntimeError('Expected target .blend --optimize-blend [--batch-static-meshes] [--minecraft-view]')
+        if Path(arguments[0]).suffix.lower() != '.blend':
+            raise RuntimeError('Optimization output must be a .blend file.')
+        optimize_existing_blend(Path(arguments[0]).resolve(),
+                                batch_meshes='--batch-static-meshes' in flags,
+                                minecraft_view='--minecraft-view' in flags)
+        return
+    flags = arguments[3:]
+    accepted = {'--minecraft-water', '--batch-static-meshes', '--minecraft-view'}
+    if len(arguments) < 3 or len(flags) != len(set(flags)) or not set(flags) <= accepted:
+        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water] [--batch-static-meshes]')
+    minecraft_water = '--minecraft-water' in flags
+    batch_meshes = '--batch-static-meshes' in flags
+    minecraft_view = '--minecraft-view' in flags
+    src, importer, target = [Path(arg).resolve() for arg in arguments[:3]]
     log('BLENDER VERSION:', bpy.app.version_string)
     log('Input USD:', src)
     log('Existing importer:', importer)
@@ -303,6 +918,7 @@ def main():
     if not src.is_file() or not importer.is_file():
         raise RuntimeError('Main USD or existing MiExImport.py not found.')
     # Prefer render terrain; check proxy only when the render variant is empty.
+    phase_start = time.monotonic()
     render = stage_report(src, 'render')
     if render['world_mesh_faces']:
         import_variant, stats = 'render', render
@@ -319,9 +935,12 @@ def main():
             'face-only exporter (raytracing, subsets and individual-block instancing off). '
             'The original Minecraft ZIP and USD have not been changed.'
         )
+    log('[PERF] USD integrity inspection:', round(time.monotonic() - phase_start, 2), 'seconds')
     log('Selected MiEx import variant:', import_variant)
     load_patched_importer(importer)
     scene = import_world(src, import_variant)
+    if minecraft_water:
+        apply_minecraft_water_materials()
     if stats['instancers'] and scene['clouds'] == 0 and scene['faces'] < 1000:
         raise RuntimeError('Point-instanced USD objects did not import as Blender geometry. No .blend saved.')
     if not scene['meshes'] and not scene['points']:
@@ -332,13 +951,32 @@ def main():
     # positions. Point clouds alone were what the broken output displayed.
     if scene['terrain_faces'] < stats['world_mesh_faces'] * 0.5:
         raise RuntimeError('Blender imported less than half of the terrain faces represented in the USD. No misleading success file saved.')
-    frame_actual_scene()
+    phase_start = time.monotonic()
+    bounds = frame_actual_scene(scene['evaluate_bounds'])
+    log('[PERF] Scene framing:', round(time.monotonic() - phase_start, 2), 'seconds')
     hide_relationship_lines()
+    clear_bulk_import_selection()
+    if batch_meshes:
+        phase_start = time.monotonic()
+        batch_static_terrain_meshes()
+        log('[PERF] Bounded static terrain mesh batching:',
+            round(time.monotonic() - phase_start, 2), 'seconds')
+    if minecraft_view:
+        apply_minecraft_texture_preview()
+    # Unlike mesh batching, removing repeated slots for the SAME shader
+    # datablock changes no actual rendering or geometry and is safe as default.
+    deduplicate_exact_material_slots()
+    if scene['meshes'] > 1000:
+        log('VIEWPORT NOTICE:', scene['meshes'],
+            'mesh objects may limit FPS in large scenes. Optional batching'
+            ' reduces draw calls only when nearby meshes use compatible materials.')
     try:
         audit_imported_textures(target)
     except Exception as exc:
         log('WARNING: Optional texture audit failed; continuing with the intact Blender scene:', repr(exc))
+    phase_start = time.monotonic()
     bpy.ops.wm.save_as_mainfile(filepath=str(target), compress=False)
+    log('[PERF] Saving Blender project:', round(time.monotonic() - phase_start, 2), 'seconds')
     if not target.is_file() or target.stat().st_size == 0:
         raise RuntimeError('Blender did not create the output file.')
     log('OUTPUT .blend saved:', target)

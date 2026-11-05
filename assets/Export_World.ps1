@@ -96,6 +96,82 @@ function Start-CapturedProcess([string]$exe,[string]$arguments,[string]$folder,[
         } catch { $errFile.Dispose(); throw }
     } catch { $outFile.Dispose(); $process.Dispose(); throw }
 }
+function Assert-GeneratedTextureFiles([string]$exportDir,[string]$name,[string]$materialsText) {
+    # MiEx references banner/layered textures relative to <name>_chunks/textures.
+    # An absent generated image can produce a structurally valid yet untextured
+    # Blender project. Catch the missing assets before publishing this export.
+    $normalized = $materialsText.Replace('\\', '/').Replace('\/', '/')
+    $folder = $name + '_chunks/textures/'
+    $references = [regex]::Matches($normalized, [regex]::Escape($folder) + '[A-Za-z0-9_./-]+')
+    $root = [IO.Path]::GetFullPath((Join-Path $exportDir ($name + '_chunks/textures')))
+    $seen = @{}
+    foreach($match in $references) {
+        $relative = $match.Value.Substring($folder.Length)
+        $relative = $relative.TrimEnd('.')
+        if([string]::IsNullOrWhiteSpace($relative)) { continue }
+        if([IO.Path]::GetExtension($relative) -eq '') {
+            $relative += '.png'
+        }
+        if($seen.ContainsKey($relative)) { continue }
+        $seen[$relative] = $true
+        $actual = [IO.Path]::GetFullPath((Join-Path $root ($relative -replace '/', '\')))
+        if(-not $actual.StartsWith(($root + '\'),[StringComparison]::OrdinalIgnoreCase)) {
+            throw ('Unsafe generated texture path: ' + $relative)
+        }
+        if(-not (Test-Path -LiteralPath $actual -PathType Leaf) -or
+            (Get-Item -LiteralPath $actual).Length -eq 0) {
+            throw ('Generated banner/layered texture missing or empty: ' + $actual)
+        }
+    }
+    return $seen.Count
+}
+function Get-PreviewChunkCoordinates([int]$firstX,[int]$lastX,[int]$firstZ,[int]$lastZ) {
+    $spanX = $lastX - $firstX + 1
+    $spanZ = $lastZ - $firstZ + 1
+    if($spanX -le 0 -or $spanZ -le 0) { throw 'Invalid preview bounds.' }
+    # List.Add is linear overall; repeated PowerShell += on several thousand
+    # hashtables would repeatedly copy the entire array.
+    $locations = New-Object 'System.Collections.Generic.List[object]'
+    if(([long]$spanX * [long]$spanZ) -le 9216) {
+        for($z = $firstZ; $z -le $lastZ; $z++) {
+            for($x = $firstX; $x -le $lastX; $x++) {
+                $locations.Add(@{chunkX=$x;chunkZ=$z})
+            }
+        }
+    } else {
+        $cols = [int][math]::Min(96, $spanX)
+        $rows = [int][math]::Min(96, $spanZ)
+        for($row = 0; $row -lt $rows; $row++) {
+            $z = if($rows -eq 1) { $firstZ } else {
+                [int][math]::Floor($firstZ + ($lastZ - $firstZ) * ($row / [double]($rows - 1)))
+            }
+            for($col = 0; $col -lt $cols; $col++) {
+                $x = if($cols -eq 1) { $firstX } else {
+                    [int][math]::Floor($firstX + ($lastX - $firstX) * ($col / [double]($cols - 1)))
+                }
+                $locations.Add(@{chunkX=$x;chunkZ=$z})
+            }
+        }
+    }
+    return $locations.ToArray()
+}
+function Format-MiExMemory([System.Diagnostics.Process]$process) {
+    # A zero working set can mean a not-yet-initialized/unavailable reading.
+    # Never present that as a measured 0.0 GiB of Java RAM.
+    try {
+        if($process.HasExited) { return $null }
+        $current = [System.Diagnostics.Process]::GetProcessById($process.Id)
+        try {
+            $current.Refresh()
+            $bytes = [long]$current.WorkingSet64
+        } finally { $current.Dispose() }
+        if($bytes -le 0) { return $null }
+        if($bytes -lt 1GB) {
+            return ('MiEx Java RAM (working set): {0:N0} MiB' -f ($bytes / 1MB))
+        }
+        return ('MiEx Java RAM (working set): {0:N2} GiB' -f ($bytes / 1GB))
+    } catch { return $null }
+}
 function Finish-CapturedProcess($capture) {
     try {
         $capture.Process.WaitForExit()
@@ -329,6 +405,14 @@ function Copy-WorldSnapshot([string]$source,[string]$destination) {
     }
 }
 function Abort([string]$reason) {throw $reason}
+$perfWatch = [System.Diagnostics.Stopwatch]::StartNew()
+$lastPerf = [TimeSpan]::Zero
+function Report-PerfPhase([string]$label) {
+    $now = $script:perfWatch.Elapsed
+    $seconds = ($now - $script:lastPerf).TotalSeconds
+    Write-Host ('[PERF] {0}: {1:N1} seconds; elapsed total: {2:N1} seconds' -f $label, $seconds, $now.TotalSeconds) -ForegroundColor DarkCyan
+    $script:lastPerf = $now
+}
 
 try {
     Write-Host ("$Edition world folder -> MiEx -> Blender USD") -ForegroundColor Cyan
@@ -456,6 +540,7 @@ try {
         Write-Host "Snapshot ready; world metadata SHA256: $actualWorldHash" -ForegroundColor Green
     }
 
+    Report-PerfPhase 'Read-only world snapshot and validation'
     if($UseWorldResourcePacks) { Assert-SafeResourcePackArchives $worldPath }
 
     if(-not (Test-Path -LiteralPath $jar)) {Get-WebFile $releaseUrl $jar}
@@ -496,6 +581,22 @@ try {
     $packConfig | Add-Member -MemberType NoteProperty -Name 'runRaytracingOptimiser' -Value $enableRaytracingOptimization -Force
     $packConfig | Add-Member -MemberType NoteProperty -Name 'raytracingOptimiserUseMeshSubsets' -Value $false -Force
     $packConfig | Add-Member -MemberType NoteProperty -Name 'fillWorldBorders' -Value $fillWorldBorders -Force
+    # MiEx draws these entities inside terrain chunks, not the separate
+    # animated-entity pass. Match the UI toggles and Bedrock/Java aliases.
+    $entityAsBlocks = @()
+    if($Entities -ne 'none') {
+        $selectedEntityIds = @($Entities.Split(',') | Where-Object { $_ -ne '' })
+        if('minecraft:item_frame' -in $selectedEntityIds) {
+            $entityAsBlocks += @('minecraft:item_frame','minecraft:frame','minecraft:ItemFrame')
+        }
+        if('minecraft:glow_item_frame' -in $selectedEntityIds) {
+            $entityAsBlocks += @('minecraft:glow_item_frame','minecraft:glow_frame','minecraft:GlowItemFrame')
+        }
+        foreach($id in @('minecraft:painting','minecraft:block_display','minecraft:item_display')) {
+            if($id -in $selectedEntityIds) { $entityAsBlocks += $id }
+        }
+    }
+    $packConfig | Add-Member -MemberType NoteProperty -Name 'exportEntityAsBlocks' -Value @($entityAsBlocks) -Force
     $outConfig = $packConfig | ConvertTo-Json -Depth 20
     [System.IO.File]::WriteAllText($packConfigPath, $outConfig + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
     $parsedConfig = Get-Content -LiteralPath $packConfigPath -Raw | ConvertFrom-Json
@@ -509,10 +610,21 @@ try {
     }
     . $bedrockAssetHelper
     $bedTextureManifest = Join-Path $base 'Bedrock_Bed_Textures.json'
+    # Bedrock uses a different 64x64 bed atlas layout from Java. The Bedrock
+    # model UVs match Mojang's geometry.bed and must use the matching sheets.
+    # Keep official, hash-verified files cached; never silently render beds
+    # black when the required files could not be installed.
+    $shulkerTextureManifest = Join-Path $base 'Bedrock_Shulker_Textures.json'
     if($Edition -eq 'bedrock' -and -not $UseWorldResourcePacks) {
         Ensure-BedrockBedTextures $miexDir $bedTextureManifest
+        # Bedrock's actual 64x64 shulker atlases match the MiEx UV layout,
+        # but the undyed and light-gray images have Bedrock-only filenames.
+        # Preserve custom textures; if a download is unavailable, continue
+        # with existing MiEx/Java textures rather than failing the export.
+        Ensure-BedrockShulkerTextures $miexDir $shulkerTextureManifest
     } else {
         Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest
+        Remove-ManagedBedrockShulkerTextures $miexDir $shulkerTextureManifest
     }
     $blockOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/blockstates'
     $bedrockBlockOverrides = @{
@@ -520,6 +632,8 @@ try {
         'Bedrock_Shulkers.json' = 'shulker_box.json'
         'Bedrock_Signs.json' = 'sign.json'
         'Bedrock_Hanging_Signs.json' = 'hanging_sign.json'
+        'Bedrock_Legacy_Banners.json' = 'legacy_banners.json'
+        'Bedrock_Frame_Blocks.json' = 'frame_blocks.json'
     }
     if($Edition -eq 'bedrock') {
         New-Item -ItemType Directory -Force -Path $blockOverrideDir | Out-Null
@@ -544,16 +658,21 @@ try {
     }
     $frameStateFolder = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/blockstates'
     $frameOverridePath = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities/item_frame.json'
+    # Previous versions installed empty frame blockstates. When MiEx did not
+    # promote an older Bedrock frame block entity into an entity, that made
+    # the frame entirely invisible. Remove only the known empty files, and
+    # use the Bedrock_Frame_Blocks builtin fallback model instead.
     if($Edition -eq 'bedrock') {
-        # Bedrock item frames are both stored as blocks AND exported by MiEx as
-        # entities. Their blockstate is intentionally empty: the real vanilla
-        # frame geometry is generated by the separate entity model below.
-        # This prevents the false missing-blockstate error during neighboring
-        # block occlusion checks without inventing a placeholder 3D frame.
-        New-Item -ItemType Directory -Force -Path $frameStateFolder | Out-Null
         foreach($frameStateName in @('frame', 'glow_frame')) {
             $frameStatePath = Join-Path $frameStateFolder ($frameStateName + '.json')
-            [System.IO.File]::WriteAllText($frameStatePath, '{"variants":{}}' + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
+            if(Test-Path -LiteralPath $frameStatePath) {
+                $sourceFrame = [System.IO.File]::ReadAllText($frameStatePath).Trim()
+                if($sourceFrame -eq '{"variants":{}}') {
+                    Remove-Item -LiteralPath $frameStatePath -Force -ErrorAction Stop
+                } else {
+                    Write-Warning ('A custom frame blockstate may override the Bedrock frame fallback: ' + $frameStatePath)
+                }
+            }
         }
         # MiEx's pinned built-in frame entity incorrectly checks the block context
         # for a stored item (thisBlock), and uses Java Item.id even for Bedrock
@@ -596,7 +715,9 @@ try {
         foreach($frameStateName in @('frame', 'glow_frame')) {
             $frameStatePath = Join-Path $frameStateFolder ($frameStateName + '.json')
             if(Test-Path -LiteralPath $frameStatePath) {
-                Remove-Item -LiteralPath $frameStatePath -Force
+                if([System.IO.File]::ReadAllText($frameStatePath).Trim() -eq '{"variants":{}}') {
+                    Remove-Item -LiteralPath $frameStatePath -Force -ErrorAction Stop
+                }
             }
         }
         if(Test-Path -LiteralPath $frameOverridePath) {
@@ -655,25 +776,19 @@ try {
         }
     }
     if($PreviewOnly) {
-        # Sample actual chunk images from MiEx; 16x16 samples limit cost for huge regions.
-        $probeChunks = @()
-        $previewSeen = @{}
-        for($row = 0; $row -lt 16; $row++) {
-            for($col = 0; $col -lt 16; $col++) {
-                $chunkX = [int][math]::Floor($minChunkX + ($maxChunkX - $minChunkX) * ($col / 15.0))
-                $chunkZ = [int][math]::Floor($minChunkZ + ($maxChunkZ - $minChunkZ) * ($row / 15.0))
-                $key = "$chunkX,$chunkZ"
-                if(-not $previewSeen.ContainsKey($key)) {
-                    $previewSeen[$key] = $true
-                    $probeChunks += @{chunkX=$chunkX;chunkZ=$chunkZ}
-                }
-            }
+        $probeChunks = @(Get-PreviewChunkCoordinates $minChunkX $maxChunkX $minChunkZ $maxChunkZ)
+        $spanX = $maxChunkX - $minChunkX + 1
+        $spanZ = $maxChunkZ - $minChunkZ + 1
+        if(([long]$spanX * [long]$spanZ) -le 9216) {
+            Write-Host ("Preview: exact X/Z placement; requesting all $($probeChunks.Count) chunks.")
+        } else {
+            Write-Host ("Preview: large area ($spanX x $spanZ chunks); requesting $($probeChunks.Count) coarse color samples.")
         }
         $commands += @{command='getChunk';chunks=$probeChunks;image=$true}
     } else {
         $commands += @(
           @{command='getWorld'},
-          @{command='getChunk'; chunks=$probeChunks; heightmap=$true},
+          @{command='getChunk'; chunks=$probeChunks; heightmap=$true; entities=$true},
           @{command='applyExportSettings'; settings=@{chunkSize=$chunkSize; exportRegions=@{'Region 1'=$region}; runOptimiser=$enableFaceOptimization; removeCaves=$false; fillInCaves=$false; exportBlockAnimations=$false; entityStartFrame=0; entityEndFrame=1; entityFPS=24; entitySpawnRules=@(); entitySimulate=@(); entityExport=$entityList}},
           @{command='export';path=(Join-Path $exportDir $exportFile)}
         )
@@ -690,6 +805,7 @@ try {
     } else {
         Write-Host 'Starting full-detail export. Large regions may take considerable time and memory.' -ForegroundColor Cyan
     }
+    Report-PerfPhase 'MiEx assets, configuration and command preparation'
     # IMPORTANT: Java writes harmless warnings to stderr. Windows PowerShell 5.1
     # can turn those warnings into terminating errors when ErrorActionPreference
     # is Stop and stderr is merged with stdout using *>&1. Capture both streams
@@ -721,7 +837,12 @@ try {
         if(([DateTime]::UtcNow - $lastMemoryReport).TotalSeconds -ge 15 -and -not $proc.HasExited) {
             $lastMemoryReport = [DateTime]::UtcNow
             try {
-                Write-Host ("[MEMORY] MiEx Java working set: {0:N1} GiB" -f ($proc.WorkingSet64 / 1GB))
+                $memory = Format-MiExMemory $proc
+                if($memory) {
+                    Write-Host ("[MEMORY] " + $memory)
+                } else {
+                    Write-Host '[MEMORY] MiEx Java RAM (working set): unavailable'
+                }
             } catch { }
         }
         if(Test-Path -LiteralPath $log) {
@@ -764,6 +885,7 @@ try {
         (Select-String -LiteralPath $stderrLog -Pattern $oomPattern -Quiet -ErrorAction SilentlyContinue))) {
         Abort "MiEx exhausted Java heap during export. Raytracing is disabled in this build; try a smaller region and inspect $stderrLog. Previous exports were preserved."
     }
+    Report-PerfPhase 'MiEx Java world export'
     Write-Host "MiEx Java process exited with code $code"
     if($PreviewOnly) {
         if(Test-Path -LiteralPath $exportDir) { Remove-Item -LiteralPath $exportDir -Recurse -Force -ErrorAction SilentlyContinue }
@@ -906,7 +1028,10 @@ try {
     if($matText.Contains($exportDir + '\') -or $matText.Contains(($exportDir -replace '\\', '/'))) {
         Abort 'Materials reference the temporary export path; refusing to publish a broken import.'
     }
+    $verifiedGeneratedTextures = Assert-GeneratedTextureFiles $exportDir $ExportName $matText
+    Write-Host ("Verified $verifiedGeneratedTextures generated material texture reference(s).")
     Publish-Export $exportDir $finalExportDir
+    Report-PerfPhase 'USD verification, optional compaction and publication'
     $exportDir = $finalExportDir
     $main = Join-Path $exportDir $exportFile
     Write-Host 'Fresh export published; previous chunk layers cannot be reused.' -ForegroundColor Green

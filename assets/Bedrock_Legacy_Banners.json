@@ -1,0 +1,44 @@
+{
+    "blocks": [
+        "minecraft:wall_banner",
+        "minecraft:standing_banner"
+    ],
+    "handler": {
+        "variables": [
+            "base = thisBlock.state.Base != null ? thisBlock.state.Base : thisBlock.state.base",
+            "color = 'white'",
+            "color = base == 1 ? 'orange' : color",
+            "color = base == 2 ? 'magenta' : color",
+            "color = base == 3 ? 'light_blue' : color",
+            "color = base == 4 ? 'yellow' : color",
+            "color = base == 5 ? 'lime' : color",
+            "color = base == 6 ? 'pink' : color",
+            "color = base == 7 ? 'gray' : color",
+            "color = base == 8 ? 'light_gray' : color",
+            "color = base == 9 ? 'cyan' : color",
+            "color = base == 10 ? 'purple' : color",
+            "color = base == 11 ? 'blue' : color",
+            "color = base == 12 ? 'brown' : color",
+            "color = base == 13 ? 'green' : color",
+            "color = base == 14 ? 'red' : color",
+            "color = base == 15 ? 'black' : color",
+            "isWall = thisBlock.name.endsWith('_wall_banner')",
+            "bannerName = 'minecraft:' + color + (isWall ? '_wall_banner' : '_banner')",
+            "facing = thisBlock.state.facing != null ? thisBlock.state.facing : thisBlock.state['minecraft:cardinal_direction']",
+            "facing = facing == null && thisBlock.state.facing_direction == 2 ? 'north' : facing",
+            "facing = facing == null && thisBlock.state.facing_direction == 3 ? 'south' : facing",
+            "facing = facing == null && thisBlock.state.facing_direction == 4 ? 'west' : facing",
+            "facing = facing == null && thisBlock.state.facing_direction == 5 ? 'east' : facing",
+            "rotation = thisBlock.state.rotation != null ? thisBlock.state.rotation : thisBlock.state.ground_sign_direction"
+        ],
+        "generators": [
+            {
+                "type": "block",
+                "args": {
+                    "name": "bannerName",
+                    "properties": "{'Patterns': thisBlock.state.Patterns != null ? thisBlock.state.Patterns : thisBlock.state.patterns, 'facing': facing, 'rotation': rotation}"
+                }
+            }
+        ]
+    }
+}

@@ -274,17 +274,31 @@ function Format-MiExMemory([System.Diagnostics.Process]$process) {
     }
     return ('MiEx JVM: {0} private committed, {1} resident (PID {2})' -f $committed, $resident, $bestId)
 }
-function Finish-CapturedProcess($capture) {
+function Finish-CapturedProcess($capture, [switch]$PreviewOnly) {
     try {
         $capture.Process.WaitForExit()
         # A Java launcher may exit before its child JVM releases the inherited
         # stdout/stderr pipes. Keep reporting the real child JVM until both
         # streams finish, rather than freezing the UI at the launcher's 10 MiB.
         $lastMemoryReport = [DateTime]::UtcNow.AddSeconds(-15)
+        $lastPipeActivity = [DateTime]::UtcNow
+        $lastPipeWarning = [DateTime]::UtcNow
+        $lastPipeBytes = $capture.OutFile.Length + $capture.ErrFile.Length
         while(-not ($capture.OutTask.IsCompleted -and $capture.ErrTask.IsCompleted)) {
             if(([DateTime]::UtcNow - $lastMemoryReport).TotalSeconds -ge 15) {
                 $lastMemoryReport = [DateTime]::UtcNow
                 Write-Host ("[MEMORY] " + (Format-MiExMemory $capture.Process))
+            }
+            if($PreviewOnly) {
+                $pipeBytes = $capture.OutFile.Length + $capture.ErrFile.Length
+                if($pipeBytes -ne $lastPipeBytes) {
+                    $lastPipeBytes = $pipeBytes
+                    $lastPipeActivity = [DateTime]::UtcNow
+                } elseif(([DateTime]::UtcNow - $lastPipeActivity).TotalSeconds -ge 90 -and
+                       ([DateTime]::UtcNow - $lastPipeWarning).TotalSeconds -ge 90) {
+                    $lastPipeWarning = [DateTime]::UtcNow
+                    Write-Warning 'Java launcher exited but preview output pipes are still open and idle. A child JVM may be stalled. Check Java CPU activity or use Cancel.'
+                }
             }
             Start-Sleep -Milliseconds 1000
         }
@@ -1000,7 +1014,7 @@ try {
             }
         }
     }
-    $code = Finish-CapturedProcess $capture
+    $code = Finish-CapturedProcess $capture -PreviewOnly:$PreviewOnly
     if($PreviewOnly -and $worldPackName) {
         try {
             # FileUtil.getResourcePackDir uses the MiEx process working dir,

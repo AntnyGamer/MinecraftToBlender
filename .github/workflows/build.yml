@@ -249,7 +249,7 @@ jobs:
           }
           Remove-Item Function:Invoke-WebRequest
           # Exercise the actual captured-process helpers, not a separate mock.
-          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
+          foreach ($name in @('Start-CapturedProcess', 'Finish-CapturedProcess', 'Get-PreviewChunkCoordinates', 'New-PreviewChunkCommands', 'Update-PreviewChunkProgress', 'Format-MiExMemory', 'Assert-GeneratedTextureFiles', 'Publish-Export', 'Restore-InterruptedExport', 'Copy-WorldSnapshot', 'Remove-ManagedPreviewPack', 'Test-ChunkTerrainGeometry', 'Assert-ReferencedChunkLayers', 'Read-MiExDiagnostics', 'Read-MiExAuditLog', 'Test-UnsupportedBedrockChunk', 'Assert-SafeResourcePackArchives')) {
             $definitions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
@@ -257,6 +257,46 @@ jobs:
           # Sample the real Windows PowerShell process, including its PID and
           # private/working-set terminology. Tiny launcher memory must never
           # be presented as a verified MiEx JVM working set.
+          # MiEx's pinned command system processes a list of getChunk
+          # commands sequentially. All source coordinates must be requested
+          # exactly once; the batch size bounds each worker fan-out.
+          $previewChunks = @(Get-PreviewChunkCoordinates -32 31 -32 31)
+          if($previewChunks.Count -ne 4096) { throw 'Test preview coordinate generation changed' }
+          $chunkCommands = @(New-PreviewChunkCommands $previewChunks 64)
+          if($chunkCommands.Count -ne 64) { throw 'Expected 64 bounded preview requests' }
+          $sent = @($chunkCommands | ForEach-Object {
+            if($_.command -ne 'getChunk' -or $_.image -ne $true -or
+               @($_.chunks).Count -gt 64 -or @($_.chunks).Count -lt 1) {
+              throw 'Preview batch has invalid shape or exceeds 64 chunks'
+            }
+            $_.chunks
+          })
+          if($sent.Count -ne 4096) { throw 'Preview batching lost Minecraft chunks' }
+          $keys = @($sent | ForEach-Object { "$($_.chunkX),$($_.chunkZ)" })
+          if(@($keys | Sort-Object -Unique).Count -ne 4096 -or
+             $keys[0] -ne '-32,-32' -or $keys[-1] -ne '31,31') {
+            throw 'Preview chunk batching duplicated or reordered coordinates'
+          }
+          $smallBatches = @(New-PreviewChunkCommands @(@{chunkX=0;chunkZ=0},@{chunkX=1;chunkZ=0}) 64)
+          if($smallBatches.Count -ne 1 -or @($smallBatches[0].chunks).Count -ne 2) {
+            throw 'Small preview was not preserved'
+          }
+          $emptyBatches = @(New-PreviewChunkCommands @() 64)
+          if($emptyBatches.Count -ne 0) { throw 'Empty preview created commands' }
+          # Incremental progress must not count the same MiEx response twice
+          # when the Java stdout file is polled repeatedly.
+          $progressLog = Join-Path $env:RUNNER_TEMP 'preview_progress_test.log'
+          $script:previewLogCursor = [long]0
+          $script:previewPendingLine = ''
+          $script:previewBatchesFinished = 0
+          $script:previewLastResponse = [DateTime]::UtcNow
+          [IO.File]::WriteAllText($progressLog, "[COMMAND] {""status"":""success"",""chunks"":[]}" + [Environment]::NewLine)
+          Update-PreviewChunkProgress $progressLog 128 64
+          Update-PreviewChunkProgress $progressLog 128 64
+          if($script:previewBatchesFinished -ne 1) { throw 'Duplicate preview progress counted' }
+          [IO.File]::AppendAllText($progressLog, "[COMMAND] {""status"":""success"",""chunks"":[]}" + [Environment]::NewLine)
+          Update-PreviewChunkProgress $progressLog 128 64
+          if($script:previewBatchesFinished -ne 2) { throw 'New preview progress not counted' }
           $memoryReport = Format-MiExMemory ([System.Diagnostics.Process]::GetCurrentProcess())
           if ($memoryReport -notmatch 'MiEx JVM:' -and $memoryReport -notmatch 'MiEx JVM memory: unavailable') {
             throw ('Unexpected MiEx memory telemetry: ' + $memoryReport)

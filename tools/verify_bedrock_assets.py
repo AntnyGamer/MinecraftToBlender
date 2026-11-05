@@ -154,6 +154,11 @@ def main():
     assert "'Bedrock_Frame_Blocks.json' = 'frame_blocks.json'" in exporter
     assert "-Name 'exportEntityAsBlocks'" in exporter
     assert "entities=$true" in exporter
+    for name in ("Bedrock_Skulls.json", "Bedrock_Decorated_Pots.json", "Bedrock_Conduits.json", "Bedrock_Enchanting_Table.json"):
+        detail = load(name)
+        check_block_names(detail)
+        assert name in exporter
+    assert "Set-BedrockDetailModels $miexDir $base $Edition" in exporter
     assert "Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest" in exporter
     # The source Bedrock sheets must be present: removing them previously
     # produced black beds because the referenced material had no usable PNG.

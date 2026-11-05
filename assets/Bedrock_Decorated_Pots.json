@@ -1,0 +1,303 @@
+{
+    "blocks": [
+        "minecraft:decorated_pot"
+    ],
+    "doubleSided": true,
+    "defaultTexture": "minecraft:entity/decorated_pot/decorated_pot_side",
+    "handler": {
+        "variables": [
+            "rotY = 0.0",
+            "rotY = thisBlock.state.facing == 'east' ? 90.0 : rotY",
+            "rotY = thisBlock.state.facing == 'south' ? 180.0 : rotY",
+            "rotY = thisBlock.state.facing == 'west' ? 270.0 : rotY",
+            "sherds = thisBlock.state.sherds != null ? thisBlock.state.sherds : thisBlock.state.shards",
+            "back = sherds != null ? sherds[0] : null",
+            "back = back != null ? back.replace('_pottery_shard', '_pottery_sherd') : 'minecraft:brick'",
+            "back = back.startsWith('minecraft:') ? back.substring(10) : 'brick'",
+            "back = back.endsWith('_pottery_sherd') ? back.replace('_pottery_sherd', '_pottery_pattern') : 'decorated_pot_side'",
+            "left = sherds != null ? sherds[1] : null",
+            "left = left != null ? left.replace('_pottery_shard', '_pottery_sherd') : 'minecraft:brick'",
+            "left = left.startsWith('minecraft:') ? left.substring(10) : 'brick'",
+            "left = left.endsWith('_pottery_sherd') ? left.replace('_pottery_sherd', '_pottery_pattern') : 'decorated_pot_side'",
+            "right = sherds != null ? sherds[2] : null",
+            "right = right != null ? right.replace('_pottery_shard', '_pottery_sherd') : 'minecraft:brick'",
+            "right = right.startsWith('minecraft:') ? right.substring(10) : 'brick'",
+            "right = right.endsWith('_pottery_sherd') ? right.replace('_pottery_sherd', '_pottery_pattern') : 'decorated_pot_side'",
+            "front = sherds != null ? sherds[3] : null",
+            "front = front != null ? front.replace('_pottery_shard', '_pottery_sherd') : 'minecraft:brick'",
+            "front = front.startsWith('minecraft:') ? front.substring(10) : 'brick'",
+            "front = front.endsWith('_pottery_sherd') ? front.replace('_pottery_sherd', '_pottery_pattern') : 'decorated_pot_side'"
+        ],
+        "textures": {
+            "base": "'minecraft:entity/decorated_pot/decorated_pot_base'",
+            "back": "'minecraft:entity/decorated_pot/' + back",
+            "left": "'minecraft:entity/decorated_pot/' + left",
+            "right": "'minecraft:entity/decorated_pot/' + right",
+            "front": "'minecraft:entity/decorated_pot/' + front"
+        },
+        "transform": {
+            "rotate": [
+                0,
+                "rotY",
+                0
+            ]
+        },
+        "elements": [
+            {
+                "from": [
+                    1,
+                    0,
+                    1
+                ],
+                "to": [
+                    15,
+                    16,
+                    15
+                ],
+                "faces": {
+                    "north": {
+                        "uv": [
+                            1,
+                            0,
+                            15,
+                            16
+                        ],
+                        "texture": "'#back'"
+                    },
+                    "east": {
+                        "uv": [
+                            1,
+                            0,
+                            15,
+                            16
+                        ],
+                        "texture": "'#left'"
+                    },
+                    "west": {
+                        "uv": [
+                            1,
+                            0,
+                            15,
+                            16
+                        ],
+                        "texture": "'#right'"
+                    },
+                    "south": {
+                        "uv": [
+                            1,
+                            0,
+                            15,
+                            16
+                        ],
+                        "texture": "'#front'"
+                    }
+                }
+            },
+            {
+                "from": [
+                    1,
+                    16,
+                    1
+                ],
+                "to": [
+                    15,
+                    16,
+                    15
+                ],
+                "faces": {
+                    "up": {
+                        "uv": [
+                            0.0,
+                            6.5,
+                            7.0,
+                            13.5
+                        ],
+                        "texture": "'#base'"
+                    }
+                }
+            },
+            {
+                "from": [
+                    1,
+                    0,
+                    1
+                ],
+                "to": [
+                    15,
+                    0,
+                    15
+                ],
+                "faces": {
+                    "down": {
+                        "uv": [
+                            7.0,
+                            13.5,
+                            14.0,
+                            6.5
+                        ],
+                        "texture": "'#base'"
+                    }
+                }
+            }
+        ],
+        "children": [
+            {
+                "transform": {
+                    "pivot": [
+                        0,
+                        0,
+                        0
+                    ],
+                    "rotate": [
+                        180,
+                        0,
+                        0
+                    ],
+                    "translate": [
+                        0,
+                        37,
+                        16
+                    ]
+                },
+                "elements": [
+                    {
+                        "from": [
+                            4.1,
+                            17.1,
+                            4.1
+                        ],
+                        "to": [
+                            11.9,
+                            19.9,
+                            11.9
+                        ],
+                        "faces": {
+                            "up": {
+                                "uv": [
+                                    4.0,
+                                    0.0,
+                                    8.0,
+                                    4.0
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "down": {
+                                "uv": [
+                                    8.0,
+                                    4.0,
+                                    12.0,
+                                    0.0
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "west": {
+                                "uv": [
+                                    0.0,
+                                    4.0,
+                                    4.0,
+                                    5.5
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "south": {
+                                "uv": [
+                                    4.0,
+                                    4.0,
+                                    8.0,
+                                    5.5
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "east": {
+                                "uv": [
+                                    8.0,
+                                    4.0,
+                                    12.0,
+                                    5.5
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "north": {
+                                "uv": [
+                                    12.0,
+                                    4.0,
+                                    16.0,
+                                    5.5
+                                ],
+                                "texture": "'#base'"
+                            }
+                        }
+                    },
+                    {
+                        "from": [
+                            4.8,
+                            19.8,
+                            4.8
+                        ],
+                        "to": [
+                            11.2,
+                            21.2,
+                            11.2
+                        ],
+                        "faces": {
+                            "up": {
+                                "uv": [
+                                    3.0,
+                                    2.5,
+                                    6.0,
+                                    5.5
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "down": {
+                                "uv": [
+                                    6.0,
+                                    5.5,
+                                    9.0,
+                                    2.5
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "west": {
+                                "uv": [
+                                    0.0,
+                                    5.5,
+                                    3.0,
+                                    6.0
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "south": {
+                                "uv": [
+                                    3.0,
+                                    5.5,
+                                    6.0,
+                                    6.0
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "east": {
+                                "uv": [
+                                    6.0,
+                                    5.5,
+                                    9.0,
+                                    6.0
+                                ],
+                                "texture": "'#base'"
+                            },
+                            "north": {
+                                "uv": [
+                                    9.0,
+                                    5.5,
+                                    12.0,
+                                    6.0
+                                ],
+                                "texture": "'#base'"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

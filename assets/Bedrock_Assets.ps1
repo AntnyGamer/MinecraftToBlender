@@ -1,6 +1,6 @@
 # Bedrock reader overlay and official vanilla textures for MiEx model paths.
 function Install-BedrockReaderClass([string]$sourceJar, [string]$classPath) {
-    $expectedClass = 'f9f5c31ead8e783918dd2fdad2bf38ece06166c2e2df88a77f738ef8b929ee4e'
+    $expectedClass = 'f1cb94f95ed619139acdfe0ed2207fe21531613b9a160d818e792034c20718d5'
     if((Get-FileHash -LiteralPath $sourceJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne
        'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707' -or
        (Get-FileHash -LiteralPath $classPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedClass) {
@@ -12,6 +12,27 @@ function Install-BedrockReaderClass([string]$sourceJar, [string]$classPath) {
     [IO.File]::Copy($classPath, $target, $true)
     Write-Host 'Bedrock block-entity reader: corrected section bounds; original MiEx.jar unchanged.'
     return $root
+}
+
+function Set-BedrockDetailModels([string]$miexDir,[string]$assetDir,[string]$edition) {
+    $files = @{
+        'Bedrock_Armor_Stand.json' = 'entities/armor_stand.json'
+        'Bedrock_Armor_Boots.json' = 'attachments/boots.json'
+        'Bedrock_Armor_Chestplate.json' = 'attachments/chestplate.json'
+        'Bedrock_Armor_Helmet.json' = 'attachments/helmet.json'
+        'Bedrock_Armor_Leggings.json' = 'attachments/leggings.json'
+    }
+    foreach($entry in $files.GetEnumerator()) {
+        $target = Join-Path $miexDir ('resources/BlenderEEVEE/builtins/minecraft/' + $entry.Value)
+        if($edition -eq 'bedrock') {
+            $source = Join-Path $assetDir $entry.Key
+            [void](Get-Content -LiteralPath $source -Raw | ConvertFrom-Json)
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+            Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop
+        } elseif(Test-Path -LiteralPath $target -PathType Leaf) {
+            Remove-Item -LiteralPath $target -Force -ErrorAction Stop
+        }
+    }
 }
 
 function Ensure-BannerBaseAlias([string]$miexDir) {

@@ -714,6 +714,10 @@ try {
         'Bedrock_Hanging_Signs.json' = 'hanging_sign.json'
         'Bedrock_Legacy_Banners.json' = 'legacy_banners.json'
         'Bedrock_Frame_Blocks.json' = 'frame_blocks.json'
+        'Bedrock_Skulls.json' = 'skull.json'
+        'Bedrock_Decorated_Pots.json' = 'decorated_pot.json'
+        'Bedrock_Conduits.json' = 'conduit.json'
+        'Bedrock_Enchanting_Table.json' = 'enchanting_table.json'
     }
     if($Edition -eq 'bedrock') {
         New-Item -ItemType Directory -Force -Path $blockOverrideDir | Out-Null
@@ -728,7 +732,7 @@ try {
             }
             Copy-Item -LiteralPath $source -Destination (Join-Path $blockOverrideDir $entry.Value) -Force -ErrorAction Stop
         }
-        Write-Host 'Enabled Bedrock-specific beds, shulker orientation, and legacy sign text models.' -ForegroundColor Green
+        Write-Host 'Enabled Bedrock beds, shulkers, signs, heads, decorated pots, conduits and enchanting books.' -ForegroundColor Green
     } else {
         # Remove any overrides created for an earlier Bedrock export in this workspace.
         foreach($name in $bedrockBlockOverrides.Values) {
@@ -736,6 +740,7 @@ try {
             if(Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction Stop }
         }
     }
+    Set-BedrockDetailModels $miexDir $base $Edition
     $frameStateFolder = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/blockstates'
     $frameOverridePath = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities/item_frame.json'
     # Previous versions installed empty frame blockstates. When MiEx did not

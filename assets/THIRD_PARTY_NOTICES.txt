@@ -6,9 +6,18 @@ then loads a bundled, modified ChunkBedrock class ahead of the unchanged JAR
 for Bedrock exports. The reproducible source patch is in
 tools/build_bedrock_reader_patch.py. It fixes block-entity section bounds,
 preserves shulker facing, translates Bedrock banner dyes/patterns and normalizes
-legacy sign text while retaining front and back data.
-The release does NOT bundle MiEx.jar, Microsoft/Mojang Minecraft assets,
-world saves, or Blender.
+legacy sign text, potted plants, legacy skull types/rotation and Bedrock armor
+stand equipment while retaining the original saved tags.
+Additional BSD MiEx skull, armor-stand and equipment model definitions are
+adapted by tools/build_bedrock_detail_models.py. Their inputs are pinned and
+the generated JSON files are reproduced in CI.
+Detail geometry and UV measurements were checked against Mojang client 26.1.2
+(SHA1 4e618f09a0c649dde3fdf829df443ce0b8831e65). Static armor-stand pose rotation
+data is derived from Mojang/bedrock-samples revision
+15701fa9c13923f12662984c32c124327e40e3d3, resource_pack/animations/armor_stand.animation.json.
+https://github.com/Mojang/bedrock-samples
+The EXE does NOT bundle MiEx.jar, Minecraft client JARs, texture images,
+world saves, or Blender. Minecraft texture images are installed on demand.
 The Blender importer and MiEx resource-pack templates are downloaded at run time
 from pinned MiEx repository commit 631e9fc2fde8c749bf59d4c3495492e62a83ef6c.
 

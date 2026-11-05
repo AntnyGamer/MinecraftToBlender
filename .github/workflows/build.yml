@@ -104,6 +104,19 @@ jobs:
           if ($exprs.Count -lt 30) { throw 'Missing expected Bedrock expression coverage' }
           $exprs | & java -cp "$jar;$env:RUNNER_TEMP" MiExExpressionSmoke
           if ($LASTEXITCODE -ne 0) { throw 'MiEx rejected a Bedrock expression: see Java exception above' }
+      - name: Reproduce_Bedrock_detail_models
+        shell: pwsh
+        run: |
+          $rebuilt = Join-Path $env:RUNNER_TEMP 'bedrock_detail_models'
+          python tools/build_bedrock_detail_models.py --output $rebuilt
+          if ($LASTEXITCODE -ne 0) { throw 'Could not reproduce detail models' }
+          $models = @(Get-ChildItem -LiteralPath $rebuilt -Filter '*.json' -File)
+          if ($models.Count -ne 9) { throw 'Missing detail model output' }
+          foreach ($model in $models) {
+            if ((Get-FileHash $model.FullName).Hash -ne (Get-FileHash (Join-Path 'assets' $model.Name)).Hash) {
+              throw ('Detail model source mismatch: ' + $model.Name)
+            }
+          }
       - name: Validate_PowerShell
         shell: powershell
         run: |

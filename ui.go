@@ -291,6 +291,13 @@ func minecraftWaterLabel() string {
 	return "Minecraft-style water: Off"
 }
 
+func texturePreviewLabel() string {
+	if app.texturePreview {
+		return "Block texture view: On"
+	}
+	return "Block texture view: Off"
+}
+
 func autoOpenBlenderLabel() string {
 	if app.autoOpenBlender {
 		return "Auto-open Blender: On"
@@ -384,6 +391,7 @@ func createControls() {
 	uiButton(idResume, "Safe resume: Off")
 	uiButton(idBatchMeshes, batchMeshesLabel())
 	uiButton(idWaterStyle, minecraftWaterLabel())
+	uiButton(idTexturePreview, texturePreviewLabel())
 	uiLabel(uiOptionsNote, "Resume reuses verified completed USD only; partial chunks are never trusted.", 3, theme.quiet, theme.card)
 
 	uiLabel(uiActivityTitle, "Activity", 2, theme.white, theme.card)
@@ -595,7 +603,8 @@ func layoutUI() {
 		move(idEntityDisplays, x+(w-10)/2+10, top+198, (w-10)/2, 29)
 		move(idResume, x, top+233, (w-10)/2, 29)
 		move(idBatchMeshes, x+(w-10)/2+10, top+233, (w-10)/2, 29)
-		move(idWaterStyle, x, top+267, w, 29)
+		move(idWaterStyle, x, top+267, (w-10)/2, 29)
+		move(idTexturePreview, x+(w-10)/2+10, top+267, (w-10)/2, 29)
 		move(uiOptionsNote, x, top+299, w, 18)
 	} else {
 		move(uiOptionsTitle, x, top+22, w, 27)
@@ -610,7 +619,8 @@ func layoutUI() {
 		move(idEntityDisplays, x+(w-12)/2+12, top+241, (w-12)/2, 37)
 		move(idResume, x, top+284, (w-12)/2, 36)
 		move(idBatchMeshes, x+(w-12)/2+12, top+284, (w-12)/2, 36)
-		move(idWaterStyle, x, top+326, w, 36)
+		move(idWaterStyle, x, top+326, (w-12)/2, 36)
+		move(idTexturePreview, x+(w-12)/2+12, top+326, (w-12)/2, 36)
 		move(uiOptionsNote, x, top+366, w, 18)
 	}
 
@@ -636,7 +646,7 @@ func layoutUI() {
 	for _, id := range []int{uiSettingsTitle, uiSettingsInfo, uiWorkspaceLabel, uiPrefsNote, uiPacksHint, uiAutoOpenHint, idWorkspace, idWorkspaceBrowse, idWorldPacks, idAutoOpenBlender} {
 		show(id, ui.tab == 2)
 	}
-	for _, id := range []int{uiOptionsTitle, uiOptionsInfo, uiOptionsNote, uiEntityHeading, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idBatchMeshes, idWaterStyle} {
+	for _, id := range []int{uiOptionsTitle, uiOptionsInfo, uiOptionsNote, uiEntityHeading, idDimension, idPreview, idPreflight, idEntityFrames, idEntityPaintings, idEntityStands, idEntityDisplays, idResume, idBatchMeshes, idWaterStyle, idTexturePreview} {
 		show(id, ui.tab == 3)
 	}
 	// In compact mode these actions sit near the bottom of the setup card.
@@ -749,7 +759,8 @@ func paintButton(lp uintptr) uintptr {
 		}
 	} else if (id == idEntityFrames && app.entityFrames) || (id == idEntityPaintings && app.entityPaintings) ||
 		(id == idEntityStands && app.entityStands) || (id == idEntityDisplays && app.entityDisplays) ||
-		(id == idResume && app.resumeEnabled) || (id == idBatchMeshes && app.batchMeshes) || (id == idWaterStyle && app.minecraftWater) {
+		(id == idResume && app.resumeEnabled) || (id == idBatchMeshes && app.batchMeshes) ||
+		(id == idWaterStyle && app.minecraftWater) || (id == idTexturePreview && app.texturePreview) {
 		fill, fg = theme.accentDark, color(29, 78, 179)
 		if hover || focused {
 			fill = color(200, 223, 255)

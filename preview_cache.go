@@ -94,6 +94,9 @@ func cachedPreview(cacheFile, outputDir string) (string, bool) {
 	img, decodeErr := png.Decode(f) // Validate the complete image, not just its header.
 	closeErr := f.Close()
 	if decodeErr != nil || closeErr != nil || img.Bounds().Dx() != 256 || img.Bounds().Dy() != 256 {
+		// A corrupt cache entry must not block a newly generated image from
+		// replacing it on Windows, where Rename cannot overwrite a file.
+		_ = os.Remove(cacheFile)
 		return "", false
 	}
 	output, err := previewTempCopy(cacheFile, outputDir)

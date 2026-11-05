@@ -136,8 +136,79 @@ def test_minecraft_shader_graph_starts_clean():
     assert not nodes, "The new Minecraft material graph must start with no stale nodes"
 
 
+def test_shared_image_color_and_alpha_are_isolated():
+    import textwrap
+    tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+              and node.name == "load_patched_importer")
+    safe_strings = [
+        node.value.value for node in fn.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "safe" for t in node.targets)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        and "node.image = bpy.data.images.load(imagePath, check_existing=True)" in node.value.value
+    ]
+    assert len(safe_strings) == 1
+    safe_code = compile(textwrap.dedent(safe_strings[0]), "<shared-image>", "exec")
+
+    class Image:
+        def __init__(self, users, colorspace="sRGB", alpha="STRAIGHT"):
+            self.users = users
+            self.colorspace_settings = SimpleNamespace(name=colorspace)
+            self.alpha_mode = alpha
+            self.copy_count = 0
+
+        def copy(self):
+            self.copy_count += 1
+            return Image(1, self.colorspace_settings.name, self.alpha_mode)
+
+    def run(image, colorspace, alpha):
+        class Images:
+            def load(self, path, check_existing=False):
+                assert path == "blocks.png"
+                assert check_existing
+                return image
+
+        node = SimpleNamespace(image=None)
+        data = {"attributes": {
+            "colorspace_settings": {"value": colorspace},
+            "alpha_mode": {"value": alpha},
+        }}
+        bpy = SimpleNamespace(data=SimpleNamespace(images=Images()))
+        scope = {"node": node, "data": data, "imagePath": "blocks.png", "bpy": bpy}
+        exec(safe_code, scope)
+        return node.image
+
+    original = Image(3)
+    isolated = run(original, ["Non-Color"], "PREMUL")
+    assert isolated is not original
+    assert original.copy_count == 1
+    isolated.colorspace_settings.name = "Non-Color"
+    isolated.alpha_mode = "PREMUL"
+    assert original.colorspace_settings.name == "sRGB"
+    assert original.alpha_mode == "STRAIGHT"
+
+    # Shared identical configurations continue to reuse one Image datablock
+    # rather than multiplying thousands of vanilla Minecraft textures.
+    original = Image(32)
+    assert run(original, ["sRGB", "sRGB Encoded Rec.709 (sRGB)"], "STRAIGHT") is original
+    assert original.copy_count == 0
+
+    # A first-time image has no existing material to accidentally recolor.
+    first = Image(1)
+    assert run(first, "Non-Color", "STRAIGHT") is first
+    assert first.copy_count == 0
+
+    # Alpha-only differences are just as important as color-space differences.
+    shared = Image(2)
+    assert run(shared, ["sRGB"], "PREMUL") is not shared
+    assert shared.copy_count == 1
+
+
 if __name__ == "__main__":
     test_material_lookup()
     test_redundant_preview_shaders_are_skipped()
     test_minecraft_shader_graph_starts_clean()
-    print("Pinned MiEx material graph reset, fast lookup and USD preview import regressions passed.")
+    test_shared_image_color_and_alpha_are_isolated()
+    print("Pinned MiEx materials preserve shared-image appearance, shader reset, fast lookup and USD imports.")

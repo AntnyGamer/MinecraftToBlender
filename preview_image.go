@@ -19,7 +19,25 @@ type previewChunk struct {
 	LayerCount int `json:"layerCount"`
 }
 
+// Existing small fixtures intentionally omit unspecified chunks; the
+// production path additionally checks that every requested MiEx batch replied.
 func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (int, error) {
+	return renderSampledPreviewExpected(logPath, output, centerX, centerZ, size, 0)
+}
+
+func previewBatchCount(centerX, centerZ, size int) int {
+	minX, minZ := centerX-size/2, centerZ-size/2
+	firstX, firstZ := int(math.Floor(float64(minX)/16)), int(math.Floor(float64(minZ)/16))
+	lastX, lastZ := int(math.Floor(float64(minX+size-1)/16)), int(math.Floor(float64(minZ+size-1)/16))
+	spanX, spanZ := lastX-firstX+1, lastZ-firstZ+1
+	if spanX<=0 || spanZ<=0 { return 0 }
+	// Matches Get-PreviewChunkCoordinates in Export_World.ps1.
+	chunks := spanX*spanZ
+	if chunks>9216 { chunks=min(96,spanX)*min(96,spanZ) }
+	return (chunks+63)/64
+}
+
+func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size, expectedBatches int) (int, error) {
 	file, err := os.Open(logPath)
 	if err != nil {
 		return 0, err
@@ -29,6 +47,7 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	scanner.Buffer(make([]byte, 64*1024), 32*1024*1024)
 	tiles := make(map[[2]int][]byte)
 	sawChunkResponse := false
+	batches := 0
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) < 10 || string(line[:10]) != "[COMMAND] " {
@@ -53,6 +72,7 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 			continue
 		}
 		sawChunkResponse = true
+		batches++
 		for _, ch := range response.Chunks {
 			if ch.LayerCount <= 0 {
 				continue // Missing/empty terrain is a legitimate gray tile.
@@ -77,6 +97,9 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 	}
 	if !sawChunkResponse {
 		return 0, fmt.Errorf("MiEx returned no valid chunk-preview response; inspect the command log")
+	}
+	if expectedBatches > 0 && batches != expectedBatches {
+		return 0, fmt.Errorf("MiEx returned only %d of %d requested preview batches; refusing a partial map", batches, expectedBatches)
 	}
 	out := image.NewNRGBA(image.Rect(0, 0, 256, 256))
 	for y := 0; y < 256; y++ {

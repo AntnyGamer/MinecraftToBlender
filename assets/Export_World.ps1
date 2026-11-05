@@ -155,6 +155,57 @@ function Get-PreviewChunkCoordinates([int]$firstX,[int]$lastX,[int]$firstZ,[int]
     }
     return $locations.ToArray()
 }
+# MiEx's getChunk command queues one worker task per requested position.
+# Small sequential batches prevent a large preview from allocating thousands
+# of outstanding tasks and one huge JSON response. Every requested chunk still
+# gets its original exact coordinates and 16x16 image.
+function New-PreviewChunkCommands([object[]]$chunks, [int]$batchSize = 64) {
+    if($batchSize -lt 1 -or $batchSize -gt 256) {
+        throw 'Preview batch size must be between 1 and 256.'
+    }
+    $requests = New-Object 'System.Collections.Generic.List[object]'
+    for($start = 0; $start -lt $chunks.Count; $start += $batchSize) {
+        $batch = New-Object 'System.Collections.Generic.List[object]'
+        $end = [math]::Min($start + $batchSize, $chunks.Count)
+        for($i = $start; $i -lt $end; $i++) {
+            $batch.Add($chunks[$i])
+        }
+        $requests.Add(@{command='getChunk'; chunks=$batch.ToArray(); image=$true})
+    }
+    return $requests.ToArray()
+}
+function Update-PreviewChunkProgress([string]$logPath, [int]$requestedChunks, [int]$batchSize) {
+    if(-not (Test-Path -LiteralPath $logPath -PathType Leaf)) { return }
+    # Read newly appended log bytes only. A MiEx chunk response can contain
+    # large base64 PNG data; never repeatedly parse the complete console log.
+    $stream = [IO.File]::Open($logPath, [IO.FileMode]::Open,
+        [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    try {
+        if($script:previewLogCursor -gt $stream.Length) {
+            $script:previewLogCursor = 0
+            $script:previewPendingLine = ''
+            $script:previewBatchesFinished = 0
+        }
+        [void]$stream.Seek($script:previewLogCursor, [IO.SeekOrigin]::Begin)
+        $reader = New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8, $false, 8192, $true)
+        try {
+            $text = $script:previewPendingLine + $reader.ReadToEnd()
+            $script:previewLogCursor = $stream.Position
+        } finally { $reader.Dispose() }
+    } finally { $stream.Dispose() }
+    $lines = $text -split '\r?\n'
+    $script:previewPendingLine = $lines[$lines.Length - 1]
+    for($i = 0; $i -lt $lines.Length - 1; $i++) {
+        $line = $lines[$i]
+        if(-not $line.StartsWith('[COMMAND] ') -or -not $line.Contains('"chunks"')) { continue }
+        if($line.Contains('"status":"error"')) { continue }
+        $script:previewBatchesFinished++
+        $script:previewLastResponse = [DateTime]::UtcNow
+        $done = [math]::Min($requestedChunks, $script:previewBatchesFinished * $batchSize)
+        Write-Host ("[PREVIEW] MiEx replied for {0}/{1} requested chunks ({2} batches)." -f
+            $done, $requestedChunks, $script:previewBatchesFinished) -ForegroundColor Cyan
+    }
+}
 function Format-MiExMemory([System.Diagnostics.Process]$process) {
     # Read the JVM's private committed bytes and physical resident set, not
     # simply the Java launcher process's first (often ~10 MiB) working set.
@@ -846,7 +897,9 @@ try {
         } else {
             Write-Host ("Preview: large area ($spanX x $spanZ chunks); requesting $($probeChunks.Count) coarse color samples.")
         }
-        $commands += @{command='getChunk';chunks=$probeChunks;image=$true}
+        $commands += @(New-PreviewChunkCommands $probeChunks 64)
+        Write-Host ("Preview: requesting images in {0} sequential batches of at most 64 chunks." -f
+            [int][math]::Ceiling($probeChunks.Count / 64.0)) -ForegroundColor Cyan
     } else {
         $commands += @(
           @{command='getWorld'},
@@ -891,6 +944,11 @@ try {
     $lastSize = -1
     $lastStderrSize = -1
     $lastMemoryReport = [DateTime]::UtcNow.AddSeconds(-20)
+    $script:previewLogCursor = [long]0
+    $script:previewPendingLine = ''
+    $script:previewBatchesFinished = 0
+    $script:previewLastResponse = [DateTime]::UtcNow
+    $script:previewLastWarning = [DateTime]::UtcNow
     $outOfMemory = $false
     $oomPattern = 'java\.lang\.OutOfMemoryError|GC overhead limit exceeded'
     while(-not $proc.HasExited) {
@@ -911,14 +969,24 @@ try {
             $length = (Get-Item -LiteralPath $log).Length
             if($length -ne $lastSize) {
                 $lastSize = $length
-                Get-Content -LiteralPath $log -Tail 8 -ErrorAction SilentlyContinue | ForEach-Object {
-                    if($_.StartsWith('[COMMAND] ') -and ($_.Contains('"chunks"') -or $_.Contains('"world"'))) {
-                        Write-Host '[COMMAND] World/chunk diagnostics saved to miex_console.log.'
-                    } elseif($_.Length -gt 4000 -and $_.StartsWith('[COMMAND] ')) {
-                        Write-Host '[COMMAND] Large diagnostic response saved to miex_console.log.'
-                    } else { Write-Host $_ }
+                if($PreviewOnly) {
+                    Update-PreviewChunkProgress $log $probeChunks.Count 64
+                } else {
+                    Get-Content -LiteralPath $log -Tail 8 -ErrorAction SilentlyContinue | ForEach-Object {
+                        if($_.StartsWith('[COMMAND] ') -and ($_.Contains('"chunks"') -or $_.Contains('"world"'))) {
+                            Write-Host '[COMMAND] World/chunk diagnostics saved to miex_console.log.'
+                        } elseif($_.Length -gt 4000 -and $_.StartsWith('[COMMAND] ')) {
+                            Write-Host '[COMMAND] Large diagnostic response saved to miex_console.log.'
+                        } else { Write-Host $_ }
+                    }
                 }
             }
+        }
+        if($PreviewOnly -and
+           ([DateTime]::UtcNow - $script:previewLastResponse).TotalSeconds -ge 90 -and
+           ([DateTime]::UtcNow - $script:previewLastWarning).TotalSeconds -ge 90) {
+            $script:previewLastWarning = [DateTime]::UtcNow
+            Write-Warning 'No preview batch has completed for 90 seconds. If Java is idle, use Cancel; see miex_console.log and miex_stderr.log.'
         }
         if(Test-Path -LiteralPath $stderrLog) {
             $errorSize = (Get-Item -LiteralPath $stderrLog).Length

@@ -121,6 +121,7 @@ jobs:
         shell: powershell
         run: |
           & ./tools/test_miex_launch_args.ps1
+          & ./tools/test_preview_batches.ps1
           $tokens = $null
           $parseErrors = $null
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/Export_World.ps1'), [ref]$tokens, [ref]$parseErrors)

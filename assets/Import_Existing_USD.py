@@ -417,6 +417,29 @@ def apply_minecraft_water_materials():
     return count
 
 
+def apply_minecraft_texture_preview():
+    """Opt-in Blender display preset; preserve all shader and mesh datablocks.
+
+    Standard leaves Minecraft's existing sRGB texture palette closer to its
+    ungraded colors than the default film-style AgX tone mapping. Solid-mode
+    TEXTURE shows the active image texture without requiring an EEVEE material
+    preview, which can be expensive for very large exported worlds. This is an
+    editor/display preference, not a replacement for the full shader network.
+    """
+    bpy.context.scene.view_settings.view_transform = 'Standard'
+    changed = 0
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            for space in area.spaces:
+                if space.type == 'VIEW_3D' and space.shading.type == 'SOLID':
+                    space.shading.color_type = 'TEXTURE'
+                    changed += 1
+    log('MINECRAFT TEXTURE PREVIEW: Standard color transform,',
+        changed, 'solid 3D views display their active image textures.',
+        'Full biome tint, alpha and lighting still require Material Preview.')
+    return changed
+
+
 def clear_objects():
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
@@ -766,7 +789,7 @@ def hide_relationship_lines():
 
 
 
-def optimize_existing_blend(target, batch_meshes=False):
+def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
     """Optimize the Blender project already loaded by the EXE, saving a copy."""
     source = Path(bpy.data.filepath).resolve() if bpy.data.filepath else None
     if source is None or not source.is_file():
@@ -793,6 +816,8 @@ def optimize_existing_blend(target, batch_meshes=False):
         hide_relationship_lines()
     joined = batch_static_terrain_meshes() if batch_meshes else 0
     slots = deduplicate_exact_material_slots()
+    if minecraft_view:
+        apply_minecraft_texture_preview()
     after_meshes = tuple(ob for ob in bpy.context.scene.objects if ob.type == 'MESH')
     after_faces = sum(len(ob.data.polygons) for ob in after_meshes)
     if before_faces != after_faces:
@@ -821,21 +846,23 @@ def main():
     arguments = sys.argv[sys.argv.index('--') + 1:]
     if '--optimize-blend' in arguments:
         flags = arguments[1:]
-        if len(arguments) < 2 or flags not in (
-                ['--optimize-blend'],
-                ['--optimize-blend', '--batch-static-meshes']):
-            raise RuntimeError('Expected target .blend --optimize-blend [--batch-static-meshes]')
+        allowed = {'--optimize-blend', '--batch-static-meshes', '--minecraft-view'}
+        if (len(arguments) < 2 or len(flags) != len(set(flags))
+                or '--optimize-blend' not in flags or not set(flags) <= allowed):
+            raise RuntimeError('Expected target .blend --optimize-blend [--batch-static-meshes] [--minecraft-view]')
         if Path(arguments[0]).suffix.lower() != '.blend':
             raise RuntimeError('Optimization output must be a .blend file.')
         optimize_existing_blend(Path(arguments[0]).resolve(),
-                                batch_meshes='--batch-static-meshes' in flags)
+                                batch_meshes='--batch-static-meshes' in flags,
+                                minecraft_view='--minecraft-view' in flags)
         return
     flags = arguments[3:]
-    accepted = {'--minecraft-water', '--batch-static-meshes'}
+    accepted = {'--minecraft-water', '--batch-static-meshes', '--minecraft-view'}
     if len(arguments) < 3 or len(flags) != len(set(flags)) or not set(flags) <= accepted:
         raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water] [--batch-static-meshes]')
     minecraft_water = '--minecraft-water' in flags
     batch_meshes = '--batch-static-meshes' in flags
+    minecraft_view = '--minecraft-view' in flags
     src, importer, target = [Path(arg).resolve() for arg in arguments[:3]]
     log('BLENDER VERSION:', bpy.app.version_string)
     log('Input USD:', src)
@@ -887,6 +914,8 @@ def main():
         batch_static_terrain_meshes()
         log('[PERF] Bounded static terrain mesh batching:',
             round(time.monotonic() - phase_start, 2), 'seconds')
+    if minecraft_view:
+        apply_minecraft_texture_preview()
     # Unlike mesh batching, removing repeated slots for the SAME shader
     # datablock changes no actual rendering or geometry and is safe as default.
     deduplicate_exact_material_slots()

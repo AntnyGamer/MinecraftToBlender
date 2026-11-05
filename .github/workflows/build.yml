@@ -59,6 +59,33 @@ jobs:
           cache: false
       - name: Run_tests
         run: go test ./... -count=1 -timeout 3m
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Validate_pinned_MiEx_expression_parser
+        shell: pwsh
+        run: |
+          $jar = Join-Path $env:RUNNER_TEMP 'MiEx_parser_test.jar'
+          Invoke-WebRequest -Uri 'https://github.com/BramStoutProductions/MiEx/releases/download/v2.0.0.experimental-34/MiEx.jar' -OutFile $jar -TimeoutSec 180
+          $sha = (Get-FileHash -LiteralPath $jar -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne 'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707') {
+            throw "Pinned MiEx.jar SHA-256 mismatch: $sha"
+          }
+          javac -cp $jar -d $env:RUNNER_TEMP tools/MiExExpressionSmoke.java
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compile MiEx parser regression test' }
+          $exprs = [Collections.Generic.List[string]]::new()
+          foreach ($file in @('Bedrock_Beds.json','Bedrock_Shulkers.json','Bedrock_Signs.json','Bedrock_Hanging_Signs.json','Bedrock_Legacy_Banners.json')) {
+            $model = Get-Content -LiteralPath (Join-Path 'assets' $file) -Raw | ConvertFrom-Json
+            foreach ($handler in @($model.handler)) {
+              foreach ($expr in @($handler.variables)) {
+                if ($null -ne $expr -and "$expr".Trim()) { $exprs.Add([string]$expr) }
+              }
+            }
+          }
+          if ($exprs.Count -lt 30) { throw 'Missing expected Bedrock expression coverage' }
+          $exprs | & java -cp "$jar;$env:RUNNER_TEMP" MiExExpressionSmoke
+          if ($LASTEXITCODE -ne 0) { throw 'MiEx rejected a Bedrock expression: see Java exception above' }
       - name: Validate_PowerShell
         shell: powershell
         run: |
@@ -225,6 +252,16 @@ jobs:
             if ($definitions.Count -ne 1) { throw "Missing process helper: $name" }
             . ([ScriptBlock]::Create($definitions[0].Extent.Text))
           }
+          # Sample the real Windows PowerShell process, including its PID and
+          # private/working-set terminology. Tiny launcher memory must never
+          # be presented as a verified MiEx JVM working set.
+          $memoryReport = Format-MiExMemory ([System.Diagnostics.Process]::GetCurrentProcess())
+          if ($memoryReport -notmatch 'MiEx JVM:' -and $memoryReport -notmatch 'MiEx JVM memory: unavailable') {
+            throw ('Unexpected MiEx memory telemetry: ' + $memoryReport)
+          }
+          if ($memoryReport -match 'Java RAM \(working set\): 10 MiB') {
+            throw 'Stale launcher working set was incorrectly presented as JVM memory'
+          }
           # Verify exact preview coordinates and bounded large-area sampling.
           $small = @(Get-PreviewChunkCoordinates -1 0 -1 0)
           if($small.Count -ne 4 -or
@@ -239,11 +276,6 @@ jobs:
           if($large[0].chunkX -ne -64 -or $large[0].chunkZ -ne -64 -or
              $large[-1].chunkX -ne 63 -or $large[-1].chunkZ -ne 63) {
             throw 'Large sample grid did not include its full geographic bounds'
-          }
-          $memoryReading = Format-MiExMemory ([Diagnostics.Process]::GetCurrentProcess())
-          if($memoryReading -notmatch '^MiEx Java RAM \(working set\): [0-9.,]+ (MiB|GiB)$' -or
-             $memoryReading -match '0\.0 GiB') {
-            throw "Measured process memory was formatted incorrectly: $memoryReading"
           }
           $generatedStage = Join-Path $env:RUNNER_TEMP 'generated_materials'
           $generatedFolder = Join-Path $generatedStage 'Sample_chunks/textures/banner'
@@ -478,18 +510,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Publish_v1_1_1_release
+      - name: Publish_v1_1_2_release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v1.1.1 >/dev/null 2>&1; then
-            echo "Release v1.1.1 already exists; leaving it unchanged."
+          if gh release view v1.1.2 >/dev/null 2>&1; then
+            echo "Release v1.1.2 already exists; leaving it unchanged."
             exit 0
           fi
           mkdir -p release
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name MinecraftToBlender_v1_Windows --dir release
           test -s release/MinecraftToBlender_v1.exe
           (cd release && sha256sum MinecraftToBlender_v1.exe > SHA256SUMS.txt)
-          gh release create v1.1.1 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.1.1" \
-            --notes-file .github/RELEASE_NOTES_v1.1.1.md
+          gh release create v1.1.2 release/MinecraftToBlender_v1.exe release/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --title "MinecraftToBlender v1.1.2" \
+            --notes-file .github/RELEASE_NOTES_v1.1.2.md

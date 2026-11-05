@@ -32,7 +32,7 @@
                 "type = thisBlock.name.substring(thisBlock.name.indexOf(':') + 1)",
                 "rotY = thisBlock.state.rotation != null ? (22.5 * thisBlock.state.rotation) : (thisBlock.state.ground_sign_direction != null ? (22.5 * thisBlock.state.ground_sign_direction) : 0.0)",
                 "isWall = false",
-                "attached = thisBlock.state.attached_bit != null ? thisBlock.state.attached_bit == true : thisBlock.state.attached == true",
+                "attached = thisBlock.state.attached_bit == true",
                 "rotModelI = thisBlock.state.rotation != null ? (0 + thisBlock.state.rotation) : (thisBlock.state.ground_sign_direction != null ? (0 + thisBlock.state.ground_sign_direction) : 0)",
                 "rotModelI = rotModelI > 3 ? (rotModelI - 4) : rotModelI",
                 "rotModelI = rotModelI > 3 ? (rotModelI - 4) : rotModelI",

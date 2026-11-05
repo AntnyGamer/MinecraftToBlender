@@ -156,25 +156,87 @@ function Get-PreviewChunkCoordinates([int]$firstX,[int]$lastX,[int]$firstZ,[int]
     return $locations.ToArray()
 }
 function Format-MiExMemory([System.Diagnostics.Process]$process) {
-    # A zero working set can mean a not-yet-initialized/unavailable reading.
-    # Never present that as a measured 0.0 GiB of Java RAM.
+    # Read the JVM's private committed bytes and physical resident set, not
+    # simply the Java launcher process's first (often ~10 MiB) working set.
+    # A Windows java.exe shim can launch a second JVM process and leave its
+    # stdout/stderr handles open after the original process exits.
+    $rootId = [int]$process.Id
+    $bestId = 0
+    $bestPrivate = [long]0
+    $bestResident = [long]0
     try {
-        if($process.HasExited) { return $null }
-        $current = [System.Diagnostics.Process]::GetProcessById($process.Id)
+        $root = [System.Diagnostics.Process]::GetProcessById($rootId)
         try {
-            $current.Refresh()
-            $bytes = [long]$current.WorkingSet64
-        } finally { $current.Dispose() }
-        if($bytes -le 0) { return $null }
-        if($bytes -lt 1GB) {
-            return ('MiEx Java RAM (working set): {0:N0} MiB' -f ($bytes / 1MB))
-        }
-        return ('MiEx Java RAM (working set): {0:N2} GiB' -f ($bytes / 1GB))
-    } catch { return $null }
+            $root.Refresh()
+            if(-not $root.HasExited) {
+                $bestId = $rootId
+                $bestPrivate = [long]$root.PrivateMemorySize64
+                $bestResident = [long]$root.WorkingSet64
+            }
+        } finally { $root.Dispose() }
+    } catch { }
+    # A real MiEx JVM normally commits far more than 64 MiB. If this is just
+    # the lightweight launcher (or it has exited), find a matching descendant
+    # by Windows process ancestry. Never guess another unrelated Java instance.
+    if($bestPrivate -lt 64MB) {
+        try {
+            $items = @(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,CommandLine -ErrorAction Stop)
+            $byPid = @{}
+            foreach($item in $items) { $byPid[[int]$item.ProcessId] = $item }
+            foreach($item in $items) {
+                if($item.Name -notin @('java.exe','javaw.exe') -or
+                   -not ($item.CommandLine -match '(?i)MiEx\.jar')) { continue }
+                $parent = [int]$item.ParentProcessId
+                $descendant = $false
+                for($depth = 0; $depth -lt 10; $depth++) {
+                    if($parent -eq $rootId) { $descendant = $true; break }
+                    if(-not $byPid.ContainsKey($parent)) { break }
+                    $parent = [int]$byPid[$parent].ParentProcessId
+                }
+                if(-not $descendant) { continue }
+                try {
+                    $jvm = [System.Diagnostics.Process]::GetProcessById([int]$item.ProcessId)
+                    try {
+                        $jvm.Refresh()
+                        if(-not $jvm.HasExited -and [long]$jvm.PrivateMemorySize64 -gt $bestPrivate) {
+                            $bestId = [int]$item.ProcessId
+                            $bestPrivate = [long]$jvm.PrivateMemorySize64
+                            $bestResident = [long]$jvm.WorkingSet64
+                        }
+                    } finally { $jvm.Dispose() }
+                } catch { }
+            }
+        } catch { }
+    }
+    if($bestPrivate -lt 64MB -or $bestResident -le 0) {
+        return ('MiEx JVM memory: unavailable (launcher PID {0})' -f $rootId)
+    }
+    $committed = if($bestPrivate -ge 1GB) {
+        '{0:N2} GiB' -f ($bestPrivate / 1GB)
+    } else {
+        '{0:N0} MiB' -f ($bestPrivate / 1MB)
+    }
+    $resident = if($bestResident -ge 1GB) {
+        '{0:N2} GiB' -f ($bestResident / 1GB)
+    } else {
+        '{0:N0} MiB' -f ($bestResident / 1MB)
+    }
+    return ('MiEx JVM: {0} private committed, {1} resident (PID {2})' -f $committed, $resident, $bestId)
 }
 function Finish-CapturedProcess($capture) {
     try {
         $capture.Process.WaitForExit()
+        # A Java launcher may exit before its child JVM releases the inherited
+        # stdout/stderr pipes. Keep reporting the real child JVM until both
+        # streams finish, rather than freezing the UI at the launcher's 10 MiB.
+        $lastMemoryReport = [DateTime]::UtcNow.AddSeconds(-15)
+        while(-not ($capture.OutTask.IsCompleted -and $capture.ErrTask.IsCompleted)) {
+            if(([DateTime]::UtcNow - $lastMemoryReport).TotalSeconds -ge 15) {
+                $lastMemoryReport = [DateTime]::UtcNow
+                Write-Host ("[MEMORY] " + (Format-MiExMemory $capture.Process))
+            }
+            Start-Sleep -Milliseconds 1000
+        }
         [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($capture.OutTask, $capture.ErrTask))
         return [int]$capture.Process.ExitCode
     } finally {
@@ -841,7 +903,7 @@ try {
                 if($memory) {
                     Write-Host ("[MEMORY] " + $memory)
                 } else {
-                    Write-Host '[MEMORY] MiEx Java RAM (working set): unavailable'
+                    Write-Host '[MEMORY] MiEx JVM memory: unavailable'
                 }
             } catch { }
         }

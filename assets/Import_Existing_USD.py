@@ -66,6 +66,17 @@ def stage_report(src, variant):
 def load_patched_importer(src):
     """Patch two known weak points in the pinned official addon, in memory only."""
     contents = src.read_text(encoding='utf-8-sig')
+    # Upstream removes material nodes while iterating the same Blender
+    # collection. Clear the collection atomically so no stale USD/default
+    # shader or output node can survive before the Minecraft JSON graph is
+    # built. This is the full reset already intended by the original code.
+    original = '''        for node in self.mat.node_tree.nodes:
+            self.mat.node_tree.nodes.remove(node)'''
+    safe = '''        self.mat.node_tree.nodes.clear()'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx material reset changed; refusing unverified cleanup.')
+    contents = contents.replace(original, safe, 1)
+
     # MiEx immediately replaces Blender's USD PreviewSurface node networks
     # from the Minecraft JSON materials. Import the USD material datablocks
     # and geometry bindings, but skip this redundant temporary shader build.

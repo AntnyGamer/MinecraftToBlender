@@ -141,6 +141,23 @@ jobs:
             throw 'Git blob SHA1 verifier incorrectly rejected known bytes'
           }
           if (Test-GitBlobSha1 $sample ('0' * 40)) { throw 'Git blob verifier accepted a mismatched hash' }
+          # Streaming verification must keep the exact Git hash across several
+          # 64 KiB read boundaries, not just for the tiny texture fixture.
+          $largeSample = Join-Path $env:RUNNER_TEMP 'verified_git_blob_large.bin'
+          $largeBytes = New-Object byte[] 200003
+          for($i = 0; $i -lt $largeBytes.Length; $i++) { $largeBytes[$i] = [byte]($i % 251) }
+          [IO.File]::WriteAllBytes($largeSample, $largeBytes)
+          $header = [Text.Encoding]::ASCII.GetBytes(('blob ' + $largeBytes.Length + [char]0))
+          $expectedPayload = New-Object byte[] ($header.Length + $largeBytes.Length)
+          [Array]::Copy($header, 0, $expectedPayload, 0, $header.Length)
+          [Array]::Copy($largeBytes, 0, $expectedPayload, $header.Length, $largeBytes.Length)
+          $sha1 = [Security.Cryptography.SHA1]::Create()
+          try {
+            $expectedLarge = ([BitConverter]::ToString($sha1.ComputeHash($expectedPayload))).Replace('-', '').ToLowerInvariant()
+          } finally { $sha1.Dispose() }
+          if (-not (Test-GitBlobSha1 $largeSample $expectedLarge)) {
+            throw 'Streaming Git blob verification differs from the original full-buffer hash'
+          }
           $testBedDir = Join-Path $env:RUNNER_TEMP 'asset_cleanup/resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
           New-Item -ItemType Directory -Force -Path $testBedDir | Out-Null
           $testBedFile = Join-Path $testBedDir 'red.png'

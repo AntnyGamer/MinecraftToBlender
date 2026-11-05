@@ -132,3 +132,10 @@ func trimPreviewCache(dir string) {
 		_ = os.Remove(file.path)
 	}
 }
+
+func previewCoordinates(minX, minZ, size, mouseX, mouseY int) (int, int, bool) {
+	if size <= 0 || mouseX < 32 || mouseX >= 544 || mouseY < 70 || mouseY >= 582 {
+		return 0, 0, false
+	}
+	return minX + (mouseX-32)*size/512, minZ + (mouseY-70)*size/512, true
+}

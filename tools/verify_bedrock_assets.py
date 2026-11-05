@@ -119,6 +119,32 @@ def main():
             assert re.fullmatch(r"[a-z_]+\.png", entry[key]), entry
         assert re.fullmatch(r"[0-9a-f]{40}", entry["git_blob_sha1"]), entry
 
+    # Mojang Bedrock's shulker sheets are 64x64 like the existing MiEx
+    # model, but its silver/undyed filenames differ from MiEx's Java paths.
+    shulker_manifest = load("Bedrock_Shulker_Textures.json")
+    assert shulker_manifest["source"] == manifest["source"]
+    assert shulker_manifest["revision"] == manifest["revision"]
+    assert shulker_manifest["folder"] == "resource_pack/textures/entity/shulker"
+    shulker_sheets = shulker_manifest["textures"]
+    assert len(shulker_sheets) == 17
+    assert len({entry["from"] for entry in shulker_sheets}) == 17
+    assert len({entry["to"] for entry in shulker_sheets}) == 17
+    assert {entry["to"] for entry in shulker_sheets} == {
+        "shulker.png", "shulker_light_gray.png",
+        *(f"shulker_{color}.png" for color in (
+            "white", "orange", "magenta", "light_blue", "yellow", "lime",
+            "pink", "gray", "cyan", "purple", "blue", "brown",
+            "green", "red", "black"
+        ))
+    }
+    mapping = {entry["from"]: entry["to"] for entry in shulker_sheets}
+    assert mapping["shulker_silver.png"] == "shulker_light_gray.png"
+    assert mapping["shulker_undyed.png"] == "shulker.png"
+    for entry in shulker_sheets:
+        assert re.fullmatch(r"shulker_[a-z_]+\.png", entry["from"])
+        assert re.fullmatch(r"shulker(?:_[a-z_]+)?\.png", entry["to"])
+        assert re.fullmatch(r"[0-9a-f]{40}", entry["git_blob_sha1"])
+
     exporter = (ASSETS / "Export_World.ps1").read_text(encoding="utf-8")
     assert "$env:MIEX_STORE_GEN_TEX_IN_EXPORT='1'" in exporter
     for name in ("Bedrock_Beds.json", "Bedrock_Shulkers.json",
@@ -133,9 +159,13 @@ def main():
     # The source Bedrock sheets must be present: removing them previously
     # produced black beds because the referenced material had no usable PNG.
     assert "Ensure-BedrockBedTextures $miexDir $bedTextureManifest" in exporter
+    assert "Ensure-BedrockShulkerTextures $miexDir $shulkerTextureManifest" in exporter
+    assert "Remove-ManagedBedrockShulkerTextures $miexDir $shulkerTextureManifest" in exporter
     helper = (ASSETS / "Bedrock_Assets.ps1").read_text(encoding="utf-8")
     assert "function Test-BedrockBedAtlas" in helper
     assert "function Ensure-BedrockBedTextures" in helper
+    assert "function Ensure-BedrockShulkerTextures" in helper
+    assert "function Remove-ManagedBedrockShulkerTextures" in helper
     assert "Bedrock bed texture(s) missing, corrupt" in helper
     assert "[System.IO.File]::WriteAllText($frameStatePath, '{\"variants\":{}}'" not in exporter
     print("Bedrock override JSONs, Mojang texture pins, and export wiring validated.")

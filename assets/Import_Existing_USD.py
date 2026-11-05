@@ -427,6 +427,22 @@ def apply_minecraft_texture_preview():
     editor/display preference, not a replacement for the full shader network.
     """
     bpy.context.scene.view_settings.view_transform = 'Standard'
+    # Solid texture shading needs an active image node. Only assign one
+    # when a material has exactly one loaded texture and the existing active
+    # node is not already an image. Layered/animated materials are ambiguous.
+    activated = 0
+    for material in bpy.data.materials:
+        if not material.use_nodes:
+            continue
+        nodes = material.node_tree.nodes
+        active = nodes.active
+        if active is not None and active.type == 'TEX_IMAGE':
+            continue
+        images = [node for node in nodes
+                  if node.type == 'TEX_IMAGE' and node.image is not None]
+        if len(images) == 1:
+            nodes.active = images[0]
+            activated += 1
     changed = 0
     for screen in bpy.data.screens:
         for area in screen.areas:
@@ -435,7 +451,8 @@ def apply_minecraft_texture_preview():
                     space.shading.color_type = 'TEXTURE'
                     changed += 1
     log('MINECRAFT TEXTURE PREVIEW: Standard color transform,',
-        changed, 'solid 3D views display their active image textures.',
+        changed, 'solid 3D views display active textures,',
+        activated, 'single-texture materials made active.',
         'Full biome tint, alpha and lighting still require Material Preview.')
     return changed
 

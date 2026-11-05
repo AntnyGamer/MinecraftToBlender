@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"image"
-	"image/color"
+	imgcolor "image/color"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -77,7 +77,7 @@ func TestPreviewCacheCopiesWithoutDeletingSharedPng(t *testing.T) {
 	f,err:=os.Create(original)
 	if err!=nil{t.Fatal(err)}
 	img:=image.NewRGBA(image.Rect(0,0,256,256))
-	img.Set(0,0,color.RGBA{R:123,G:45,B:67,A:255})
+	img.Set(0,0,imgcolor.RGBA{R:123,G:45,B:67,A:255})
 	if err:=png.Encode(f,img);err!=nil{t.Fatal(err)}
 	if err:=f.Close();err!=nil{t.Fatal(err)}
 	if err:=storePreviewCache(original,cacheDir,"stable");err!=nil{t.Fatal(err)}

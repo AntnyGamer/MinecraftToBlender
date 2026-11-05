@@ -323,7 +323,7 @@ func createControls() {
 	uiLabel(uiNavHeader, "CONVERT", 3, theme.sideMuted, theme.side)
 	uiLabel(uiTitle, "Export a Minecraft world", 0, theme.white, theme.bg)
 	uiLabel(uiSubtitle, "Choose a Java or Bedrock save directly from your Minecraft world library.", 3, theme.muted, theme.bg)
-	uiLabel(uiVersion, "VERSION "+appVersion(), 3, theme.accent, theme.bg)
+	uiLabel(uiVersion, "VERSION "+strings.TrimSuffix(appVersion(), ".0"), 3, theme.accent, theme.bg)
 	uiButton(idTabExport, "Export world")
 	uiButton(idTabImport, "Import / optimize")
 	uiButton(idTabSettings, "Settings")

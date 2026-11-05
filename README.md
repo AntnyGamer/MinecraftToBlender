@@ -2,7 +2,7 @@
 
 <p align="center"><img src="branding/logo.svg" alt="MinecraftToBlender logo" width="112" height="112"></p>
 
-**Version:** v1.1.1  
+**Version:** v1.1.2  
 **Platform:** Windows 10/11 (64-bit)  
 **Languages:** Go (Win32 interface), PowerShell, Python
 
@@ -27,7 +27,7 @@ Use the **same MinecraftToBlender EXE**: open **Import USD**, browse to an exist
 
 **Automatic Bedrock visual accuracy fixes:** Bedrock hanging signs now use the saved `attached_bit` state to select the correct attached-chain model, rather than relying only on Java's `attached` state. For imported custom-material textures, the Blender importer avoids modifying another material's color-space/alpha settings when a shared image file needs different interpretations; an image datablock is copied only for that genuine conflict. Normal identical texture settings still share images. These corrections require no new options and do not alter the source Minecraft world. Real world screenshots are still needed for pixel-by-pixel fidelity verification.
 
-### Export options (v1.1.1)
+### Export options (v1.1.2)
 
 **Minecraft-style water (optional, Off by default):** Use the toggle in **Export options** before either **Export to Blender** or **Import USD**. The imported Blender water retains the MiEx water mesh, UV coordinates, and existing biome-tinted color textures, and switches just those water materials from MiEx's noisy hashed transparency to Blender 5.2's smoothly blended transparency. Existing texture-alpha connections remain intact, and materials with no texture alpha receive a conservative 0.80 constant opacity. This is a **Blender approximation**, not the proprietary Minecraft Bedrock/Java rendering engine: it cannot reproduce all underwater fog, real-time lighting, animated current flow, or water screen-space effects. Blended surfaces can lower Blender viewport frame rates or have depth-sorting issues on huge oceans, so the default remains Off. The toggle changes Blender shading only; USD-only exports and original world files are unaffected. Reimport an existing USD to switch the effect without re-exporting Minecraft terrain. The existing materials remain the default for all other blocks.
 
@@ -52,7 +52,7 @@ Use **Export options** in the sidebar to choose the Overworld, Nether or End, se
 
 A 1,024×1,024-block area contains 4,096 Minecraft chunks. Unlike Minecraft's distance-based runtime renderer, this exporter needs to build all selected geometry so it can be inspected from any viewpoint in Blender. MiEx already skips faces occluded by neighboring blocks and enables face merging. The importer now offers optional bounded mesh batching to reduce separate terrain objects without deleting faces, plus default exact duplicate material-slot cleanup that does not change visible surfaces. Blender's initial far-clipping distance is also kept closer to the world scale to reduce unnecessary depth-buffer range. The importer avoids an extra expensive full-scene dependency-graph evaluation when the scene consists only of static, unmodified meshes. This saves redundant import-time work but cannot make a multi-million-block scene behave like Minecraft's streaming engine. It preserves the complete model. Each export prints `[PERF]` timing lines for the snapshot, MiEx setup, Java world conversion, and USD verification/publication. The Blender log separately times USD inspection, import, bounds framing, and project saving; use these numbers to identify the actual bottleneck before changing fidelity settings. The conservative optimizer intentionally does not enable raytracing, remove caves, merge geometry subsets, or enable unsafe point-cloud instancing.
 
-The activity area shows elapsed time and periodically reads the MiEx Java process's physical working set (not Java heap usage). Values below 1 GiB display in MiB and unavailable readings are explicitly labeled rather than shown as 0.0 GiB. It deliberately does **not** invent an export percentage.
+The activity area shows elapsed time and periodically reports the MiEx JVM's private committed memory and physical working set (resident RAM), with the JVM process ID. On Windows, a lightweight Java launcher may spawn a separate JVM; only verified descendant JVM processes are considered, and unavailable readings are explicitly labeled instead of showing the launcher's misleading 10 MiB. These measurements are not the maximum Java heap (-Xmx) or the total system RAM. It deliberately does **not** invent an export percentage.
 
 **Safe resume** is off by default to avoid extra disk reads on ordinary exports. When enabled with **Export to Blender**, the app records a SHA-256 checkpoint of the complete successfully exported USD and its source world. If Blender import then fails, a retry with exactly the same inputs can skip MiEx and resume at Blender import. Modified world or USD data invalidates the checkpoint. **Interrupted MiEx chunk exports cannot currently resume midway**: MiEx experimental-34 omits disabled chunks from the generated USD root, so merging half-written layers would risk losing terrain.
 

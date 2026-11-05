@@ -5,6 +5,8 @@ import com.google.gson.*;
 import nl.bramstout.mcworldexporter.expression.*;
 import nl.bramstout.mcworldexporter.expression.ExprValue.ExprValueDict;
 import nl.bramstout.mcworldexporter.nbt.*;
+import nl.bramstout.mcworldexporter.resourcepack.ResourcePacks;
+import nl.bramstout.mcworldexporter.resourcepack.java.ResourcePackJavaEdition;
 
 /** Semantic checks using the actual pinned MiEx evaluator and reader overlay. */
 public final class MiExBedrockRegression {
@@ -28,7 +30,40 @@ public final class MiExBedrockRegression {
     static void expect(Object actual, Object expected) {
         if(!Objects.equals(actual,expected)) throw new AssertionError("Expected " + expected + ", got " + actual);
     }
+    static void checkPartialPackFallbacks() throws Exception {
+        // MiEx puts extracted world packs above BlenderEEVEE. A pack which
+        // replaces one block must not switch all remaining beds to Java UVs.
+        Path root=Files.createTempDirectory("miex-partial-pack-");
+        String bed="assets/minecraft/textures/entity/bed/white.png";
+        String shulker="assets/minecraft/textures/entity/shulker/shulker.png";
+        String pole="assets/minecraft/textures/entity/banner_base.png";
+        var packs=ResourcePacks.getActiveResourcePacks();
+        var previous=new ArrayList<>(packs);
+        try {
+            for(String name:new String[]{"world","BlenderEEVEE","base_resource_pack"}) {
+                Path folder=root.resolve(name);
+                for(String texture:new String[]{bed,shulker,pole}) {
+                    if(name.equals("world") && !texture.equals(shulker))continue;
+                    Path file=folder.resolve(texture);
+                    Files.createDirectories(file.getParent());
+                    Files.writeString(file,"texture selection fixture: "+name);
+                }
+            }
+            packs.clear();
+            for(String name:new String[]{"world","BlenderEEVEE","base_resource_pack"})
+                packs.add(new ResourcePackJavaEdition(root.resolve(name).toFile()));
+            expect(ResourcePacks.getTexture("minecraft:entity/bed/white").toPath(),root.resolve("BlenderEEVEE").resolve(bed));
+            expect(ResourcePacks.getTexture("minecraft:entity/shulker/shulker").toPath(),root.resolve("world").resolve(shulker));
+            expect(ResourcePacks.getTexture("minecraft:entity/banner_base").toPath(),root.resolve("BlenderEEVEE").resolve(pole));
+        } finally {
+            packs.clear();packs.addAll(previous);
+            try(var paths=Files.walk(root)) {
+                for(Path path:paths.sorted(Comparator.reverseOrder()).toList())Files.delete(path);
+            }
+        }
+    }
     public static void main(String[] args) throws Exception {
+        checkPartialPackFallbacks();
         Method normalize = Class.forName("nl.bramstout.mcworldexporter.world.bedrock.ChunkBedrock")
             .getDeclaredMethod("normalizeBedrockBanner",String.class,NbtTagCompound.class);
         normalize.setAccessible(true);
@@ -98,7 +133,7 @@ public final class MiExBedrockRegression {
         ExprContext ctx=evaluate("Bedrock_Beds.json","minecraft:bed",frame);
         expect(ExprParser.parseMultiExpression("thisEntity.state.x != null ? (0.5 + thisEntity.state.x) : 0.0").eval(ctx).asFloat(),-6.5f);
         expect(ExprParser.parseMultiExpression("thisEntity.state.z != null ? (0.5 + thisEntity.state.z) : 0.0").eval(ctx).asFloat(),0f);
-        System.out.println("Pinned MiEx runtime: bed/banner dyes, ominous layers, shulkers, frames, standing/wall/hanging sign rotations and both text sides passed.");
+        System.out.println("Pinned MiEx runtime: partial-pack priority/fallbacks, bed/banner dyes, ominous layers, shulkers, frames, standing/wall/hanging sign rotations and both text sides passed.");
         // ChunkBedrock starts MiEx's periodic background cache cleanup thread.
         System.exit(0);
     }

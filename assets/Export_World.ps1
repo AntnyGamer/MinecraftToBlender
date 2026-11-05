@@ -675,14 +675,17 @@ try {
     if($Edition -eq 'bedrock') {
         $bedrockClassRoot = Install-BedrockReaderClass $jar (Join-Path $base 'Bedrock_ChunkReader.class')
     }
-    if(-not $UseWorldResourcePacks) { Ensure-BannerBaseAlias $miexDir }
+    Ensure-BannerBaseAlias $miexDir
     $bedTextureManifest = Join-Path $base 'Bedrock_Bed_Textures.json'
     # Bedrock uses a different 64x64 bed atlas layout from Java. The Bedrock
     # model UVs match Mojang's geometry.bed and must use the matching sheets.
     # Keep official, hash-verified files cached; never silently render beds
     # black when the required files could not be installed.
     $shulkerTextureManifest = Join-Path $base 'Bedrock_Shulker_Textures.json'
-    if($Edition -eq 'bedrock' -and -not $UseWorldResourcePacks) {
+    if($Edition -eq 'bedrock') {
+        # A world pack can override just one block. Keep matching vanilla
+        # Bedrock fallbacks for every texture it doesn't replace. MiEx loads
+        # the world pack ABOVE BlenderEEVEE, so its own textures still win.
         Ensure-BedrockBedTextures $miexDir $bedTextureManifest
         # Bedrock's actual 64x64 shulker atlases match the MiEx UV layout,
         # but the undyed and light-gray images have Bedrock-only filenames.

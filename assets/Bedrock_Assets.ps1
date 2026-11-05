@@ -126,8 +126,9 @@ function Ensure-BedrockBedTextures([string]$miexDir,[string]$manifestPath) {
 }
 
 function Remove-ManagedBedrockBedTextures([string]$miexDir,[string]$manifestPath) {
-    # Don't let an earlier Bedrock export's fallback textures override Java or
-    # a later world supplied resource pack. Never remove non-matching files.
+    # Don't let Bedrock's differently arranged bed atlas override Java.
+    # Bedrock world packs have higher priority and retain these fallbacks.
+    # Never remove non-matching files.
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $targetDir = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/textures/entity/bed'
     if(-not (Test-Path -LiteralPath $targetDir -PathType Container)) { return }
@@ -206,7 +207,7 @@ function Ensure-BedrockShulkerTextures([string]$miexDir,[string]$manifestPath) {
 
 function Remove-ManagedBedrockShulkerTextures([string]$miexDir,[string]$manifestPath) {
     # Only managed, hash-identical Mojang files may be removed. Custom textures
-    # remain intact when changing to Java or world resource packs.
+    # remain intact when changing to Java. Bedrock world packs retain fallbacks.
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if($manifest.source -ne 'Mojang/bedrock-samples' -or
        $manifest.folder -ne 'resource_pack/textures/entity/shulker' -or

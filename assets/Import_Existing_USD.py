@@ -833,6 +833,58 @@ def compact_redundant_usd_normals():
     return released
 
 
+def remove_unused_usd_display_colors():
+    """Opt-in removal of USD preview colors unused by the Minecraft shaders.
+
+    Keep the actual Cd biome tint, UVs and normals. Named/default color
+    readers, dynamic attribute names and vertex-color viewports block this
+    cleanup; edited, animated and shared meshes are left alone.
+    """
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type != 'VIEW_3D':
+                continue
+            for space in area.spaces:
+                if space.type == 'VIEW_3D' and space.shading.color_type == 'VERTEX':
+                    log('MESH MEMORY: retained USD displayColor for vertex-color viewport display.')
+                    return 0
+
+    trees = [mat.node_tree for mat in bpy.data.materials if mat.use_nodes]
+    trees.extend(bpy.data.node_groups)
+    for tree in trees:
+        for node in tree.nodes:
+            if (node.type == 'SCRIPT' or
+                    getattr(node, 'attribute_name', '') == 'displayColor' or
+                    getattr(node, 'layer_name', '') == 'displayColor' or
+                    (node.type == 'VERTEX_COLOR' and not node.layer_name) or
+                    getattr(node, 'string', '') == 'displayColor' or
+                    any(getattr(socket, 'is_linked', False)
+                        for socket in node.inputs if socket.type == 'STRING') or
+                    any(getattr(socket, 'default_value', None) == 'displayColor'
+                        for socket in node.inputs if socket.type == 'STRING')):
+                log('MESH MEMORY: retained USD displayColor referenced by a shader or node group.')
+                return 0
+
+    removed = released = 0
+    for ob in bpy.context.scene.objects:
+        if (ob.type != 'MESH' or ob.modifiers or ob.animation_data or
+                ob.mode != 'OBJECT'):
+            continue
+        mesh = ob.data
+        if (mesh.users != 1 or mesh.shape_keys is not None or
+                mesh.animation_data or mesh.library is not None):
+            continue
+        attr = mesh.color_attributes.get('displayColor')
+        if attr is None or attr.domain != 'CORNER' or attr.data_type != 'FLOAT_COLOR':
+            continue
+        released += len(attr.data) * 4 * 4
+        mesh.color_attributes.remove(attr)
+        removed += 1
+    log('MESH MEMORY:', removed, 'unused USD displayColor preview arrays removed;',
+        released, 'attribute bytes saved; Minecraft Cd biome tints retained.')
+    return released
+
+
 def deduplicate_exact_material_slots():
     """Remove only identical material datablock slots; zero visual change.
 
@@ -941,6 +993,7 @@ def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
         hide_relationship_lines()
     if batch_meshes:
         compact_redundant_usd_normals()
+        remove_unused_usd_display_colors()
     joined = batch_static_terrain_meshes() if batch_meshes else 0
     slots = deduplicate_exact_material_slots()
     if minecraft_view:
@@ -1039,6 +1092,7 @@ def main():
     if batch_meshes:
         phase_start = time.monotonic()
         compact_redundant_usd_normals()
+        remove_unused_usd_display_colors()
         batch_static_terrain_meshes()
         log('[PERF] Bounded static terrain mesh batching:',
             round(time.monotonic() - phase_start, 2), 'seconds')

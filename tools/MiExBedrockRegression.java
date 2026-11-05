@@ -13,8 +13,15 @@ public final class MiExBedrockRegression {
         JsonObject model = JsonParser.parseString(Files.readString(Path.of("assets", file))).getAsJsonObject();
         ExprContext ctx = new ExprContext(name, properties, true, -7,82,29,-7f,82f,29f,0f,0f,0f,
             null,new ExprValue(new ExprValueDict()),ExprValue.VALUE_BUILTINS,new HashMap<>(),new HashMap<>());
-        for(JsonElement line : model.getAsJsonObject("handler").getAsJsonArray("variables"))
-            ExprParser.parseMultiExpression(line.getAsString()).eval(ctx);
+        JsonArray handlers=new JsonArray();
+        if(model.get("handler").isJsonArray()) handlers=model.getAsJsonArray("handler");
+        else handlers.add(model.get("handler"));
+        for(JsonElement value:handlers) {
+            JsonObject handler=value.getAsJsonObject();
+            if(handler.has("condition") && !ExprParser.parseMultiExpression(handler.get("condition").getAsString()).eval(ctx).asBool())continue;
+            if(handler.has("variables"))for(JsonElement line:handler.getAsJsonArray("variables"))
+                ExprParser.parseMultiExpression(line.getAsString()).eval(ctx);
+        }
         return ctx;
     }
     static NbtTagCompound props() { return NbtTagCompound.newNonPooledInstance(""); }
@@ -57,12 +64,41 @@ public final class MiExBedrockRegression {
         ominous.addElement(NbtTagInt.newNonPooledInstance("Type",1));
         expect(normalize.invoke(null,"minecraft:black_banner",ominous),"minecraft:white_banner");
         expect(((NbtTagList)ominous.get("Patterns")).getSize(),8);
+        for(String wood:new String[]{"oak","birch","crimson","pale_oak"}) {
+            for(int rotation=0;rotation<16;rotation++) {
+                NbtTagCompound sign=props();sign.addElement(NbtTagInt.newNonPooledInstance("rotation",rotation));
+                ExprContext s=evaluate("Bedrock_Signs.json","minecraft:"+wood+"_sign",sign);
+                expect(s.variables.get("isWall").asBool(),false);
+                expect(s.variables.get("modelName").asString(),"minecraft:block/"+wood+"_sign_rot_"+(rotation%4));
+                for(int attached=0;attached<2;attached++) {
+                    sign.addElement(NbtTagByte.newNonPooledInstance("attached_bit",(byte)attached));
+                    s=evaluate("Bedrock_Hanging_Signs.json","minecraft:"+wood+"_hanging_sign",sign);
+                    expect(s.variables.get("modelName").asString(),"minecraft:block/"+wood+"_hanging_sign"+(attached==1?"_attached":"")+"_rot_"+(rotation%4));
+                }
+            }
+            for(int facing=2;facing<=5;facing++) {
+                NbtTagCompound sign=props();sign.addElement(NbtTagInt.newNonPooledInstance("facing_direction",facing));
+                ExprContext s=evaluate("Bedrock_Signs.json","minecraft:"+wood+"_wall_sign",sign);
+                expect(s.variables.get("isWall").asBool(),true);
+                expect(s.variables.get("modelName").asString(),"minecraft:block/"+wood+"_wall_sign");
+                expect(s.variables.get("rotY").asFloat(),new float[]{180,0,90,270}[facing-2]);
+            }
+        }
+        Method normalizeSign=normalize.getDeclaringClass().getDeclaredMethod("normalizeBedrockSign",String.class,NbtTagCompound.class);
+        normalizeSign.setAccessible(true);
+        NbtTagCompound sign=props(), back=props();
+        back.setName("BackText");back.addElement(NbtTagString.newNonPooledInstance("Text","Back"));
+        sign.addElement(back);sign.addElement(NbtTagString.newNonPooledInstance("Text","Front"));
+        normalizeSign.invoke(null,"minecraft:oak_sign",sign);
+        expect(((NbtTagCompound)sign.get("FrontText")).get("Text").asString(),"Front");
+        expect(((NbtTagCompound)sign.get("BackText")).get("Text").asString(),"Back");
+        expect(((NbtTagCompound)sign.get("FrontText")).get("IgnoreLighting"),null);
         NbtTagCompound frame=props();
         frame.addElement(NbtTagInt.newNonPooledInstance("x",-7));
         ExprContext ctx=evaluate("Bedrock_Beds.json","minecraft:bed",frame);
         expect(ExprParser.parseMultiExpression("thisEntity.state.x != null ? (0.5 + thisEntity.state.x) : 0.0").eval(ctx).asFloat(),-6.5f);
         expect(ExprParser.parseMultiExpression("thisEntity.state.z != null ? (0.5 + thisEntity.state.z) : 0.0").eval(ctx).asFloat(),0f);
-        System.out.println("Pinned MiEx runtime: 16 bed/banner dyes, pattern colors, ominous layers, 24 shulker variants and frame coordinates passed.");
+        System.out.println("Pinned MiEx runtime: bed/banner dyes, ominous layers, shulkers, frames, standing/wall/hanging sign rotations and both text sides passed.");
         // ChunkBedrock starts MiEx's periodic background cache cleanup thread.
         System.exit(0);
     }

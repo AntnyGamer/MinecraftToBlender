@@ -95,11 +95,10 @@ def main():
         assert doc["blocks"], name
         sign_text = text_of(doc)
         assert "signText" in sign_text, name
-        assert "thisBlock.state.Text" in sign_text, name
-        assert "thisBlock.state.FrontText" in sign_text, name
-        # Legacy front text can coexist with a modern back-text compound.
-        # The fallback must not drop the other side of the sign.
-        assert "'BackText': thisBlock.state.BackText" in sign_text, name
+        # Native reader normalization preserves optional fields and both sides;
+        # expression dictionaries with missing/null values are unsafe in MiEx.
+        assert '"state": "thisBlock.state"' in sign_text, name
+        assert "'BackText':" not in sign_text, name
 
     manifest = load("Bedrock_Bed_Textures.json")
     assert manifest["source"] == "Mojang/bedrock-samples"

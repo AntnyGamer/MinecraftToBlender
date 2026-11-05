@@ -1,6 +1,6 @@
 # Bedrock reader overlay and official vanilla textures for MiEx model paths.
 function Install-BedrockReaderClass([string]$sourceJar, [string]$classPath) {
-    $expectedClass = '7bb02805dc9c2c2dd8f3bea78b5c73fdfe4a19740c746f57f96b269eac2a90cb'
+    $expectedClass = 'f9f5c31ead8e783918dd2fdad2bf38ece06166c2e2df88a77f738ef8b929ee4e'
     if((Get-FileHash -LiteralPath $sourceJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne
        'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707' -or
        (Get-FileHash -LiteralPath $classPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedClass) {

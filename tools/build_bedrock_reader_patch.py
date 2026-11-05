@@ -52,6 +52,18 @@ NORMALIZE_BANNER = '''
         return "minecraft:" + colors[color] + (name.contains("wall") ? "_wall_banner" : "_banner");
     }
 
+    // Older Bedrock signs store front text at the root. Do not synthesize
+    // null fields in expression dictionaries or discard a modern back side.
+    private static void normalizeBedrockSign(String name, NbtTagCompound tag) {
+        if(!name.contains("sign") || tag.get("FrontText") != null || tag.get("Text") == null) return;
+        NbtTagCompound front = NbtTagCompound.newInstance("FrontText");
+        for(String field : new String[]{"Text", "SignTextColor", "IgnoreLighting", "HideGlowOutline"}) {
+            NbtTag value = tag.get(field);
+            if(value != null) front.addElement(value.copy());
+        }
+        tag.addElement(front);
+    }
+
 '''
 
 
@@ -77,7 +89,8 @@ def patch_source(data):
                         blockEntity.addElement(NbtTagInt.newInstance("facing_direction", savedShulkerFacing));''',
         'blockEntityName = blockTranslatorManager.map(blockEntityName, blockEntity);':
             'blockEntityName = blockTranslatorManager.map(blockEntityName, blockEntity);\n'
-            '                    blockEntityName = normalizeBedrockBanner(blockEntityName, blockEntity);',
+            '                    blockEntityName = normalizeBedrockBanner(blockEntityName, blockEntity);\n'
+            '                    normalizeBedrockSign(blockEntityName, blockEntity);',
         '\t@Override\n\tprotected void _loadEntities() throws Exception {':
             NORMALIZE_BANNER + '\t@Override\n\tprotected void _loadEntities() throws Exception {',
     }

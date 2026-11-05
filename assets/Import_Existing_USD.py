@@ -773,6 +773,66 @@ def batch_static_terrain_meshes(max_faces=75000, max_objects=8):
     return joined
 
 
+def compact_redundant_usd_normals():
+    """Opt-in removal of an unused, exact copy of native split normals.
+
+    USD imports can retain a FLOAT_VECTOR corner attribute named normals
+    alongside Blender's custom_normal storage. Keep the native normals,
+    every face/UV/color and the original USD; skip edited or referenced data.
+    """
+    from array import array
+
+    trees = [mat.node_tree for mat in bpy.data.materials if mat.use_nodes]
+    trees.extend(bpy.data.node_groups)
+    for tree in trees:
+        for node in tree.nodes:
+            if (getattr(node, 'attribute_name', '') == 'normals' or
+                    getattr(node, 'string', '') == 'normals' or
+                    any(getattr(socket, 'is_linked', False)
+                        for socket in node.inputs if socket.type == 'STRING') or
+                    any(getattr(socket, 'default_value', None) == 'normals'
+                        for socket in node.inputs if socket.type == 'STRING')):
+                log('MESH MEMORY: retained named normals referenced by a shader or node group.')
+                return 0
+
+    removed = 0
+    released = 0
+    seen = set()
+    for ob in bpy.context.scene.objects:
+        if ob.type != 'MESH' or ob.modifiers or ob.animation_data:
+            continue
+        mesh = ob.data
+        key = mesh.as_pointer()
+        if key in seen or mesh.users != 1 or mesh.shape_keys is not None or mesh.animation_data:
+            continue
+        seen.add(key)
+        attr = mesh.attributes.get('normals')
+        if (not mesh.has_custom_normals or attr is None or
+                attr.domain != 'CORNER' or attr.data_type != 'FLOAT_VECTOR'):
+            continue
+        count = len(attr.data) * 3
+        source = array('f', [0.0]) * count
+        native = array('f', [0.0]) * count
+        attr.data.foreach_get('vector', source)
+        mesh.corner_normals.foreach_get('vector', native)
+        if source != native:
+            continue
+        mesh.attributes.remove(attr)
+        after = array('f', [0.0]) * count
+        mesh.corner_normals.foreach_get('vector', after)
+        if native != after:
+            # A future Blender storage change must not silently change shading.
+            restored = mesh.attributes.new(name='normals', type='FLOAT_VECTOR', domain='CORNER')
+            restored.data.foreach_set('vector', source)
+            log('MESH MEMORY: restored normals attribute after a native-normal mismatch.')
+            continue
+        removed += 1
+        released += count * source.itemsize
+    log('MESH MEMORY:', removed, 'unused duplicate normal arrays removed;',
+        released, 'attribute bytes saved; native split normals, faces, UVs and colors retained.')
+    return released
+
+
 def deduplicate_exact_material_slots():
     """Remove only identical material datablock slots; zero visual change.
 
@@ -879,6 +939,8 @@ def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
     # material datablocks and parent relationships remain unchanged.
     if len(meshes) >= 128:
         hide_relationship_lines()
+    if batch_meshes:
+        compact_redundant_usd_normals()
     joined = batch_static_terrain_meshes() if batch_meshes else 0
     slots = deduplicate_exact_material_slots()
     if minecraft_view:
@@ -976,6 +1038,7 @@ def main():
     clear_bulk_import_selection()
     if batch_meshes:
         phase_start = time.monotonic()
+        compact_redundant_usd_normals()
         batch_static_terrain_meshes()
         log('[PERF] Bounded static terrain mesh batching:',
             round(time.monotonic() - phase_start, 2), 'seconds')

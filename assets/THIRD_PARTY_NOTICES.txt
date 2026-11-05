@@ -5,7 +5,8 @@ Minecraft to Blender downloads (and verifies the SHA-256 of) an official MiEx re
 then loads a bundled, modified ChunkBedrock class ahead of the unchanged JAR
 for Bedrock exports. The reproducible source patch is in
 tools/build_bedrock_reader_patch.py. It fixes block-entity section bounds,
-preserves shulker facing and translates Bedrock banner dyes/patterns.
+preserves shulker facing, translates Bedrock banner dyes/patterns and normalizes
+legacy sign text while retaining front and back data.
 The release does NOT bundle MiEx.jar, Microsoft/Mojang Minecraft assets,
 world saves, or Blender.
 The Blender importer and MiEx resource-pack templates are downloaded at run time

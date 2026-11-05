@@ -225,3 +225,29 @@ func TestHugePreviewUsesAverageColorsRatherThanInventedBlockGeometry(t *testing.
 		t.Fatalf("coarse preview must use mean color, not raw texture pixels: %d,%d,%d", r>>8, g>>8, b>>8)
 	}
 }
+
+func TestPreviewCombinesSeparateMiExChunkBatches(t *testing.T) {
+    dir := t.TempDir()
+    logPath := filepath.Join(dir, "miex.log")
+    output := filepath.Join(dir, "preview.png")
+    // The same exact chunk images now arrive as multiple getChunk responses,
+    // each under the 64-chunk MiEx worker cap instead of one large response.
+    one := fmt.Sprintf("[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"layerCount\":1,\"image\":\"%s\"}]}\\n", solidChunkImage(234, 12, 24))
+    two := fmt.Sprintf("[COMMAND] {\"status\":\"success\",\"chunks\":[{\"chunkX\":1,\"chunkZ\":0,\"layerCount\":1,\"image\":\"%s\"}]}\\n", solidChunkImage(13, 225, 33))
+    if err := os.WriteFile(logPath, []byte(one+two), 0600); err != nil { t.Fatal(err) }
+    count, err := renderSampledPreview(logPath, output, 16, 16, 32)
+    if err != nil || count != 2 { t.Fatalf("chunk batches not combined: %d, %v", count, err) }
+    f, err := os.Open(output)
+    if err != nil { t.Fatal(err) }
+    defer f.Close()
+    img, err := png.Decode(f)
+    if err != nil { t.Fatal(err) }
+    r, g, b, _ := img.At(0, 0).RGBA()
+    if r>>8 != 234 || g>>8 != 12 || b>>8 != 24 {
+        t.Fatalf("first preview chunk changed: %d,%d,%d", r>>8, g>>8, b>>8)
+    }
+    r, g, b, _ = img.At(128, 0).RGBA()
+    if r>>8 != 13 || g>>8 != 225 || b>>8 != 33 {
+        t.Fatalf("second preview chunk changed: %d,%d,%d", r>>8, g>>8, b>>8)
+    }
+}

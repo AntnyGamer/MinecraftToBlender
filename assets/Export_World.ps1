@@ -70,6 +70,16 @@ function Ensure-PinnedFile([string]$url,[string]$dest,[string]$expected) {
     Get-WebFile $url $dest
     Test-Hash $dest $expected
 }
+function Get-MiExJavaArguments([int]$heapGiB,[string]$jar,[string]$readerRoot,[string]$commandFile,[bool]$useWorldPacks) {
+    $launchArgs = '-Xmx{0}G -jar "{1}" -cli -cliAutoQuit -storeGenTexInExport -commandFile "{2}"' -f $heapGiB, $jar, $commandFile
+    if($readerRoot) {
+        $launchArgs = '-Xmx{0}G -cp "{1};{2}" nl.bramstout.mcworldexporter.MCWorldExporter -cli -cliAutoQuit -storeGenTexInExport -commandFile "{3}"' -f $heapGiB, $readerRoot, $jar, $commandFile
+    }
+    # The CLI flag overrides MIEX_SKIP_WORLD_RESOURCEPACK_CHECK=0. Passing it
+    # unconditionally prevents loadWorld from discovering bundled world packs.
+    if(-not $useWorldPacks) { $launchArgs += ' -skipWorldResourcePackCheck' }
+    return $launchArgs
+}
 function Start-CapturedProcess([string]$exe,[string]$arguments,[string]$folder,[string]$stdout,[string]$stderr) {
     # System.Diagnostics.Process exposes a reliable ExitCode on Windows
     # PowerShell 5.1, unlike Start-Process -PassThru on some Windows builds.
@@ -888,10 +898,7 @@ try {
         $heapGiB = [int][math]::Max(2, [math]::Min(24, [math]::Floor($ramGiB * 0.5)))
     } else { $heapGiB = 8 }
     Write-Host "Java heap cap: ${heapGiB}G"
-    $javaArgs = '-Xmx{0}G -jar "{1}" -cli -cliAutoQuit -storeGenTexInExport -skipWorldResourcePackCheck -commandFile "{2}"' -f $heapGiB, $runJar, $cmdFile
-    if($bedrockClassRoot) {
-        $javaArgs = '-Xmx{0}G -cp "{1};{2}" nl.bramstout.mcworldexporter.MCWorldExporter -cli -cliAutoQuit -storeGenTexInExport -skipWorldResourcePackCheck -commandFile "{3}"' -f $heapGiB, $bedrockClassRoot, $jar, $cmdFile
-    }
+    $javaArgs = Get-MiExJavaArguments $heapGiB $runJar $bedrockClassRoot $cmdFile ([bool]$UseWorldResourcePacks)
     Write-Host "MiEx stdout log: $log"
     Write-Host "MiEx stderr log: $stderrLog"
     Write-Host 'Java warnings alone do NOT stop the export.' -ForegroundColor DarkCyan

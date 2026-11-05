@@ -147,6 +147,7 @@ const (
 	idResume           = 146
 	idWaterStyle       = 147
 	idBatchMeshes     = 148
+	idTexturePreview  = 149
 )
 
 type wndClass struct {
@@ -236,6 +237,7 @@ type appState struct {
 	useWorldPacks bool
 	minecraftWater bool
 	batchMeshes bool
+	texturePreview bool
 	autoOpenBlender bool
 	dimension       string
 	entityFrames    bool
@@ -833,7 +835,7 @@ func blenderOutputPath(src string) (string, error) {
 // Optimize an already-exported .blend from this EXE. Use Blender's own
 // background process and the import helper embedded in the EXE, saving a
 // separately named project so that the original is never overwritten.
-func doOptimizeExistingBlend(ctx context.Context, src, blender, tools string, batchMeshes bool) (string, error) {
+func doOptimizeExistingBlend(ctx context.Context, src, blender, tools string, batchMeshes, texturePreview bool) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -866,6 +868,9 @@ func doOptimizeExistingBlend(ctx context.Context, src, blender, tools string, ba
 	if batchMeshes {
 		args = append(args, "--batch-static-meshes")
 	}
+	if texturePreview {
+		args = append(args, "--minecraft-view")
+	}
 	guiLog("Optimizing the existing Blender project; saving a new copy without re-exporting Minecraft...")
 	if err := runProcess(ctx, blender, args, logFile); err != nil {
 		return "", fmt.Errorf("Blender optimization failed: %w; details: %s", err, logFile)
@@ -891,14 +896,14 @@ func doImport(ctx context.Context, src, blender, tools string) (string, error) {
 }
 
 func doImportWithWater(ctx context.Context, src, blender, tools string, minecraftWater bool) (string, error) {
-	return doImportWithOptions(ctx, src, blender, tools, minecraftWater, false)
+	return doImportWithOptions(ctx, src, blender, tools, minecraftWater, false, false)
 }
 
-func doImportWithOptions(ctx context.Context, src, blender, tools string, minecraftWater, batchMeshes bool) (string, error) {
+func doImportWithOptions(ctx context.Context, src, blender, tools string, minecraftWater, batchMeshes, texturePreview bool) (string, error) {
 	if err := usdFiles(src); err != nil {
 		return "", err
 	}
-	return doImportValidatedWithOptions(ctx, src, blender, tools, minecraftWater, batchMeshes)
+	return doImportValidatedWithOptions(ctx, src, blender, tools, minecraftWater, batchMeshes, texturePreview)
 }
 
 // An export is already checked by runExport. Avoid parsing its large material
@@ -908,10 +913,10 @@ func doImportValidated(ctx context.Context, src, blender, tools string) (string,
 }
 
 func doImportValidatedWithWater(ctx context.Context, src, blender, tools string, minecraftWater bool) (string, error) {
-	return doImportValidatedWithOptions(ctx, src, blender, tools, minecraftWater, false)
+	return doImportValidatedWithOptions(ctx, src, blender, tools, minecraftWater, false, false)
 }
 
-func doImportValidatedWithOptions(ctx context.Context, src, blender, tools string, minecraftWater, batchMeshes bool) (string, error) {
+func doImportValidatedWithOptions(ctx context.Context, src, blender, tools string, minecraftWater, batchMeshes, texturePreview bool) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -937,6 +942,9 @@ func doImportValidatedWithOptions(ctx context.Context, src, blender, tools strin
 	}
 	if batchMeshes {
 		args = append(args, "--batch-static-meshes")
+	}
+	if texturePreview {
+		args = append(args, "--minecraft-view")
 	}
 	if err := runProcess(ctx, blender, args, logFile); err != nil {
 		return "", fmt.Errorf("Blender import failed: %w; details: %s", err, logFile)
@@ -1001,7 +1009,7 @@ func pathsOverlap(a, b string) bool {
 	return aa == bb || strings.HasPrefix(aa, bb+string(filepath.Separator)) || strings.HasPrefix(bb, aa+string(filepath.Separator))
 }
 
-func runExport(ctx context.Context, worldPath string, edition worldEdition, workspace, exportName, blender string, size, x, z, minY, maxY int, useWorldPacks, alsoImport bool, options exportOptions, minecraftWater, batchMeshes bool) result {
+func runExport(ctx context.Context, worldPath string, edition worldEdition, workspace, exportName, blender string, size, x, z, minY, maxY int, useWorldPacks, alsoImport bool, options exportOptions, minecraftWater, batchMeshes, texturePreview bool) result {
 	if pathsOverlap(worldPath, toolsDir(workspace)) {
 		return result{what: "Export", err: errors.New("the converter workspace conflicts with the selected Minecraft save. Choose a workspace outside the world folder")}
 	}
@@ -1019,7 +1027,7 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 		guiLog("Checking a saved USD checkpoint against the source world and output files...")
 		if verifiedResumeCheckpoint(ctx, checkpoint, identity, worldPath, usd) {
 			guiLog("Verified unchanged completed USD export. Resuming directly at Blender import.")
-			target, e := doImportValidatedWithOptions(ctx, usd, blender, tools, minecraftWater, batchMeshes)
+			target, e := doImportValidatedWithOptions(ctx, usd, blender, tools, minecraftWater, batchMeshes, texturePreview)
 			return result{what: "Resumed Blender import", output: target, err: e}
 		}
 	}
@@ -1047,7 +1055,7 @@ func runExport(ctx context.Context, worldPath string, edition worldEdition, work
 		}
 	}
 	if alsoImport {
-		target, e := doImportValidatedWithOptions(ctx, usd, blender, tools, minecraftWater, batchMeshes)
+		target, e := doImportValidatedWithOptions(ctx, usd, blender, tools, minecraftWater, batchMeshes, texturePreview)
 		return result{what: "Export + import", output: target, err: e, logFile: file}
 	}
 	return result{what: "Export", output: usd, logFile: file}
@@ -1139,8 +1147,9 @@ func startExport(both bool) {
 	useWorldPacks := app.useWorldPacks
 	minecraftWater := app.minecraftWater
 	batchMeshes := app.batchMeshes
+	texturePreview := app.texturePreview
 	go func() {
-		app.doneCh <- runExport(ctx, world.path, world.edition, workspace, name, blender, size, x, z, minY, maxY, useWorldPacks, both, options, minecraftWater, batchMeshes)
+		app.doneCh <- runExport(ctx, world.path, world.edition, workspace, name, blender, size, x, z, minY, maxY, useWorldPacks, both, options, minecraftWater, batchMeshes, texturePreview)
 	}()
 }
 func startImport() {
@@ -1188,6 +1197,7 @@ func startImport() {
 	app.lastFolder = filepath.Dir(source)
 	minecraftWater := app.minecraftWater
 	batchMeshes := app.batchMeshes
+	texturePreview := app.texturePreview
 	go func() {
 		tools, e := toolsSetup(workspace)
 		if e != nil {
@@ -1195,11 +1205,11 @@ func startImport() {
 			return
 		}
 		if isBlend {
-			out, optimizeErr := doOptimizeExistingBlend(ctx, source, blender, tools, batchMeshes)
+			out, optimizeErr := doOptimizeExistingBlend(ctx, source, blender, tools, batchMeshes, texturePreview)
 			app.doneCh <- result{what: "Optimize Blender project", output: out, err: optimizeErr}
 			return
 		}
-		out, importErr := doImportWithOptions(ctx, source, blender, tools, minecraftWater, batchMeshes)
+		out, importErr := doImportWithOptions(ctx, source, blender, tools, minecraftWater, batchMeshes, texturePreview)
 		app.doneCh <- result{what: "Import", output: out, err: importErr}
 	}()
 }
@@ -1425,6 +1435,10 @@ func wndProc(h uintptr, m uint32, wp, lp uintptr) uintptr {
 		case idWaterStyle:
 			app.minecraftWater = !app.minecraftWater
 			setText(app.ctrls[idWaterStyle], minecraftWaterLabel())
+			refreshButtons()
+		case idTexturePreview:
+			app.texturePreview = !app.texturePreview
+			setText(app.ctrls[idTexturePreview], texturePreviewLabel())
 			refreshButtons()
 		case idBatchMeshes:
 			app.batchMeshes = !app.batchMeshes

@@ -266,6 +266,26 @@ func TestHugePreviewUsesAverageColorsRatherThanInventedBlockGeometry(t *testing.
 	}
 }
 
+func TestHugePreviewRejectsOversizedOrInvalidBGRAWithoutPublishing(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "miex.log")
+	output := filepath.Join(dir, "preview.png")
+	for _, encoded := range []string{
+		base64.StdEncoding.EncodeToString(make([]byte, 1025)),
+		base64.StdEncoding.EncodeToString(make([]byte, 1028)),
+		"not valid base64",
+	} {
+		message := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-64,\"chunkZ\":-64,\"image\":\"%s\"}]}\n", encoded)
+		if err := os.WriteFile(logPath, []byte(message), 0600); err != nil { t.Fatal(err) }
+		if _, err := renderSampledPreview(logPath, output, 0, 0, 2048); err == nil {
+			t.Fatal("invalid coarse BGRA image was accepted")
+		}
+		if _, err := os.Stat(output); !os.IsNotExist(err) {
+			t.Fatalf("invalid coarse BGRA image produced an output PNG: %v", err)
+		}
+	}
+}
+
 func TestHugePreviewKeepsAlphaWeightedColorsAndRepeatedChunks(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "miex.log")

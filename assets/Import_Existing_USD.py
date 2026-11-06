@@ -926,11 +926,16 @@ def deduplicate_exact_material_slots():
         if ob.type != 'MESH' or ob.data.users != 1:
             continue
         mesh = ob.data
-        if mesh.as_pointer() in visited:
+        # Most MiEx terrain meshes have one material. Avoid copying their
+        # material collections when there is nothing to deduplicate.
+        if len(mesh.materials) < 2:
             continue
-        visited.add(mesh.as_pointer())
+        key = mesh.as_pointer()
+        if key in visited:
+            continue
+        visited.add(key)
         slots = list(mesh.materials)
-        if len(slots) < 2 or any(mat is None for mat in slots):
+        if any(mat is None for mat in slots):
             continue
         unique = []
         positions = {}

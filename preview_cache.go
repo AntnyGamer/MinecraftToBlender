@@ -144,7 +144,7 @@ func trimPreviewCache(dir string) {
 // The window's outer size includes the Windows caption and borders, so using
 // a fixed 512px image can otherwise push the coordinates below the client area.
 func previewMapLayout(clientW, clientH int) (left, top, side int) {
-	const margin, header, footer = 32, 70, 80
+	const margin, header, footer = 32, 70, 78
 	side = min(512, clientW-2*margin, clientH-header-footer)
 	if side <= 0 {
 		return 0, header, 0

@@ -59,6 +59,10 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 	} else {
 		average = make(map[[2]int]imgcolor.NRGBA)
 	}
+	// Coarse samples are averaged immediately, so their base64 decoder can
+	// reuse one small buffer rather than allocating per sampled chunk.
+	const chunkImageBytes = 16*16*4
+	var coarsePixels [chunkImageBytes+2]byte
 	sawChunkResponse := false
 	batches := 0
 	for scanner.Scan() {
@@ -96,8 +100,18 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 				}
 				return 0, fmt.Errorf("MiEx omitted image data for loaded chunk (%d,%d)", ch.X, ch.Z)
 			}
-			pixels, err := base64.StdEncoding.DecodeString(ch.Image)
-			if err != nil || len(pixels) != 16*16*4 {
+			var pixels []byte
+			var err error
+			if exact || len(ch.Image) > base64.StdEncoding.EncodedLen(chunkImageBytes) {
+				// Exact maps must retain each tile; oversized malformed input takes
+				// the allocating path to avoid overflowing the fixed scratch buffer.
+				pixels, err = base64.StdEncoding.DecodeString(ch.Image)
+			} else {
+				var n int
+				n, err = base64.StdEncoding.Decode(coarsePixels[:], []byte(ch.Image))
+				pixels = coarsePixels[:n]
+			}
+			if err != nil || len(pixels) != chunkImageBytes {
 				return 0, fmt.Errorf("MiEx returned an invalid image for chunk (%d,%d): %d bytes", ch.X, ch.Z, len(pixels))
 			}
 			// MiEx uses a zeroed image when it cannot render this chunk.

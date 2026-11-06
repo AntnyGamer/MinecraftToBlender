@@ -61,7 +61,7 @@ func TestPreviewKeepsRealPixelsWithoutLayerCountMetadata(t *testing.T) {
 	logPath:=filepath.Join(dir,"miex.log")
 	output:=filepath.Join(dir,"preview.png")
 	// Both omitted and zero layerCount must still allow a complete BGRA image.
-	payload:=fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"image\":\"%s\"}]}\\n",
+	payload:=fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"image\":\"%s\"}]}\n",
 		solidChunkImage(64,128,192))
 	if err:=os.WriteFile(logPath,[]byte(payload),0600);err!=nil {t.Fatal(err)}
 	n,err:=renderSampledPreview(logPath,output,8,8,16)

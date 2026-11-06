@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const previewCacheFormat = "region-preview-v2"
+const previewCacheFormat = "region-preview-v3"
 const previewCacheLimit = 96
 
 // Check every file's name, size and modification time, including Bedrock's

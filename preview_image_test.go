@@ -295,7 +295,11 @@ func TestHugePreviewKeepsAlphaWeightedColorsAndRepeatedChunks(t *testing.T) {
 	red := make([]byte, 16*16*4)
 	green := make([]byte, 16*16*4)
 	for i := 0; i < len(red); i += 4 {
-		red[i+2], red[i+3] = 220, 255
+		if i < len(red)/2 {
+			red[i+2], red[i+3] = 200, 255
+		} else {
+			red[i], red[i+3] = 240, 64
+		}
 		green[i+1], green[i+3] = 180, 255
 	}
 	// A later response for the same chunk replaces its earlier visible image.
@@ -314,7 +318,7 @@ func TestHugePreviewKeepsAlphaWeightedColorsAndRepeatedChunks(t *testing.T) {
 	img, err := png.Decode(f)
 	if err != nil { t.Fatal(err) }
 	for _, sample := range []struct{ x,y int; r,g,b uint32 } {
-		{0,0,220,0,0},
+		{0,0,159,0,48},
 		{2,0,0,180,0},
 		{6,0,218,218,218},
 	} {

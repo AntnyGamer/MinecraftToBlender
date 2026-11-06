@@ -279,9 +279,9 @@ func TestHugePreviewKeepsAlphaWeightedColorsAndRepeatedChunks(t *testing.T) {
 		green[i+1], green[i+3] = 180, 255
 	}
 	// A later response for the same chunk replaces its earlier visible image.
-	first := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-64,\"chunkZ\":-64,\"image\":\"%s\"},{\"chunkX\":-63,\"chunkZ\":-64,\"image\":\"%s\"}]}\\n",
+	first := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-64,\"chunkZ\":-64,\"image\":\"%s\"},{\"chunkX\":-63,\"chunkZ\":-64,\"image\":\"%s\"}]}\n",
 		base64.StdEncoding.EncodeToString(red), base64.StdEncoding.EncodeToString(red))
-	second := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-63,\"chunkZ\":-64,\"image\":\"%s\"}]}\\n",
+	second := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-63,\"chunkZ\":-64,\"image\":\"%s\"}]}\n",
 		base64.StdEncoding.EncodeToString(green))
 	if err := os.WriteFile(logPath, []byte(first+second), 0600); err != nil { t.Fatal(err) }
 	count, err := renderSampledPreview(logPath, output, 0, 0, 2048)

@@ -70,6 +70,21 @@ function Ensure-PinnedFile([string]$url,[string]$dest,[string]$expected) {
     Get-WebFile $url $dest
     Test-Hash $dest $expected
 }
+function Get-MiExHeapGiB {
+    $ramBytes = $null
+    try {
+        $ramBytes = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory
+    } catch {
+        # CIM can throw a terminating error even with SilentlyContinue.
+        # An unavailable memory probe must still reach the existing fallback.
+    }
+    if($ramBytes) {
+        $ramGiB = [math]::Floor([double]$ramBytes / 1GB)
+        return [int][math]::Max(2, [math]::Min(24, [math]::Floor($ramGiB * 0.5)))
+    }
+    return 8
+}
+
 function Get-MiExJavaArguments([int]$heapGiB,[string]$jar,[string]$readerRoot,[string]$commandFile,[bool]$useWorldPacks) {
     $launchArgs = '-Xmx{0}G -jar "{1}" -cli -cliAutoQuit -storeGenTexInExport -commandFile "{2}"' -f $heapGiB, $jar, $commandFile
     if($readerRoot) {
@@ -974,11 +989,7 @@ try {
     # separately instead; success depends on exit code AND the actual USD file.
     $stderrLog = Join-Path $work 'miex_stderr.log'
     $javaCommand = (Get-Command java.exe -ErrorAction Stop).Source
-    $ramBytes = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).TotalPhysicalMemory
-    if($ramBytes) {
-        $ramGiB = [math]::Floor([double]$ramBytes / 1GB)
-        $heapGiB = [int][math]::Max(2, [math]::Min(24, [math]::Floor($ramGiB * 0.5)))
-    } else { $heapGiB = 8 }
+    $heapGiB = Get-MiExHeapGiB
     Write-Host "Java heap cap: ${heapGiB}G"
     $javaArgs = Get-MiExJavaArguments $heapGiB $runJar $bedrockClassRoot $cmdFile ([bool]$UseWorldResourcePacks)
     Write-Host "MiEx stdout log: $log"

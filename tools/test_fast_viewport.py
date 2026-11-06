@@ -220,6 +220,19 @@ all_objects.append(nonidentical)
 assert scope["deduplicate_exact_material_slots"]() == 0
 assert len(nonidentical.data.materials) == 2
 
+# Most imported meshes have just one material. Their RNA material collection
+# should not be iterated or copied merely to discover there is no duplicate.
+class SingleSlotGuard(list):
+    def __iter__(self):
+        raise AssertionError("A single material slot was needlessly enumerated")
+
+
+single_material = Obj("single_material_slot", Mesh([stone], faces=8))
+single_material.data.materials = SingleSlotGuard([stone])
+all_objects.append(single_material)
+assert scope["deduplicate_exact_material_slots"]() == 0
+assert single_material.data.updated == 0
+
 src = Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8")
 assert "'--batch-static-meshes'" in src
 assert "hide_distant_meshes(" not in src

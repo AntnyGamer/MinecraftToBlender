@@ -160,17 +160,22 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 		if alpha == 0 {
 			return
 		}
-		pixel := imgcolor.NRGBA{R: data[offset+2], G: data[offset+1], B: data[offset], A: 255}
+		// All callers use 0..255 pixel coordinates in the fixed-size map.
+		// Write the same opaque or alpha-blended RGB bytes directly, avoiding
+		// a paired NRGBAAt/SetNRGBA call for every sampled Minecraft block.
+		start := y*out.Stride + x*4
+		pixel := out.Pix[start : start+4]
 		if alpha < 255 {
-			bg := out.NRGBAAt(x, y)
 			blend := func(source, background uint8) uint8 {
 				return uint8((uint32(source)*uint32(alpha) + uint32(background)*uint32(255-alpha) + 127) / 255)
 			}
-			pixel.R = blend(pixel.R, bg.R)
-			pixel.G = blend(pixel.G, bg.G)
-			pixel.B = blend(pixel.B, bg.B)
+			pixel[0] = blend(data[offset+2], pixel[0])
+			pixel[1] = blend(data[offset+1], pixel[1])
+			pixel[2] = blend(data[offset], pixel[2])
+		} else {
+			pixel[0], pixel[1], pixel[2] = data[offset+2], data[offset+1], data[offset]
 		}
-		out.SetNRGBA(x, y, pixel)
+		pixel[3] = 255
 	}
 	// Every output column/row maps to a single world coordinate.
 	// Compute those mappings once instead of repeating float division and

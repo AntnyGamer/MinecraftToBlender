@@ -43,6 +43,8 @@ $maxZ = $minZ + $Size - 1
 Write-Host ('Minecraft to Blender: face optimization ON, raytracing and subsets OFF, chunk size 16.') -ForegroundColor Cyan
 Write-Host ("Region: X=$minX..$maxX Z=$minZ..$maxZ Y=$MinY..$MaxY; dimension=$Dimension")
 $miexDir = Join-Path $work 'miex'
+$exporterPackName = 'BlenderEEVEE_' + $Edition.ToLowerInvariant()
+$exporterPackRoot = Join-Path $miexDir ('resources/' + $exporterPackName)
 $jar = Join-Path $miexDir 'MiEx.jar'
 $releaseUrl = 'https://github.com/BramStoutProductions/MiEx/releases/download/v2.0.0.experimental-34/MiEx.jar'
 $releaseSha256 = 'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707'
@@ -720,7 +722,13 @@ try {
       'materials/minecraft/templates/json_grass_block_snow.json' = 'adf937c0b3eb073f7ea4fc4e5a78887d83ff48bb9c71fd7d073d3ab179092228'
     }
     foreach($f in $pinnedTemplates.Keys) {
-        $target = Join-Path $miexDir ('resources/BlenderEEVEE/' + $f)
+        $target = Join-Path $exporterPackRoot $f
+        $legacy = Join-Path $miexDir ('resources/BlenderEEVEE/' + $f)
+        if(-not (Test-Path -LiteralPath $target) -and (Test-Path -LiteralPath $legacy) -and
+           (Get-FileHash -LiteralPath $legacy -Algorithm SHA256).Hash.ToLowerInvariant() -eq $pinnedTemplates[$f]) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+            Copy-Item -LiteralPath $legacy -Destination $target -ErrorAction Stop
+        }
         Ensure-PinnedFile ($packUrl + $f) $target $pinnedTemplates[$f]
     }
     # Generate the configurable working copy from an immutable, verified
@@ -728,7 +736,7 @@ try {
     # the user switches between Java and Bedrock worlds.
     $packConfigSource = Join-Path $miexDir 'miex_config_upstream.json'
     Ensure-PinnedFile ($packUrl + 'miex_config.json') $packConfigSource '88e8876c950a59ccf9d7992b4c965893d61561bc85d09f5583b7d8a7136a4372'
-    $packConfigPath = Join-Path $miexDir 'resources/BlenderEEVEE/miex_config.json'
+    $packConfigPath = Join-Path $exporterPackRoot 'miex_config.json'
     $packConfig = Get-Content -LiteralPath $packConfigSource -Raw | ConvertFrom-Json
     $packConfig | Add-Member -MemberType NoteProperty -Name 'useGeometrySubsets' -Value $enableGeometrySubsets -Force
     # The existing MiEx USD already uses point instancers for these block types;
@@ -761,19 +769,22 @@ try {
     if([bool]$parsedConfig.useGeometrySubsets -ne $enableGeometrySubsets -or [bool]$parsedConfig.usePointInstancersForIndividualBlocks -or [bool]$parsedConfig.runFaceOptimiser -ne $enableFaceOptimization -or [bool]$parsedConfig.runRaytracingOptimiser -ne $enableRaytracingOptimization -or [bool]$parsedConfig.raytracingOptimiserUseMeshSubsets -or [bool]$parsedConfig.fillWorldBorders -ne $fillWorldBorders) {
         Abort 'MiEx exporter resource-pack configuration did not validate.'
     }
-    Write-Host 'Applied reusable exporter configuration in BlenderEEVEE/miex_config.json.' -ForegroundColor Green
+    Write-Host ('Applied reusable exporter configuration in ' + $exporterPackName + '/miex_config.json.') -ForegroundColor Green
     $bedrockAssetHelper = Join-Path $base 'Bedrock_Assets.ps1'
     if(-not (Test-Path -LiteralPath $bedrockAssetHelper -PathType Leaf)) {
         Abort 'Bedrock asset helper is missing.'
     }
     . $bedrockAssetHelper
+    $script:miexExporterPackName = $exporterPackName
     Set-BedrockStateCorrections $miexDir $base $Edition
     Ensure-BedrockPortalTexture $miexDir $Edition
     if($Edition -eq 'bedrock') {
         $bedrockClassRoot = Install-BedrockReaderClass $jar (Join-Path $base 'Bedrock_ChunkReader.class')
     }
     Ensure-BannerBaseAlias $miexDir
+    Ensure-LegacyChainModel $miexDir
     $bedTextureManifest = Join-Path $base 'Bedrock_Bed_Textures.json'
+    $javaBedTextureManifest = Join-Path $base 'Java_Bed_Textures.json'
     # Bedrock uses a different 64x64 bed atlas layout from Java. The Bedrock
     # model UVs match Mojang's geometry.bed and must use the matching sheets.
     # Keep official, hash-verified files cached; never silently render beds
@@ -783,6 +794,7 @@ try {
         # A world pack can override just one block. Keep matching vanilla
         # Bedrock fallbacks for every texture it doesn't replace. MiEx loads
         # the world pack ABOVE BlenderEEVEE, so its own textures still win.
+        Remove-ManagedJavaBedTextures $miexDir $javaBedTextureManifest
         Ensure-BedrockBedTextures $miexDir $bedTextureManifest
         # Bedrock's actual 64x64 shulker atlases match the MiEx UV layout,
         # but the undyed and light-gray images have Bedrock-only filenames.
@@ -791,9 +803,10 @@ try {
         Ensure-BedrockShulkerTextures $miexDir $shulkerTextureManifest
     } else {
         Remove-ManagedBedrockBedTextures $miexDir $bedTextureManifest
+        Ensure-JavaBedTextures $miexDir $javaBedTextureManifest
         Remove-ManagedBedrockShulkerTextures $miexDir $shulkerTextureManifest
     }
-    $blockOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/blockstates'
+    $blockOverrideDir = Join-Path $exporterPackRoot 'builtins/minecraft/blockstates'
     $bedrockBlockOverrides = @{
         'Bedrock_Beds.json' = 'bed.json'
         'Bedrock_Shulkers.json' = 'shulker_box.json'
@@ -809,9 +822,11 @@ try {
         'Bedrock_Enchanting_Table.json' = 'enchanting_table.json'
         'Bedrock_End_Portals.json' = 'end_portals.json'
     }
+    $sharedModelTargets = @(Set-SharedBlockModels $miexDir $base $Edition)
     if($Edition -eq 'bedrock') {
         New-Item -ItemType Directory -Force -Path $blockOverrideDir | Out-Null
         foreach($entry in $bedrockBlockOverrides.GetEnumerator()) {
+            if($entry.Value -in $sharedModelTargets) { continue }
             $source = Join-Path $base $entry.Key
             if(-not (Test-Path -LiteralPath $source -PathType Leaf)) {
                 Abort ("Bedrock model override is missing: " + $source)
@@ -826,13 +841,14 @@ try {
     } else {
         # Remove any overrides created for an earlier Bedrock export in this workspace.
         foreach($name in $bedrockBlockOverrides.Values) {
+            if($name -in $sharedModelTargets) { continue }
             $target = Join-Path $blockOverrideDir $name
             if(Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction Stop }
         }
     }
     Set-BedrockDetailModels $miexDir $base $Edition
-    $frameStateFolder = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/blockstates'
-    $frameOverridePath = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities/item_frame.json'
+    $frameStateFolder = Join-Path $exporterPackRoot 'assets/minecraft/blockstates'
+    $frameOverridePath = Join-Path $exporterPackRoot 'builtins/minecraft/entities/item_frame.json'
     # Previous versions installed empty frame blockstates. When MiEx did not
     # promote an older Bedrock frame block entity into an entity, that made
     # the frame entirely invisible. Remove only the known empty files, and
@@ -873,7 +889,7 @@ try {
         # the entity frame model expects the horizontal center of that block.
         $frameObj | Add-Member -MemberType NoteProperty -Name posX -Value 'thisEntity.state.x != null ? (0.5 + thisEntity.state.x) : 0.0' -Force
         $frameObj | Add-Member -MemberType NoteProperty -Name posZ -Value 'thisEntity.state.z != null ? (0.5 + thisEntity.state.z) : 0.0' -Force
-        $frameOverrideDir = Join-Path $miexDir 'resources/BlenderEEVEE/builtins/minecraft/entities'
+        $frameOverrideDir = Join-Path $exporterPackRoot 'builtins/minecraft/entities'
         New-Item -ItemType Directory -Force -Path $frameOverrideDir | Out-Null
         $frameOutput = $frameObj | ConvertTo-Json -Depth 80
         $frameReparsed = $frameOutput | ConvertFrom-Json
@@ -932,7 +948,7 @@ try {
         # Preview packs are temporary; export packs may be referenced by USD.
         $worldPackPrefix = if($PreviewOnly) { 'MinecraftToBlender_Preview_' } else { 'MinecraftToBlender_World_' }
         $worldPackName = $worldPackPrefix + [guid]::NewGuid().ToString('N')
-        $commands += @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')}
+        $commands += @{command='setActiveResourcePacks'; resourcePacks=@($exporterPackName,'base_resource_pack')}
         $commands += @{command='loadWorld'; world=$worldPath; loadWorldResourcePacks=$true; worldResourcePackName=$worldPackName}
         Write-Host 'Using world-supplied resource packs where available.' -ForegroundColor Cyan
     } else {
@@ -940,7 +956,7 @@ try {
     }
     $commands += @{command='loadDimension'; dimension=$Dimension}
     if(-not $UseWorldResourcePacks) {
-        $commands += @{command='setActiveResourcePacks'; resourcePacks=@('BlenderEEVEE','base_resource_pack')}
+        $commands += @{command='setActiveResourcePacks'; resourcePacks=@($exporterPackName,'base_resource_pack')}
     }
     $entityList = @()
     if($Entities -ne 'none') {

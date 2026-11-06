@@ -24,6 +24,15 @@ Detail geometry and UV measurements were checked against Mojang client 26.1.2
 data is derived from Mojang/bedrock-samples revision
 15701fa9c13923f12662984c32c124327e40e3d3, resource_pack/animations/armor_stand.animation.json.
 https://github.com/Mojang/bedrock-samples
+Java statue pose geometry/UV facts are recorded in tools/java_statue_parts.py
+from the same verified client, using tools/DumpJavaStatues.java. The author-created
+generator adapts those measurements to MiEx's model format. Native baked-quad
+fingerprints check vertices, UVs and winding. Java conduit activation follows
+the measured water/frame conditions; the static geometry adapts the existing
+Bedrock definition. Generated Java models are reproduced in CI.
+Java_Bed_Textures.json pins the official client and sixteen original bed atlases.
+Only missing atlases are installed at run time, using a verified local client or
+a temporary official download; the downloaded client is removed afterwards.
 The EXE does NOT bundle MiEx.jar, Minecraft client JARs, texture images,
 world saves, or Blender. Minecraft texture images are installed on demand.
 The End portal fallback uses the verified blocks/end_portal.png from the same

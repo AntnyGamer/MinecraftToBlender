@@ -32,6 +32,8 @@ jobs:
       - run: go test ./... -count=1
       - name: Validate_Bedrock_resources
         run: python tools/verify_bedrock_assets.py
+      - name: Validate_shared_Java_resources
+        run: python tools/verify_java_assets.py
       - name: Validate_Blender_scene_performance
         run: python tools/test_blender_scene_performance.py
       - name: Validate_MiEx_material_node_layout_optimization
@@ -72,6 +74,9 @@ jobs:
       - name: Validate_Bedrock_state_model_installation
         shell: powershell
         run: ./tools/test_bedrock_state_corrections.ps1
+      - name: Validate_shared_Java_Bedrock_models_and_atlases
+        shell: powershell
+        run: ./tools/test_java_asset_fallbacks.ps1
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
@@ -100,6 +105,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not verify copper statue geometry reference' }
           java "-Dmiex.copperGeometry=$copperGeometry" -cp "$readerRoot;$jar;$env:RUNNER_TEMP" MiExBedrockRegression
           if ($LASTEXITCODE -ne 0) { throw 'Bedrock model runtime regression failed' }
+          javac -cp $jar -d $env:RUNNER_TEMP tools/MiExJavaVisualRegression.java
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compile Java visual regression' }
+          java -cp "$jar;$env:RUNNER_TEMP" MiExJavaVisualRegression
+          if ($LASTEXITCODE -ne 0) { throw 'Java visual runtime regression failed' }
           javac -cp $jar -d $env:RUNNER_TEMP tools/MiExExpressionSmoke.java
           if ($LASTEXITCODE -ne 0) { throw 'Could not compile MiEx parser regression test' }
           $exprs = [Collections.Generic.List[string]]::new()
@@ -125,6 +134,19 @@ jobs:
           foreach ($model in $models) {
             if ((Get-FileHash $model.FullName).Hash -ne (Get-FileHash (Join-Path 'assets' $model.Name)).Hash) {
               throw ('Detail model source mismatch: ' + $model.Name)
+            }
+          }
+      - name: Reproduce_Java_detail_models
+        shell: pwsh
+        run: |
+          $rebuilt = Join-Path $env:RUNNER_TEMP 'java_detail_models'
+          python tools/build_java_detail_models.py --output $rebuilt
+          if ($LASTEXITCODE -ne 0) { throw 'Could not reproduce Java detail models' }
+          $models = @(Get-ChildItem -LiteralPath $rebuilt -Filter '*.json' -File)
+          if ($models.Count -ne 2) { throw 'Missing Java detail model output' }
+          foreach ($model in $models) {
+            if ((Get-FileHash $model.FullName).Hash -ne (Get-FileHash (Join-Path 'assets' $model.Name)).Hash) {
+              throw ('Java detail model source mismatch: ' + $model.Name)
             }
           }
       - name: Validate_PowerShell

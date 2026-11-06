@@ -1,0 +1,71 @@
+{
+    "version": "26.1.2",
+    "client_sha1": "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+    "client_url": "https://piston-data.mojang.com/v1/objects/4e618f09a0c649dde3fdf829df443ce0b8831e65/client.jar",
+    "textures": [
+        {
+            "file": "white.png",
+            "sha256": "1766cde4551a3d91f38628dafe0c76fbb6bf2bc3a8301e715b4a2d149cff980e"
+        },
+        {
+            "file": "orange.png",
+            "sha256": "6146802c41c2719324a79039d64577c9db95130ea5cfe98cc19576849f36b5e3"
+        },
+        {
+            "file": "magenta.png",
+            "sha256": "193055c7c5185f8e3de9311127e81d85b1704abb772a6f381735341b73d61218"
+        },
+        {
+            "file": "light_blue.png",
+            "sha256": "a7c255a0dabfaff1e6a02142f0a10487829e52ffa13b9c10c05ff19d155593b8"
+        },
+        {
+            "file": "yellow.png",
+            "sha256": "029ece878b462a3e40cadafa9413ae5dc0011ae132f9a080d608b2e189815ba7"
+        },
+        {
+            "file": "lime.png",
+            "sha256": "11674975203749c2a6f829a84aa6693635bf037c175c615767a1dd68373b2ccb"
+        },
+        {
+            "file": "pink.png",
+            "sha256": "95419fad7030acfea70ed50fa92c1cbf2a4f1b4b5d46fc2a59f70e26fdc5c073"
+        },
+        {
+            "file": "gray.png",
+            "sha256": "89ca410585038c0dab6f45f91bda1cdfbb556e70d375373781a8cc9f703a1709"
+        },
+        {
+            "file": "light_gray.png",
+            "sha256": "4b89bf57a5b1f12b48253be28d20137c82b7f10bb51a2e7a0ecf6ace70182f9c"
+        },
+        {
+            "file": "cyan.png",
+            "sha256": "0597e0fbe9783ecb4e366c42ed1fdf872d956dfba7c112e4d7cd7fff9c489949"
+        },
+        {
+            "file": "purple.png",
+            "sha256": "bfb41f0b837e9eeab6dfe629169e9d5bff6e05d428b1fc3476b64fc0ac131027"
+        },
+        {
+            "file": "blue.png",
+            "sha256": "9945ef486a1a2adbc2c1d477ac322b6b6dd32caf074bbc7048495203dd909564"
+        },
+        {
+            "file": "brown.png",
+            "sha256": "bd1e8dd05eae8e978ad323dd12026d88434db47c8864fe172008dd7e89494ce6"
+        },
+        {
+            "file": "green.png",
+            "sha256": "6bc62a61c5a5b316bcb8fc12f02d98960b623f532453633c2619a17c613d1700"
+        },
+        {
+            "file": "red.png",
+            "sha256": "5ba40b3f414166bfc04960792a0d1c42a1da865d66173de1accb12f0353896d3"
+        },
+        {
+            "file": "black.png",
+            "sha256": "c7fc23c4fc2788dd882e31d32e145c09d163f1d02ff5439995953bf4721eea59"
+        }
+    ]
+}

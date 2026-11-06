@@ -89,6 +89,7 @@ def main():
     assert "seen_columns.get(name, -1) >= column" in patched
     assert "import_usd_preview=False" in patched
     assert "self.mat.node_tree.nodes.clear()" in patched
+    assert 'memoryview(bytearray(len(mesh.data.polygons))).cast("?")' in patched
     assert "for node2 in self.nodes:\n                    if node2.node.name == node.name" not in patched
     ast.parse(patched)
 
@@ -107,6 +108,17 @@ def main():
         assert "material node lookup changed" in str(exc)
     else:
         raise AssertionError("Unexpected import patch accepted altered code")
+
+    changed = raw.replace(
+        '[False for _ in range(len(mesh.data.polygons))]',
+        '[True for _ in range(len(mesh.data.polygons))]', 1)
+    assert changed != raw
+    try:
+        patch_without_blender(function, changed)
+    except RuntimeError as exc:
+        assert "flat-shading assignment changed" in str(exc)
+    else:
+        raise AssertionError("Flat-shading patch accepted changed source behavior")
 
     print("Full pinned MiEx importer patch compiled; whitespace-only lines "
           "are normalized and meaningful source mismatches remain guarded.")

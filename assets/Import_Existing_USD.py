@@ -92,6 +92,14 @@ def load_patched_importer(src):
         "mtl_name_collision_mode='REFERENCE_EXISTING',import_usd_preview=False,import_proxy=",
         1,
     )
+    # Keep the same per-polygon flat-shading flags without constructing a
+    # Python pointer list for every imported face. A contiguous native bool
+    # view uses one byte per flag and remains a normal foreach_set sequence.
+    original = '                mesh.data.polygons.foreach_set("use_smooth", [False for _ in range(len(mesh.data.polygons))])'
+    faster = '                mesh.data.polygons.foreach_set("use_smooth", memoryview(bytearray(len(mesh.data.polygons))).cast("?"))'
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx flat-shading assignment changed; refusing unverified buffer optimization.')
+    contents = contents.replace(original, faster, 1)
     log('PERF: Skipped redundant USD PreviewSurface shader conversion; MiEx Minecraft shaders still imported.')
     original = '                        node.image = bpy.data.images.load(imagePath)'
     safe = '''                        try:
@@ -795,18 +803,23 @@ def compact_redundant_usd_normals():
         attr.data.foreach_get('vector', source)
         mesh.corner_normals.foreach_get('vector', native)
         if source != native:
+            del source, native
             continue
         mesh.attributes.remove(attr)
-        after = array('f', [0.0]) * count
-        mesh.corner_normals.foreach_get('vector', after)
-        if native != after:
+        # source equals the native normals above, so retain it for comparison
+        # and rollback, then reuse the other buffer for the post-removal read.
+        # This avoids a third full corner-normal array on large meshes.
+        mesh.corner_normals.foreach_get('vector', native)
+        if source != native:
             # A future Blender storage change must not silently change shading.
             restored = mesh.attributes.new(name='normals', type='FLOAT_VECTOR', domain='CORNER')
             restored.data.foreach_set('vector', source)
             log('MESH MEMORY: restored normals attribute after a native-normal mismatch.')
+            del source, native
             continue
         removed += 1
         released += count * source.itemsize
+        del source, native
     log('MESH MEMORY:', removed, 'unused duplicate normal arrays removed;',
         released, 'attribute bytes saved; native split normals, faces, UVs and colors retained.')
     return released

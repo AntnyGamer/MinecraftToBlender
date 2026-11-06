@@ -56,6 +56,25 @@ func TestSampledPreviewUsesActualChunkColors(t *testing.T) {
 	}
 }
 
+func TestPreviewKeepsRealPixelsWithoutLayerCountMetadata(t *testing.T) {
+	dir:=t.TempDir()
+	logPath:=filepath.Join(dir,"miex.log")
+	output:=filepath.Join(dir,"preview.png")
+	// Both omitted and zero layerCount must still allow a complete BGRA image.
+	payload:=fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"image\":\"%s\"}]}\\n",
+		solidChunkImage(64,128,192))
+	if err:=os.WriteFile(logPath,[]byte(payload),0600);err!=nil {t.Fatal(err)}
+	n,err:=renderSampledPreview(logPath,output,8,8,16)
+	if err!=nil || n!=1 {t.Fatalf("real image dropped with absent layerCount: %d, %v",n,err)}
+	file,err:=os.Open(output);if err!=nil {t.Fatal(err)}
+	defer file.Close()
+	img,err:=png.Decode(file);if err!=nil {t.Fatal(err)}
+	r,g,b,_:=img.At(0,0).RGBA()
+	if r>>8!=64 || g>>8!=128 || b>>8!=192 {
+		t.Fatalf("valid chunk image was discarded: %d,%d,%d",r>>8,g>>8,b>>8)
+	}
+}
+
 func TestPreviewOfUnexploredAreaIsClickableGrayMap(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "miex.log")

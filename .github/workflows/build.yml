@@ -111,6 +111,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not compile Java visual regression' }
           java -cp "$jar;$env:RUNNER_TEMP" MiExJavaVisualRegression
           if ($LASTEXITCODE -ne 0) { throw 'Java visual runtime regression failed' }
+          javac -cp $jar -d $env:RUNNER_TEMP tools/MiExRedstoneRegression.java
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compile redstone connection regression' }
+          java -cp "$jar;$env:RUNNER_TEMP" MiExRedstoneRegression
+          if ($LASTEXITCODE -ne 0) { throw 'Redstone connection runtime regression failed' }
           javac -cp $jar -d $env:RUNNER_TEMP tools/MiExExpressionSmoke.java
           if ($LASTEXITCODE -ne 0) { throw 'Could not compile MiEx parser regression test' }
           $exprs = [Collections.Generic.List[string]]::new()

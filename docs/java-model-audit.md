@@ -50,7 +50,9 @@ Java beds reuse a matching installed 26.1.2 client when available. Otherwise,
 the first missing-atlas repair downloads the official 38,113,927-byte client
 temporarily, verifies its SHA-1, extracts the sixteen explicitly named PNGs,
 verifies their individual SHA-256 hashes and dimensions, and removes the
-download. Existing base/overlay atlases retain priority. All needed images
+download. Existing base/overlay atlases retain priority and are checked for
+decodability and compatible dimensions, including valid HD replacements.
+Corrupt source images are preserved and reported for repair. All needed images
 are validated before publication; a failed download or corrupt atlas cannot
 silently become a black bed.
 

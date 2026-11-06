@@ -93,6 +93,45 @@ try {
     Ensure-JavaBedTextures $root $manifestPath 'unavailable-client.jar'
     Assert-VisualTest ((Get-FileHash -LiteralPath (Join-Path $bedDir 'light_gray.png')).Hash -eq $customHash) 'Custom atlas changed'
     Assert-VisualTest ((Get-FileHash -LiteralPath $jar -Algorithm SHA1).Hash.ToLowerInvariant() -eq $jarHash) 'Source client was modified'
+    # Existing atlas paths are not proof that the images can be decoded.
+    # Fail before publication, retaining corrupt/custom source bytes for repair.
+    foreach($invalidPath in @((Join-Path $bedDir 'white.png'),(Join-Path $baseBedDir 'red.png'))) {
+        $saved = [IO.File]::ReadAllBytes($invalidPath)
+        [IO.File]::WriteAllText($invalidPath, 'truncated PNG fixture')
+        $invalidHash = (Get-FileHash -LiteralPath $invalidPath).Hash
+        $rejected = $false
+        try { Ensure-JavaBedTextures $root $manifestPath 'unavailable-client.jar' }
+        catch { $rejected = $_.Exception.Message -like '*Java bed atlas*' }
+        Assert-VisualTest $rejected 'Corrupt existing Java bed atlas was silently accepted'
+        Assert-VisualTest ((Get-FileHash -LiteralPath $invalidPath).Hash -eq $invalidHash) 'Invalid custom/source atlas was overwritten'
+        [IO.File]::WriteAllBytes($invalidPath,$saved)
+    }
+    $hdPath = Join-Path $bedDir 'light_gray.png'
+    $bitmap = [Drawing.Bitmap]::new(128,128)
+    try { $bitmap.Save($hdPath,[Drawing.Imaging.ImageFormat]::Png) } finally { $bitmap.Dispose() }
+    $hdHash = (Get-FileHash -LiteralPath $hdPath).Hash
+    Ensure-JavaBedTextures $root $manifestPath 'unavailable-client.jar'
+    Assert-VisualTest ((Get-FileHash -LiteralPath $hdPath).Hash -eq $hdHash) 'Valid HD custom atlas changed'
+    $lowerPriority = Join-Path $baseBedDir 'white.png'
+    [IO.File]::WriteAllText($lowerPriority,'unused lower-priority image')
+    Ensure-JavaBedTextures $root $manifestPath 'unavailable-client.jar'
+    Remove-Item -LiteralPath $lowerPriority
+    foreach($color in @('blue','red')) {
+        $blockedPath = Join-Path $bedDir ($color + '.png')
+        $saved = $null
+        if(Test-Path -LiteralPath $blockedPath -PathType Leaf) {
+            $saved = [IO.File]::ReadAllBytes($blockedPath)
+            Remove-Item -LiteralPath $blockedPath
+        }
+        New-Item -ItemType Directory -Path $blockedPath | Out-Null
+        $rejected = $false
+        try { Ensure-JavaBedTextures $root $manifestPath $jar }
+        catch { $rejected = $_.Exception.Message -like '*Java bed atlas path is not a file*' }
+        Assert-VisualTest $rejected 'An atlas directory was treated as a valid image destination or hid the base atlas'
+        Assert-VisualTest (Test-Path -LiteralPath $blockedPath -PathType Container) 'Existing directory was changed'
+        Remove-Item -LiteralPath $blockedPath
+        if($null -ne $saved) { [IO.File]::WriteAllBytes($blockedPath,$saved) }
+    }
     Remove-ManagedJavaBedTextures $root $manifestPath
     Assert-VisualTest (@(Get-ChildItem -LiteralPath $bedDir -Filter '*.png').Count -eq 1) 'Managed cleanup removed custom data or retained managed images'
 

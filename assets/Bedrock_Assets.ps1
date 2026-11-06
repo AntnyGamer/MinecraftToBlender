@@ -127,10 +127,26 @@ function Ensure-JavaBedTextures([string]$miexDir,[string]$manifestPath,[string]$
     $manifest = Read-JavaBedManifest $manifestPath
     $folder = Join-Path (Get-MiExExporterPackRoot $miexDir) 'assets/minecraft/textures/entity/bed'
     $baseFolder = Join-Path $miexDir 'resources/base_resource_pack/assets/minecraft/textures/entity/bed'
-    $needed = @($manifest.textures | Where-Object {
-        -not (Test-Path -LiteralPath (Join-Path $folder $_.file) -PathType Leaf) -and
-        -not (Test-Path -LiteralPath (Join-Path $baseFolder $_.file) -PathType Leaf)
-    })
+    $needed = New-Object 'System.Collections.Generic.List[object]'
+    foreach($entry in $manifest.textures) {
+        $target = Join-Path $folder $entry.file
+        $baseAtlas = Join-Path $baseFolder $entry.file
+        if((Test-Path -LiteralPath $target) -and -not (Test-Path -LiteralPath $target -PathType Leaf)) {
+            throw ('Java bed atlas path is not a file: ' + $target)
+        }
+        $existing = if(Test-Path -LiteralPath $target -PathType Leaf) { $target }
+                    elseif(Test-Path -LiteralPath $baseAtlas -PathType Leaf) { $baseAtlas }
+                    else { $null }
+        if($existing) {
+            # Retain custom/HD sheets, but don't treat a truncated PNG as a
+            # usable atlas just because its filename is present in the cache.
+            if(-not (Test-BedrockBedAtlas $existing)) {
+                throw ('Java bed atlas is corrupt or incompatible: ' + $existing + '. Existing files were preserved; repair this image and retry.')
+            }
+        } else {
+            $needed.Add($entry)
+        }
+    }
     if($needed.Count -eq 0) { return }
     New-Item -ItemType Directory -Force -Path $folder | Out-Null
     $candidates = @($clientJar)

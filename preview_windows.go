@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -60,6 +61,12 @@ func previewWindowBounds() (left, top, width, height int) {
 	return
 }
 
+func previewPipelineVersion(assets fs.FS) string {
+	pipeline := resumePipelineHash(assets)
+	if pipeline == "" { return "" }
+	return appVersion()+":"+pipeline
+}
+
 func runPreview(ctx context.Context, world localWorld, workspace, dimension string, useWorldPacks bool, size, x, z int) result {
 	if err := ctx.Err(); err != nil {
 		return result{what:"Region preview",err:err}
@@ -79,8 +86,10 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 	cacheDir := filepath.Join(outDir,"cache")
 	fingerprint, fingerprintErr := previewWorldFingerprint(ctx,world.path)
 	cacheKey := ""
-	if fingerprintErr == nil {
-		cacheKey = previewCacheKey(world.path,string(world.edition),dimension,useWorldPacks,size,x,z,appVersion(),fingerprint)
+	cacheVersion := ""
+	if fingerprintErr == nil { cacheVersion = previewPipelineVersion(payload) }
+	if fingerprintErr == nil && cacheVersion != "" {
+		cacheKey = previewCacheKey(world.path,string(world.edition),dimension,useWorldPacks,size,x,z,cacheVersion,fingerprint)
 		if cached,ok := cachedPreview(filepath.Join(cacheDir,cacheKey+".png"),outDir);ok {
 			if err := ctx.Err(); err != nil {
 				_ = os.Remove(cached)
@@ -91,8 +100,10 @@ func runPreview(ctx context.Context, world localWorld, workspace, dimension stri
 		}
 	} else if err := ctx.Err(); err != nil {
 		return result{what:"Region preview",err:err}
-	} else {
+	} else if fingerprintErr != nil {
 		guiLog("Preview cache unavailable for this world; generating a fresh image: "+fingerprintErr.Error())
+	} else {
+		guiLog("Preview pipeline identity unavailable; generating a fresh image without reusing the cache.")
 	}
 
 	tools,err:=toolsSetup(workspace)

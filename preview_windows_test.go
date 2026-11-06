@@ -9,7 +9,25 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
+
+func TestPreviewCacheInvalidatesWhenExportAssetsChange(t *testing.T) {
+	files := fstest.MapFS{
+		"assets/Java_Conduits.json": {Data: []byte("original geometry")},
+		"assets/Import_Existing_USD.py": {Data: []byte("Blender display")},
+	}
+	version := previewPipelineVersion(files)
+	if version == "" { t.Fatal("missing preview pipeline identity") }
+	key := previewCacheKey("world","java","overworld",false,64,0,0,version,"same world")
+	files["assets/Java_Conduits.json"].Data = []byte("updated geometry")
+	changed := previewCacheKey("world","java","overworld",false,64,0,0,previewPipelineVersion(files),"same world")
+	if key == changed { t.Fatal("updated models reused the old preview image") }
+	version = previewPipelineVersion(files)
+	files["assets/Import_Existing_USD.py"].Data = []byte("updated Blender display")
+	if version != previewPipelineVersion(files) { t.Fatal("Blender-only changes invalidated the Minecraft preview") }
+	if previewPipelineVersion(fstest.MapFS{}) != "" { t.Fatal("missing export assets allowed preview-cache reuse") }
+}
 
 func TestCancelledPreviewDoesNotStartOrCreateWorkspace(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

@@ -67,7 +67,7 @@
                     }
                 },
                 {
-                    "condition": "north=none,south=none,east=side||north=none,south=none,west=side",
+                    "condition": "north=none,south=none,east=side,west=none||north=none,south=none,west=side,east=none",
                     "connections": {
                         "": {
                             "blockState": {
@@ -78,7 +78,7 @@
                     }
                 },
                 {
-                    "condition": "east=none,west=none,north=side||east=none,west=none,south=side",
+                    "condition": "east=none,west=none,north=side,south=none||east=none,west=none,south=side,north=none",
                     "connections": {
                         "": {
                             "blockState": {
@@ -89,7 +89,7 @@
                     }
                 },
                 {
-                    "condition": "north=none,south=none,east=up",
+                    "condition": "north=none,south=none,east=up,west=none",
                     "connections": {
                         "": {
                             "blockState": {
@@ -99,7 +99,7 @@
                     }
                 },
                 {
-                    "condition": "north=none,south=none,west=up",
+                    "condition": "north=none,south=none,west=up,east=none",
                     "connections": {
                         "": {
                             "blockState": {
@@ -109,7 +109,7 @@
                     }
                 },
                 {
-                    "condition": "east=none,west=none,north=up",
+                    "condition": "east=none,west=none,north=up,south=none",
                     "connections": {
                         "": {
                             "blockState": {
@@ -119,7 +119,7 @@
                     }
                 },
                 {
-                    "condition": "east=none,west=none,south=up",
+                    "condition": "east=none,west=none,south=up,north=none",
                     "connections": {
                         "": {
                             "blockState": {

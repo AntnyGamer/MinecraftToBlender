@@ -10,9 +10,15 @@ legacy sign text, potted plants, legacy skull types/rotation and Bedrock armor
 stand equipment while retaining the original saved tags.
 It also prevents translating already translated palette states a second time,
 preserves bed dyes and undyed shulker IDs, and reads saved piston extension.
+It resolves legacy chain IDs against available resource definitions and applies
+saved chest pair coordinates to normal, trapped and copper chest variants.
 Additional BSD MiEx skull, armor-stand and equipment model definitions are
 adapted by tools/build_bedrock_detail_models.py. Their inputs are pinned and
 the generated JSON files are reproduced in CI.
+Copper chest definitions adapt MiEx's BSD chest geometry and UV layout.
+Copper statues use Mojang's pinned copper_golem.geo.json standing geometry;
+non-standing Bedrock pose metadata is not yet verified. The generated standing
+mesh and UVs are compared with MiEx's native Bedrock model reader in CI.
 Detail geometry and UV measurements were checked against Mojang client 26.1.2
 (SHA1 4e618f09a0c649dde3fdf829df443ce0b8831e65). Static armor-stand pose rotation
 data is derived from Mojang/bedrock-samples revision

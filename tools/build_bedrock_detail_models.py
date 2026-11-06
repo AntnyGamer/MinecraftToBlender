@@ -17,6 +17,7 @@ import urllib.request
 MIEX_REVISION='631e9fc2fde8c749bf59d4c3495492e62a83ef6c'
 POSE_URL='https://raw.githubusercontent.com/Mojang/bedrock-samples/15701fa9c13923f12662984c32c124327e40e3d3/resource_pack/animations/armor_stand.animation.json'
 PINS={
+    'blockstates/chest.json':'7d30ec21d1e56ba181d9ba96a6c7a37874fcd03d4470df9df1ce0733d21fa408',
     'blockstates/skull.json':'26a12e4ab979c8d99ace0747518c9843976d5723095ab90b21472e52125f2e4f',
     'entities/armor_stand.json':'19d749f5c30007e2e90c8823f0dc3dd913d15bce6667227689878506b169733d',
     'attachments/boots.json':'6d1698973511b4a2d8987ab08ece702840d35f171cece425af2b9202436fff31',
@@ -25,6 +26,8 @@ PINS={
     'attachments/leggings.json':'c03ca17c27f5b1c38f6a85293396ac05c25a076c6c6828ad44d7f7d67fc6a5df',
 }
 POSE_SHA256='aadf88fda50a36a1d174e16f28269b0eccd97fb082017e7f86cf804829e812fc'
+COPPER_GEOMETRY_URL='https://raw.githubusercontent.com/Mojang/bedrock-samples/15701fa9c13923f12662984c32c124327e40e3d3/resource_pack/models/entity/copper_golem.geo.json'
+COPPER_GEOMETRY_SHA256='9dd2bc04eb9c9cb87d6787c82c207aa0acc444a24ab8dd3fc212681cc5f731dc'
 
 
 def verified(data, sha):
@@ -95,6 +98,48 @@ def skulls(source):
                          'elements':[cube(lo,hi,uv,[64,64])]})
         h['children'].append({'condition':"(thisBlock.name.contains('piglin')) && "+('isWall' if wall else '(!isWall)'), 'elements':pieces,'children':ears})
     return doc
+
+
+def copper_chests(source):
+    doc = json.loads((source/'blockstates/chest.json').read_text(encoding='utf-8'))
+    doc['blocks'] = ['minecraft:'+wax+stage+'copper_chest'
+                     for wax in ('','waxed_') for stage in ('','exposed_','weathered_','oxidized_')]
+    doc['defaultTexture'] = 'minecraft:entity/chest/copper'
+    variables = doc['handler']['variables']
+    variables[:] = [v for v in variables if not v.startswith('texBasename =')]
+    variables += ["texBasename = 'copper'",
+                  "texBasename = thisBlock.name.contains('exposed_') ? 'copper_exposed' : texBasename",
+                  "texBasename = thisBlock.name.contains('weathered_') ? 'copper_weathered' : texBasename",
+                  "texBasename = thisBlock.name.contains('oxidized_') ? 'copper_oxidized' : texBasename"]
+    return doc
+
+
+def copper_statues(geometry):
+    # Bedrock's registry has only cardinal direction for these blocks; saved
+    # non-standing poses need a verified block-entity field mapping. Restore
+    # the official standing geometry rather than dropping the block entirely.
+    elements=[]
+    model=geometry['minecraft:geometry'][0]
+    for bone in model['bones']:
+        assert not bone.get('rotation'), 'Standing reference unexpectedly rotated'
+        for part in bone.get('cubes',[]):
+            assert not part.get('rotation') and not part.get('mirror')
+            x,y,z=part['origin'];sx,sy,sz=part['size']
+            # Match MiEx's native Bedrock model reader's X reflection.
+            lo=[8-x-sx,y,8+z];hi=[8-x,y+sy,8+z+sz]
+            elements.append(cube(lo,hi,part['uv'],[64,64],inflate=part.get('inflate',0)))
+    variables=["rotY = 0.0", "rotY = thisBlock.state.facing == 'east' ? 90.0 : rotY",
+               "rotY = thisBlock.state.facing == 'south' ? 180.0 : rotY",
+               "rotY = thisBlock.state.facing == 'west' ? 270.0 : rotY", "stage = ''",
+               "stage = thisBlock.name.contains('exposed_') ? '_exposed' : stage",
+               "stage = thisBlock.name.contains('weathered_') ? '_weathered' : stage",
+               "stage = thisBlock.name.contains('oxidized_') ? '_oxidized' : stage"]
+    return {'blocks':['minecraft:'+wax+stage+'copper_golem_statue'
+                      for wax in ('','waxed_') for stage in ('','exposed_','weathered_','oxidized_')],
+            'defaultTexture':'minecraft:entity/copper_golem/copper_golem',
+            'handler':{'variables':variables,
+                       'textures':{'texture':"'minecraft:entity/copper_golem/copper_golem' + stage"},
+                       'transform':{'rotate':[0,'rotY',0]},'elements':elements}}
 
 
 def decorated_pot():
@@ -207,6 +252,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--miex-source',type=Path)
     p.add_argument('--poses',type=Path)
+    p.add_argument('--copper-golem-geometry',type=Path)
     p.add_argument('--output',type=Path,default=Path('assets'))
     a=p.parse_args()
     with tempfile.TemporaryDirectory() as temp:
@@ -218,8 +264,12 @@ def main():
             target=source/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(verified(data,sha))
         pose_data=a.poses.read_bytes() if a.poses else urllib.request.urlopen(POSE_URL,timeout=45).read()
         poses=json.loads(verified(pose_data,POSE_SHA256))
+        copper_data=a.copper_golem_geometry.read_bytes() if a.copper_golem_geometry else urllib.request.urlopen(COPPER_GEOMETRY_URL,timeout=45).read()
+        copper_geometry=json.loads(verified(copper_data,COPPER_GEOMETRY_SHA256))
         a.output.mkdir(exist_ok=True,parents=True)
         write(a.output,'Bedrock_Skulls.json',skulls(source))
+        write(a.output,'Bedrock_Copper_Chests.json',copper_chests(source))
+        write(a.output,'Bedrock_Copper_Statues.json',copper_statues(copper_geometry))
         write(a.output,'Bedrock_Decorated_Pots.json',decorated_pot())
         write(a.output,'Bedrock_Conduits.json',conduit())
         write(a.output,'Bedrock_Enchanting_Table.json',enchanting_table())

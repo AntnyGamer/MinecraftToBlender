@@ -154,7 +154,7 @@ def main():
     assert "'Bedrock_Frame_Blocks.json' = 'frame_blocks.json'" in exporter
     assert "-Name 'exportEntityAsBlocks'" in exporter
     assert "entities=$true" in exporter
-    for name in ("Bedrock_Skulls.json", "Bedrock_Decorated_Pots.json", "Bedrock_Conduits.json", "Bedrock_Enchanting_Table.json"):
+    for name in ("Bedrock_Skulls.json", "Bedrock_Decorated_Pots.json", "Bedrock_Conduits.json", "Bedrock_Enchanting_Table.json", "Bedrock_Copper_Chests.json", "Bedrock_Copper_Statues.json"):
         detail = load(name)
         check_block_names(detail)
         assert name in exporter

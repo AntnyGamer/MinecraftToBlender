@@ -782,6 +782,8 @@ try {
     $bedrockBlockOverrides = @{
         'Bedrock_Beds.json' = 'bed.json'
         'Bedrock_Shulkers.json' = 'shulker_box.json'
+        'Bedrock_Copper_Chests.json' = 'copper_chests.json'
+        'Bedrock_Copper_Statues.json' = 'copper_statues.json'
         'Bedrock_Signs.json' = 'sign.json'
         'Bedrock_Hanging_Signs.json' = 'hanging_sign.json'
         'Bedrock_Legacy_Banners.json' = 'legacy_banners.json'
@@ -805,7 +807,7 @@ try {
             }
             Copy-Item -LiteralPath $source -Destination (Join-Path $blockOverrideDir $entry.Value) -Force -ErrorAction Stop
         }
-        Write-Host 'Enabled Bedrock beds, shulkers, signs, heads, decorated pots, conduits and enchanting books.' -ForegroundColor Green
+        Write-Host 'Enabled Bedrock beds, shulkers, copper chests, signs, heads, decorated pots, conduits, enchanting books and standing copper statues.' -ForegroundColor Green
     } else {
         # Remove any overrides created for an earlier Bedrock export in this workspace.
         foreach($name in $bedrockBlockOverrides.Values) {

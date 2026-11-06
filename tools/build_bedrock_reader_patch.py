@@ -72,7 +72,35 @@ NORMALIZE_DETAILS = '''
     // into floor bells. Beds need their block-entity dye before choosing an ID.
     private static String translateBedrockPalette(String name, NbtTagCompound tag, BlockTranslatorManager translator) {
         String mapped = translator.map(name, tag);
+        if(mapped.equals("minecraft:chain") &&
+           nl.bramstout.mcworldexporter.resourcepack.ResourcePacks.getBlockStateHandler(mapped) == null &&
+           nl.bramstout.mcworldexporter.resourcepack.ResourcePacks.getBlockStateHandler("minecraft:iron_chain") != null)
+            mapped = "minecraft:iron_chain";
+        // The upstream copper-chest mappings default every block to a right
+        // half. Pair coordinates are available only on the block entity.
+        if(isCopperChest(mapped)) tag.addElement(NbtTagString.newInstance("type", "single"));
         return name.equals("minecraft:bed") || name.equals("minecraft:undyed_shulker_box") ? name : mapped;
+    }
+
+    private static boolean isCopperChest(String name) {
+        if(name.startsWith("minecraft:waxed_")) name = "minecraft:" + name.substring(16);
+        return name.equals("minecraft:copper_chest") || name.equals("minecraft:exposed_copper_chest") ||
+               name.equals("minecraft:weathered_copper_chest") || name.equals("minecraft:oxidized_copper_chest");
+    }
+
+    private static void normalizeBedrockChest(String name, NbtTagCompound tag, int x, int z) {
+        if(!isCopperChest(name) && !name.equals("minecraft:chest") && !name.equals("minecraft:trapped_chest")) return;
+        String type = "single";
+        NbtTag pairX = tag.get("pairx"), pairZ = tag.get("pairz"), facing = tag.get("facing");
+        if(pairX != null && pairZ != null && facing != null) {
+            int dx = pairX.asInt() - x, dz = pairZ.asInt() - z;
+            String direction = facing.asString();
+            if(dz == 0 && Math.abs(dx) == 1 && (direction.equals("north") || direction.equals("south")))
+                type = (dx > 0) == direction.equals("north") ? "left" : "right";
+            if(dx == 0 && Math.abs(dz) == 1 && (direction.equals("east") || direction.equals("west")))
+                type = (dz > 0) == direction.equals("east") ? "left" : "right";
+        }
+        tag.addElement(NbtTagString.newInstance("type", type));
     }
 
     private static void mergeBedrockBlockEntity(NbtTagCompound entity, NbtTagCompound palette) {
@@ -208,6 +236,12 @@ def patch_source(data):
         if text.count(old) != 1:
             raise RuntimeError('Unexpected pinned Bedrock reader code: ' + old)
         text = text.replace(old, new, 1)
+    if text.count('// Special code for chests') != 1:
+        raise RuntimeError('Unexpected pinned Bedrock chest reader')
+    start = text.index('// Special code for chests')
+    end = text.index('blockId = BlockRegistry.getIdForName(blockEntityName, blockEntity, 0, charBuffer);', start)
+    text = text[:start] + ('normalizeBedrockChest(blockEntityName, blockEntity, '
+                          'blockEntityX + chunkX * 16, blockEntityZ + chunkZ * 16);\n\t\t\t\t\t') + text[end:]
     return text
 
 

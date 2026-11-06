@@ -95,7 +95,10 @@ jobs:
           $readerRoot = Install-BedrockReaderClass $jar (Resolve-Path assets/Bedrock_ChunkReader.class)
           javac -cp $jar -d $env:RUNNER_TEMP tools/MiExBedrockRegression.java
           if ($LASTEXITCODE -ne 0) { throw 'Could not compile Bedrock semantic regression' }
-          java -cp "$readerRoot;$jar;$env:RUNNER_TEMP" MiExBedrockRegression
+          $copperGeometry = Join-Path $env:RUNNER_TEMP 'copper_golem.geo.json'
+          python -c "import sys,urllib.request; from tools.build_bedrock_detail_models import verified,COPPER_GEOMETRY_URL,COPPER_GEOMETRY_SHA256; open(sys.argv[1],'wb').write(verified(urllib.request.urlopen(COPPER_GEOMETRY_URL,timeout=45).read(),COPPER_GEOMETRY_SHA256))" $copperGeometry
+          if ($LASTEXITCODE -ne 0) { throw 'Could not verify copper statue geometry reference' }
+          java "-Dmiex.copperGeometry=$copperGeometry" -cp "$readerRoot;$jar;$env:RUNNER_TEMP" MiExBedrockRegression
           if ($LASTEXITCODE -ne 0) { throw 'Bedrock model runtime regression failed' }
           javac -cp $jar -d $env:RUNNER_TEMP tools/MiExExpressionSmoke.java
           if ($LASTEXITCODE -ne 0) { throw 'Could not compile MiEx parser regression test' }
@@ -118,7 +121,7 @@ jobs:
           python tools/build_bedrock_detail_models.py --output $rebuilt
           if ($LASTEXITCODE -ne 0) { throw 'Could not reproduce detail models' }
           $models = @(Get-ChildItem -LiteralPath $rebuilt -Filter '*.json' -File)
-          if ($models.Count -ne 9) { throw 'Missing detail model output' }
+          if ($models.Count -ne 11) { throw 'Missing detail model output' }
           foreach ($model in $models) {
             if ((Get-FileHash $model.FullName).Hash -ne (Get-FileHash (Join-Path 'assets' $model.Name)).Hash) {
               throw ('Detail model source mismatch: ' + $model.Name)

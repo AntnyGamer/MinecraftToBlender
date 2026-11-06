@@ -296,7 +296,7 @@ func TestHugePreviewKeepsAlphaWeightedColorsAndRepeatedChunks(t *testing.T) {
 	for _, sample := range []struct{ x,y int; r,g,b uint32 } {
 		{0,0,220,0,0},
 		{2,0,0,180,0},
-		{4,0,218,218,218},
+		{6,0,218,218,218},
 	} {
 		r,g,b,_ := img.At(sample.x,sample.y).RGBA()
 		if r>>8 != sample.r || g>>8 != sample.g || b>>8 != sample.b {

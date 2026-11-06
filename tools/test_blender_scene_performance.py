@@ -58,6 +58,17 @@ class Mesh:
             (x, y, z) for x in (0, 1) for y in (0, 1) for z in (0, 1)
         )
         self.bbox_reads = 0
+        self.matrix_reads = 0
+        self._matrix_world = Matrix()
+
+    @property
+    def matrix_world(self):
+        self.matrix_reads += 1
+        return self._matrix_world
+
+    @matrix_world.setter
+    def matrix_world(self, matrix):
+        self._matrix_world = matrix
 
     @property
     def bound_box(self):
@@ -102,13 +113,25 @@ def test_scene_report():
 
 
 def test_repeated_instance_bounds():
+    class Instance:
+        def __init__(self, ob, is_instance, matrix):
+            self.object = ob
+            self.is_instance = is_instance
+            self.matrix = matrix
+            self.matrix_reads = 0
+
+        @property
+        def matrix_world(self):
+            self.matrix_reads += 1
+            return self.matrix
+
     proto = Mesh("prototype", 8, 8)
     local = Mesh("local", 8, 8, bbox=list((x, y, z)
                                         for x in (-2, -1) for y in (-2, -1) for z in (-2, -1)))
     instances = [
-        NS(object=proto, is_instance=True, matrix_world=Matrix()),
-        NS(object=proto, is_instance=True, matrix_world=Matrix((16, 0, 0))),
-        NS(object=local, is_instance=False, matrix_world=Matrix()),
+        Instance(proto, True, Matrix()),
+        Instance(proto, True, Matrix((16, 0, 0))),
+        Instance(local, False, Matrix()),
     ]
     space = NS(region_3d=NS(view_location=None, view_distance=None), clip_end=10)
     bpy = NS(context=NS(evaluated_depsgraph_get=lambda: NS(object_instances=instances),
@@ -117,6 +140,8 @@ def test_repeated_instance_bounds():
     messages = []
     imported_functions(bpy, messages)["frame_actual_scene"]()
     assert proto.bbox_reads == 1, "Repeated instances should reuse the same eight bounds"
+    assert all(instance.matrix_reads == 1 for instance in instances), (
+        "Read each instance's own transform once, even for a shared prototype")
     center = space.region_3d.view_location.values
     assert center == [7.5, -0.5, -0.5], center
     assert abs(space.region_3d.view_distance - 12.0) < 0.00001
@@ -149,6 +174,7 @@ def test_static_scene_avoids_depsgraph():
     functions["frame_actual_scene"](evaluate_instances=False)
     center = area.spaces.active.region_3d.view_location.values
     assert center == [100.5, 2.5, 3.5], center
+    assert mesh.matrix_reads == 1, "Read a stored mesh transform once for all eight corners"
     assert any("skipping redundant scene-wide dependency graph" in " ".join(map(str, msg))
                for msg in msgs)
 

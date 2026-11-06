@@ -165,6 +165,13 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('Pinned MiEx material node lookup changed; cannot apply verified optimization.')
     contents = contents.replace(original, faster, 1)
+    # NodeGrid's temporary Node wrapper never reads its outputs list. Keep
+    # the real Blender node sockets intact and avoid an empty Python list
+    # allocation for every shader-layout wrapper.
+    original = '                self.outputs : list[Node] = []'
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx layout wrapper changed; refusing unverified allocation cleanup.')
+    contents = contents.replace(original, '', 1)
     # Upstream's material node layout repeatedly scans the entire NodeGrid to
     # find an already-placed node, which becomes quadratic for large graphs.
     # Cache the same Blender-unique node names; preserve all rows, columns,
@@ -551,11 +558,15 @@ def frame_actual_scene(evaluate_instances=True):
                             instance_corners[key] = corners
                 else:
                     corners = (Vector(p) for p in ob.bound_box)
+                # The transform is constant across these eight corners.
+                # Reading RNA matrix properties repeatedly creates wrappers.
+                matrix_world = instance.matrix_world
                 for p in corners:
-                    world_p = instance.matrix_world @ p
+                    world_p = matrix_world @ p
                     for axis in range(3):
                         bounds_min[axis] = min(bounds_min[axis], world_p[axis])
                         bounds_max[axis] = max(bounds_max[axis], world_p[axis])
+                del matrix_world
                 encountered += 1
         except Exception as exc:
             log('WARNING: Evaluated Geometry Nodes bounds were incomplete:', repr(exc))
@@ -565,11 +576,13 @@ def frame_actual_scene(evaluate_instances=True):
         for ob in bpy.context.scene.objects:
             if ob.type != 'MESH' or not ob.visible_get():
                 continue
+            matrix_world = ob.matrix_world
             for p in ob.bound_box:
-                world_p = ob.matrix_world @ Vector(p)
+                world_p = matrix_world @ Vector(p)
                 for axis in range(3):
                     bounds_min[axis] = min(bounds_min[axis], world_p[axis])
                     bounds_max[axis] = max(bounds_max[axis], world_p[axis])
+            del matrix_world
             encountered += 1
     if not encountered:
         log('WARNING: Unable to calculate real visible mesh bounds. Press Home to frame the scene in Blender.')
@@ -939,9 +952,10 @@ def clear_bulk_import_selection(min_meshes=128):
     select everything; drawing and testing thousands of orange outlines can
     burden the viewport. Small scenes retain their initial selection.
     """
-    selected = tuple(bpy.context.selected_objects)
+    # Blender already returns a selection snapshot. Finish counting before
+    # changing selection, without copying that list into a second container.
     mesh_count = sum(
-        ob.type == 'MESH' and ob.visible_get() for ob in selected
+        ob.type == 'MESH' and ob.visible_get() for ob in bpy.context.selected_objects
     )
     if mesh_count < min_meshes:
         return 0

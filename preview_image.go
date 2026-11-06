@@ -45,7 +45,20 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 32*1024*1024)
-	tiles := make(map[[2]int][]byte)
+	// Huge regions use one averaged color per sampled chunk. Retaining every
+	// 1,024-byte BGRA tile would waste several MiB only to average it later.
+	minX, minZ := centerX-size/2, centerZ-size/2
+	firstChunkX, firstChunkZ := int(math.Floor(float64(minX)/16)), int(math.Floor(float64(minZ)/16))
+	lastChunkX, lastChunkZ := int(math.Floor(float64(minX+size-1)/16)), int(math.Floor(float64(minZ+size-1)/16))
+	spanX, spanZ := lastChunkX-firstChunkX+1, lastChunkZ-firstChunkZ+1
+	exact := spanX*spanZ <= 9216
+	var tiles map[[2]int][]byte
+	var average map[[2]int]imgcolor.NRGBA
+	if exact {
+		tiles = make(map[[2]int][]byte)
+	} else {
+		average = make(map[[2]int]imgcolor.NRGBA)
+	}
 	sawChunkResponse := false
 	batches := 0
 	for scanner.Scan() {
@@ -92,7 +105,29 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 			for i := 3; i < len(pixels); i += 4 {
 				if pixels[i] != 0 {visible = true; break}
 			}
-			if visible { tiles[[2]int{ch.X, ch.Z}] = pixels }
+			if visible {
+				key := [2]int{ch.X, ch.Z}
+				if exact {
+					tiles[key] = pixels
+				} else {
+					var red, green, blue, weight uint64
+					for i := 0; i < len(pixels); i += 4 {
+						a := uint64(pixels[i+3])
+						red += uint64(pixels[i+2]) * a
+						green += uint64(pixels[i+1]) * a
+						blue += uint64(pixels[i]) * a
+						weight += a
+					}
+					if weight > 0 {
+						average[key] = imgcolor.NRGBA{
+							R: uint8(red / weight),
+							G: uint8(green / weight),
+							B: uint8(blue / weight),
+							A: 255,
+						}
+					}
+				}
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -114,19 +149,8 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 			out.SetNRGBA(x, y, imgcolor.NRGBA{R: col, G: col, B: col, A: 255})
 		}
 	}
-	minX := centerX - size/2
-	minZ := centerZ - size/2
-	firstChunkX := int(math.Floor(float64(minX) / 16))
-	firstChunkZ := int(math.Floor(float64(minZ) / 16))
-	lastChunkX := int(math.Floor(float64(minX+size-1) / 16))
-	lastChunkZ := int(math.Floor(float64(minZ+size-1) / 16))
-	spanX := lastChunkX - firstChunkX + 1
-	spanZ := lastChunkZ - firstChunkZ + 1
-	// Match the 9,216-chunk upper bound used by Export_World.ps1.
-	// Within that limit every source chunk is queried, so draw every pixel
-	// at its real Minecraft block coordinate rather than stretching 16
-	// noncontiguous samples into a deceptively continuous terrain map.
-	exact := spanX*spanZ <= 9216
+	// Within the 9,216-chunk limit every source chunk is queried. Draw
+	// exact block positions instead of inventing terrain between samples.
 	paintPixel := func(x, y int, data []byte, offset int) {
 		alpha := data[offset+3]
 		if alpha == 0 {
@@ -170,25 +194,7 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 		// Very large regions cannot cheaply fetch every chunk. Show a coarse
 		// color overview instead of falsely stitching distant 16x16 block
 		// textures together and suggesting non-existent rivers or buildings.
-		average := make(map[[2]int]imgcolor.NRGBA, len(tiles))
-		for key, data := range tiles {
-			var red, green, blue, weight uint64
-			for i := 0; i < len(data); i += 4 {
-				a := uint64(data[i+3])
-				red += uint64(data[i+2]) * a
-				green += uint64(data[i+1]) * a
-				blue += uint64(data[i]) * a
-				weight += a
-			}
-			if weight > 0 {
-				average[key] = imgcolor.NRGBA{
-					R: uint8(red / weight),
-					G: uint8(green / weight),
-					B: uint8(blue / weight),
-					A: 255,
-				}
-			}
-		}
+		// Colors were accumulated while decoding, with no BGRA tile retention.
 		nearestSample := func(chunk, first, last int) int {
 			samples := min(96, last-first+1)
 			if samples <= 1 {
@@ -219,5 +225,8 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 	defer dest.Close()
 	if err := png.Encode(dest, out); err != nil { return 0, err }
 	// Report unique real chunk images, not repeated visual grid cells.
-	return len(tiles), nil
+	if exact {
+		return len(tiles), nil
+	}
+	return len(average), nil
 }

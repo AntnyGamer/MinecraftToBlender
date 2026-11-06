@@ -172,6 +172,18 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('Pinned MiEx layout wrapper changed; refusing unverified allocation cleanup.')
     contents = contents.replace(original, '', 1)
+    # These private, temporary wrappers have exactly four fields. Slots avoid
+    # a per-node instance dictionary; real shader nodes are never changed.
+    original = '''        class Node:
+
+            def __init__(self, node: bpy.types.Node, column:int, row:int) -> None:'''
+    faster = '''        class Node:
+            __slots__ = ('node', 'column', 'row', 'creation_index')
+
+            def __init__(self, node: bpy.types.Node, column:int, row:int) -> None:'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx layout wrapper fields changed; refusing unverified storage optimization.')
+    contents = contents.replace(original, faster, 1)
     # Upstream's material node layout repeatedly scans the entire NodeGrid to
     # find an already-placed node, which becomes quadratic for large graphs.
     # Cache the same Blender-unique node names; preserve all rows, columns,
@@ -563,9 +575,15 @@ def frame_actual_scene(evaluate_instances=True):
                 matrix_world = instance.matrix_world
                 for p in corners:
                     world_p = matrix_world @ p
+                    # Read each coordinate once. Strict comparisons preserve
+                    # min/max's existing behavior for ties and NaN values.
                     for axis in range(3):
-                        bounds_min[axis] = min(bounds_min[axis], world_p[axis])
-                        bounds_max[axis] = max(bounds_max[axis], world_p[axis])
+                        value = world_p[axis]
+                        if value < bounds_min[axis]:
+                            bounds_min[axis] = value
+                        if value > bounds_max[axis]:
+                            bounds_max[axis] = value
+                    del value
                 del matrix_world
                 encountered += 1
         except Exception as exc:
@@ -580,8 +598,12 @@ def frame_actual_scene(evaluate_instances=True):
             for p in ob.bound_box:
                 world_p = matrix_world @ Vector(p)
                 for axis in range(3):
-                    bounds_min[axis] = min(bounds_min[axis], world_p[axis])
-                    bounds_max[axis] = max(bounds_max[axis], world_p[axis])
+                    value = world_p[axis]
+                    if value < bounds_min[axis]:
+                        bounds_min[axis] = value
+                    if value > bounds_max[axis]:
+                        bounds_max[axis] = value
+                del value
             del matrix_world
             encountered += 1
     if not encountered:

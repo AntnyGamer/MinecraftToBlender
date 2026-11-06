@@ -101,3 +101,44 @@ No additional file-size reduction was accepted in this pass. Scene compression,
 broader geometry/attribute cleanup and combining independently editable data
 would require a save/load or editing tradeoff. Existing optional cleanup remains
 optional; the saved scene's storage size is unchanged by these buffer changes.
+
+## Further pass against `e3b85be`
+
+Two more changes run automatically during normal imports, without changing
+saved geometry, shader graphs, named attributes, object boundaries or settings:
+
+| Operation | Change | Blender 5.2.3 measurement |
+| --- | --- | --- |
+| Scene framing | Read each coordinate once and update extrema only when needed, replacing repeated Python `min`/`max` calls. Equal values and NaNs retain their previous behavior. | 9,801 instances, seven alternating samples: median 0.0844 → 0.0607 seconds (about 28% faster for framing). Bounds and peak Python scratch memory (1,258,788 bytes) matched exactly. |
+| Temporary shader-layout wrappers | Use four fixed Python slots instead of a dictionary on each private wrapper. Real Blender nodes and sockets are unchanged. | 402 nodes / 798 links: peak Python scratch memory 320,936 → 301,704 bytes (about 6% lower), with identical node positions. Twenty alternating samples had nearly equal median times, 0.565 and 0.563 seconds; no timing gain is claimed. |
+
+Full baseline/candidate imports retained 298 scene objects, 248 mesh datablocks,
+69,505 mesh faces and 223 materials. Both `.blend` files were 29,046,730 bytes;
+full process times were 4.46 and 4.55 seconds, so this fixture establishes no
+total-import speed gain. Mesh attributes/native normals, object content and
+transforms, material graphs, image references and viewport settings matched.
+As in the earlier comparison, duplicate USD object-name suffixes were normalized;
+a repeated baseline independently exhibited that existing assignment variation.
+An EEVEE render at 480×360 and 16 samples had zero pixel difference.
+
+### Existing compact-USD path repaired
+
+The `Export_World.ps1 -CompactUSD` converter imported an unbundled
+`Optimize_USD_Prototypes` helper before starting Crate conversion, causing the
+entire operation to stop with `ModuleNotFoundError`. It now proceeds with the
+existing lossless Crate conversion when that optional helper is absent. If the
+helper is present, its existing behavior remains supported. Unrelated import
+errors still propagate. This does not add a prototype-sharing implementation.
+
+| Fixture | USD bytes before | USD bytes after | Saving |
+| --- | ---: | ---: | ---: |
+| Java visual fixture | 2,390,152 | 880,501 | 63.2% |
+| Bedrock visual fixture | 9,769,498 | 3,859,554 | 60.5% |
+
+OpenUSD reopened every layer and produced exactly the same canonical layer
+data before/after conversion, including authored values, types and references.
+All ten layers matched. The other 57 Java / 224 Bedrock files were byte-identical,
+and the source comparison exports stayed unchanged. Automated tests retain the
+smaller-only replacement rule, repeated-run behavior and present-helper path.
+Compaction keeps its existing opt-in activation and conversion work; these
+storage figures apply to USD files, not saved `.blend` projects.

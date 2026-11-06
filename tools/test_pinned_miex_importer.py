@@ -102,6 +102,15 @@ def main():
     assert len(outputs) == 1 and isinstance(outputs[0].ctx, ast.Store)
     assert 'self.outputs : list[Node] = []' not in patched
     assert 'node0.outputs[attr0], node1.inputs[attr1]' in patched
+    patched_tree = ast.parse(patched)
+    wrapper = next(n for n in ast.walk(patched_tree)
+                   if isinstance(n, ast.ClassDef) and n.name == 'Node')
+    scope = {'bpy': types.SimpleNamespace(types=types.SimpleNamespace(Node=object))}
+    exec(compile(ast.Module(body=[wrapper], type_ignores=[]), '<layout-wrapper>', 'exec'), scope)
+    wrapped = scope['Node'](object(), 2, 3)
+    wrapped.creation_index = 4
+    assert (wrapped.column, wrapped.row, wrapped.creation_index) == (2, 3, 4)
+    assert not hasattr(wrapped, '__dict__'), 'Private layout wrappers should not allocate instance dictionaries'
     assert "for node2 in self.nodes:\n                    if node2.node.name == node.name" not in patched
     ast.parse(patched)
 

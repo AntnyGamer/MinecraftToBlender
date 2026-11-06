@@ -238,10 +238,40 @@ def test_usd_stage_mesh_grouping():
     assert variants == [{"MiEx_LOD": ["render"]}]
 
 
+def test_bounds_extrema_and_nonfinite_coordinates():
+    # Transformed, mirrored and imperfect bounds retain the previous min/max
+    # semantics in both the evaluated-instance and stored-bounds paths.
+    from math import isnan
+
+    class Transform:
+        def __matmul__(self, value):
+            x, y, z = value.values
+            return Vec((2*x-y, -3*y+z, -x+4*z))
+
+    mesh = Mesh('transformed', 8, 8, bbox=[
+        (-4.5, 2.0, -0.0), (3.0, -7.5, 10.0),
+        (0.0, 0.0, 0.0), (float('nan'), 1.0, 2.0),
+    ])
+    matrix = Transform()
+    mesh.matrix_world = matrix
+    points = [matrix @ Vec(p) for p in mesh._bbox]
+    lo = [min([float('inf')] + [p[i] for p in points if not isnan(p[i])]) for i in range(3)]
+    hi = [max([float('-inf')] + [p[i] for p in points if not isnan(p[i])]) for i in range(3)]
+    expected = ([.5*(a+b) for a,b in zip(lo,hi)], [b-a for a,b in zip(lo,hi)])
+    for evaluated in (False, True):
+        instance = NS(object=mesh, is_instance=False, matrix_world=matrix)
+        bpy = NS(context=NS(scene=NS(objects=[mesh]),
+                           evaluated_depsgraph_get=lambda: NS(object_instances=[instance])),
+                 data=NS(screens=[]))
+        actual = imported_functions(bpy, [])['frame_actual_scene'](evaluate_instances=evaluated)
+        assert tuple(v.values for v in actual) == expected, (evaluated, actual, expected)
+
+
 if __name__ == "__main__":
     test_scene_report()
     test_repeated_instance_bounds()
     test_initial_view_starts_close_to_large_terrain()
     test_static_scene_avoids_depsgraph()
     test_usd_stage_mesh_grouping()
+    test_bounds_extrema_and_nonfinite_coordinates()
     print("Blender scene, USD grouping and repeated-instance framing checks passed.")

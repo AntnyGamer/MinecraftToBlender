@@ -33,10 +33,15 @@ def main():
     script_folder = str(pathlib.Path(__file__).resolve().parent)
     if script_folder not in sys.path:
         sys.path.insert(0, script_folder)
-    from Optimize_USD_Prototypes import optimize_and_validate
-    prototype_summary = 'Prototype sharing: not attempted.'
+    try:
+        from Optimize_USD_Prototypes import optimize_and_validate
+    except ModuleNotFoundError as error:
+        if error.name != 'Optimize_USD_Prototypes':
+            raise
+        optimize_and_validate = None
+    prototype_summary = 'Prototype sharing: helper unavailable; original specifications retained.'
     prototype_root = folder / root_name
-    if prototype_root.is_file():
+    if optimize_and_validate is not None and prototype_root.is_file():
         try:
             prototype_summary = optimize_and_validate(prototype_root)
         except Exception as error:

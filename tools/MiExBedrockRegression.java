@@ -10,6 +10,7 @@ import nl.bramstout.mcworldexporter.resourcepack.java.ResourcePackJavaEdition;
 import nl.bramstout.mcworldexporter.model.Model;
 import nl.bramstout.mcworldexporter.model.builtins.BuiltInModel;
 import nl.bramstout.mcworldexporter.translation.BlockTranslation.BlockTranslatorManager;
+import nl.bramstout.mcworldexporter.translation.BlockTranslation;
 
 /** Semantic checks using the actual pinned MiEx evaluator and reader overlay. */
 public final class MiExBedrockRegression {
@@ -186,7 +187,124 @@ public final class MiExBedrockRegression {
             }
         }
     }
+    static void checkPaletteAndEntityStates() throws Exception {
+        Class<?> reader=Class.forName("nl.bramstout.mcworldexporter.world.bedrock.ChunkBedrock");
+        Method palette=reader.getDeclaredMethod("translateBedrockPalette",String.class,NbtTagCompound.class,BlockTranslatorManager.class);
+        Method merge=reader.getDeclaredMethod("mergeBedrockBlockEntity",NbtTagCompound.class,NbtTagCompound.class);
+        Method details=reader.getDeclaredMethod("normalizeBedrockDetails",String.class,NbtTagCompound.class,BlockTranslatorManager.class);
+        Method chest=reader.getDeclaredMethod("normalizeBedrockChest",String.class,NbtTagCompound.class,int.class,int.class);
+        chest.setAccessible(true);
+        palette.setAccessible(true);merge.setAccessible(true);details.setAccessible(true);
+        Path root=Files.createTempDirectory("miex-translated-state-");
+        var packs=ResourcePacks.getActiveResourcePacks();var previous=new ArrayList<>(packs);
+        try {
+            Path file=root.resolve("translation/minecraft/bedrock/miex_blocks.json");
+            Files.createDirectories(file.getParent());
+            try(var in=BlockTranslation.class.getResourceAsStream("/default_data/base_resource_pack/translation/minecraft/bedrock/miex_blocks.json")) {
+                Files.copy(Objects.requireNonNull(in),file);
+            }
+            packs.clear();packs.add(new ResourcePackJavaEdition(root.toFile()));
+            BlockTranslation translation=new BlockTranslation("bedrock");translation.load();
+            BlockTranslatorManager translator=translation.getTranslator(0);
+            String[] directions={"north","east","south","west"};
+            for(String wax:new String[]{"","waxed_"})for(String stage:new String[]{"","exposed_","weathered_","oxidized_"}) {
+                String name="minecraft:"+wax+stage+"copper_chest";
+                for(int facing=0;facing<4;facing++) {
+                    NbtTagCompound state=props();state.addElement(NbtTagString.newNonPooledInstance("minecraft:cardinal_direction",directions[facing]));
+                    expect(palette.invoke(null,name,state,translator),name);
+                    expect(state.get("type").asString(),"single");
+                    for(int pair=-1;pair<=1;pair++) {
+                        NbtTagCompound entity=(NbtTagCompound)state.copy();
+                        // Cross chunk boundaries and negative world coordinates.
+                        int x=-16,z=15;
+                        if(pair!=0) {
+                            entity.addElement(NbtTagInt.newNonPooledInstance("pairx",x+(facing%2==0?pair:0)));
+                            entity.addElement(NbtTagInt.newNonPooledInstance("pairz",z+(facing%2==1?pair:0)));
+                        }
+                        chest.invoke(null,name,entity,x,z);
+                        String type=pair==0?"single":((pair>0)==(facing<2)?"left":"right");
+                        expect(entity.get("type").asString(),type);
+                        Model model=bake("Bedrock_Copper_Chests.json",name,entity);
+                        expect(model.getFaces().size(),18);
+                        String texture="minecraft:entity/chest/copper"+(stage.isEmpty()?"":"_"+stage.substring(0,stage.length()-1))+(pair==0?"":"_"+type);
+                        expect(textures(model),Set.of(texture));
+                    }
+                    String statue="minecraft:"+wax+stage+"copper_golem_statue";
+                    Model model=bake("Bedrock_Copper_Statues.json",statue,state);
+                    expect(model.getFaces().size(),54);
+                    expect(textures(model),Set.of("minecraft:entity/copper_golem/copper_golem"+(stage.isEmpty()?"":"_"+stage.substring(0,stage.length()-1))));
+                }
+            }
+            for(String axis:new String[]{"x","y","z"}) {
+                NbtTagCompound chain=props();chain.addElement(NbtTagString.newNonPooledInstance("pillar_axis",axis));
+                expect(palette.invoke(null,"minecraft:chain",chain,translator),"minecraft:chain");
+                Path modern=root.resolve("assets/minecraft/blockstates/iron_chain.json");Files.createDirectories(modern.getParent());
+                Files.writeString(modern,"{\"variants\":{}}");
+                expect(palette.invoke(null,"minecraft:chain",chain,translator),"minecraft:iron_chain");
+                Path legacy=modern.resolveSibling("chain.json");Files.writeString(legacy,"{\"variants\":{}}");
+                expect(palette.invoke(null,"minecraft:chain",chain,translator),"minecraft:chain");
+                Files.delete(legacy);Files.delete(modern);
+            }
+            for(int dye=0;dye<16;dye++) {
+                NbtTagCompound state=props(),entity=props();
+                state.addElement(NbtTagInt.newNonPooledInstance("direction",2));
+                state.addElement(NbtTagByte.newNonPooledInstance("head_piece_bit",(byte)1));
+                String name=(String)palette.invoke(null,"minecraft:bed",state,translator);
+                expect(name,"minecraft:bed");
+                entity.addElement(NbtTagByte.newNonPooledInstance("color",(byte)dye));
+                merge.invoke(null,entity,state);
+                name=(String)details.invoke(null,name,entity,translator);
+                expect(name,"minecraft:"+COLORS[dye]+"_bed");
+                expect(textures(bake("Bedrock_Beds.json",name,entity)),Set.of("minecraft:entity/bed/"+COLORS[dye]));
+                // A separately named modern bed retains its explicit color.
+                expect(details.invoke(null,"minecraft:red_bed",entity,translator),"minecraft:red_bed");
+            }
+            for(String source:new String[]{"undyed_shulker_box","blue_shulker_box","black_shulker_box","shulker_box"}) {
+                NbtTagCompound state=props(),entity=props();
+                state.addElement(NbtTagString.newNonPooledInstance("color","red"));
+                String name=(String)palette.invoke(null,"minecraft:"+source,state,translator);
+                entity.addElement(NbtTagByte.newNonPooledInstance("facing",(byte)1));
+                merge.invoke(null,entity,state);
+                String expected=source.equals("undyed_shulker_box")?"shulker":source.equals("shulker_box")?"shulker_red":"shulker_"+source.substring(0,source.indexOf("_shulker"));
+                expect(textures(bake("Bedrock_Shulkers.json",name,entity)),Set.of("minecraft:entity/shulker/"+expected));
+                expect(entity.get("facing").asInt(),1);
+            }
+            for(String attachment:new String[]{"standing","hanging","side","multiple"}) {
+                NbtTagCompound state=props();state.addElement(NbtTagString.newNonPooledInstance("attachment",attachment));
+                state.addElement(NbtTagInt.newNonPooledInstance("direction",2));
+                expect(palette.invoke(null,"minecraft:bell",state,translator),"minecraft:bell");
+                String expected=attachment.equals("standing")?"floor":attachment.equals("hanging")?"ceiling":attachment.equals("side")?"single_wall":"double_wall";
+                expect(state.get("attachment").asString(),expected);
+                NbtTagCompound entity=props();merge.invoke(null,entity,state);
+                expect(details.invoke(null,"minecraft:bell",entity,translator),"minecraft:bell");
+                expect(entity.get("attachment").asString(),expected);
+                expect(entity.get("facing").asString(),"south");
+            }
+            for(String name:new String[]{"piston","sticky_piston"})for(int animation=0;animation<4;animation++) {
+                NbtTagCompound state=props(),entity=props();
+                state.addElement(NbtTagInt.newNonPooledInstance("facing_direction",1));
+                palette.invoke(null,"minecraft:"+name,state,translator);
+                entity.addElement(NbtTagByte.newNonPooledInstance("State",(byte)animation));merge.invoke(null,entity,state);
+                details.invoke(null,"minecraft:"+name,entity,translator);
+                expect(entity.get("extended").asString(),animation==1||animation==2?"true":"false");
+            }
+        } finally {
+            packs.clear();packs.addAll(previous);
+            try(var paths=Files.walk(root)){for(Path path:paths.sorted(Comparator.reverseOrder()).toList())Files.delete(path);}
+        }
+    }
     static void runChecks() throws Exception {
+        String reference=System.getProperty("miex.copperGeometry");
+        if(reference!=null) {
+            JsonObject geo=JsonParser.parseString(Files.readString(Path.of(reference))).getAsJsonObject().getAsJsonArray("minecraft:geometry").get(0).getAsJsonObject();
+            var handler=new nl.bramstout.mcworldexporter.resourcepack.bedrock.ModelHandlerBedrockEdition(null,geo);
+            Model nativeModel=new Model("native reference",null,false,false);handler.getGeometry(nativeModel);nativeModel.applyBones();nativeModel.translate(8,0,8);
+            expect(vertexUVs(bake("Bedrock_Copper_Statues.json","minecraft:copper_golem_statue",props())),vertexUVs(nativeModel));
+        }
+        expect(bake("Bedrock_End_Portals.json","minecraft:end_portal",props()).getFaces().size(),1);
+        expect(bake("Bedrock_End_Portals.json","minecraft:end_gateway",props()).getFaces().size(),6);
+        expect(textures(bake("Bedrock_End_Portals.json","minecraft:end_gateway",props())),Set.of("minecraft:block/end_portal"));
+        checkPaletteAndEntityStates();
         checkPartialPackFallbacks();
         checkDetails();
         checkLeatherDye();
@@ -278,9 +396,16 @@ public final class MiExBedrockRegression {
         ExprContext ctx=evaluate("Bedrock_Beds.json","minecraft:bed",frame);
         expect(ExprParser.parseMultiExpression("thisEntity.state.x != null ? (0.5 + thisEntity.state.x) : 0.0").eval(ctx).asFloat(),-6.5f);
         expect(ExprParser.parseMultiExpression("thisEntity.state.z != null ? (0.5 + thisEntity.state.z) : 0.0").eval(ctx).asFloat(),0f);
-        System.out.println("Pinned MiEx runtime: pots/plants, skull types, conduit geometry, armor equipment/poses, partial packs, dyes/patterns, shulkers, frames and signs passed.");
+        System.out.println("Pinned MiEx runtime: chest halves/materials, copper statue geometry, chain resource compatibility, dyes, attachments and prior model regressions passed.");
         // ChunkBedrock starts MiEx's periodic background cache cleanup thread.
         System.exit(0);
+    }
+    static List<String> vertexUVs(Model model) {
+        List<String> result=new ArrayList<>();float[] points=new float[12],uvs=new float[8];
+        for(var face:model.getFaces()) {face.getPoints(points);face.getUVs(uvs);
+            for(int i=0;i<4;i++)result.add(Math.round(points[i*3]*10000)+","+Math.round(points[i*3+1]*10000)+","+Math.round(points[i*3+2]*10000)+","+Math.round(uvs[i*2]*10000)+","+Math.round(uvs[i*2+1]*10000));
+        }
+        Collections.sort(result);return result;
     }
     public static void main(String[] args) {
         try { runChecks(); }

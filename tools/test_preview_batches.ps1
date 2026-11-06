@@ -17,6 +17,16 @@ foreach($name in @('Get-PreviewChunkCoordinates', 'New-PreviewChunkCommands',
 }
 
 $chunks = @(Get-PreviewChunkCoordinates -32 31 -32 31)
+# The northernmost row is deliberately requested last. Its samples keep
+# exact coordinates, and no extra chunks are fetched.
+if($chunks[0].chunkZ -ne -31 -or $chunks[$chunks.Count - 1].chunkZ -ne -32) {
+    throw 'Northern preview boundary was not deferred until after interior chunks'
+}
+$coarse = @(Get-PreviewChunkCoordinates -80 79 -80 79)
+if($coarse.Count -ne 9216 -or $coarse[0].chunkZ -le -80 -or
+   $coarse[$coarse.Count - 1].chunkZ -ne -80) {
+    throw 'Coarse preview did not keep the northern sampled edge last'
+}
 $commands = @(New-PreviewChunkCommands $chunks 64)
 if($chunks.Count -ne 4096 -or $commands.Count -ne 64) {
     throw 'Expected 4096 positions in 64 preview batches'

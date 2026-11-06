@@ -45,7 +45,24 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 32*1024*1024)
-	tiles := make(map[[2]int][]byte)
+	// Huge regions use one averaged color per sampled chunk. Retaining every
+	// 1,024-byte BGRA tile would waste several MiB only to average it later.
+	minX, minZ := centerX-size/2, centerZ-size/2
+	firstChunkX, firstChunkZ := int(math.Floor(float64(minX)/16)), int(math.Floor(float64(minZ)/16))
+	lastChunkX, lastChunkZ := int(math.Floor(float64(minX+size-1)/16)), int(math.Floor(float64(minZ+size-1)/16))
+	spanX, spanZ := lastChunkX-firstChunkX+1, lastChunkZ-firstChunkZ+1
+	exact := spanX*spanZ <= 9216
+	var tiles map[[2]int][]byte
+	var average map[[2]int]imgcolor.NRGBA
+	if exact {
+		tiles = make(map[[2]int][]byte)
+	} else {
+		average = make(map[[2]int]imgcolor.NRGBA)
+	}
+	// Coarse samples are averaged immediately, so their base64 decoder can
+	// reuse one small buffer rather than allocating per sampled chunk.
+	const chunkImageBytes = 16*16*4
+	var coarsePixels [chunkImageBytes+2]byte
 	sawChunkResponse := false
 	batches := 0
 	for scanner.Scan() {
@@ -74,14 +91,27 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 		sawChunkResponse = true
 		batches++
 		for _, ch := range response.Chunks {
-			if ch.LayerCount <= 0 {
-				continue // Missing/empty terrain is a legitimate gray tile.
-			}
+			// The image bytes are the source of truth. MiEx may omit layer
+			// metadata even when it returned a valid colored preview tile.
+			// Do not discard those real pixels as missing terrain.
 			if ch.Image == "" {
+				if ch.LayerCount <= 0 {
+					continue // An actually absent chunk stays gray.
+				}
 				return 0, fmt.Errorf("MiEx omitted image data for loaded chunk (%d,%d)", ch.X, ch.Z)
 			}
-			pixels, err := base64.StdEncoding.DecodeString(ch.Image)
-			if err != nil || len(pixels) != 16*16*4 {
+			var pixels []byte
+			var err error
+			if exact || len(ch.Image) > base64.StdEncoding.EncodedLen(chunkImageBytes) {
+				// Exact maps must retain each tile; oversized malformed input takes
+				// the allocating path to avoid overflowing the fixed scratch buffer.
+				pixels, err = base64.StdEncoding.DecodeString(ch.Image)
+			} else {
+				var n int
+				n, err = base64.StdEncoding.Decode(coarsePixels[:], []byte(ch.Image))
+				pixels = coarsePixels[:n]
+			}
+			if err != nil || len(pixels) != chunkImageBytes {
 				return 0, fmt.Errorf("MiEx returned an invalid image for chunk (%d,%d): %d bytes", ch.X, ch.Z, len(pixels))
 			}
 			// MiEx uses a zeroed image when it cannot render this chunk.
@@ -89,7 +119,29 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 			for i := 3; i < len(pixels); i += 4 {
 				if pixels[i] != 0 {visible = true; break}
 			}
-			if visible { tiles[[2]int{ch.X, ch.Z}] = pixels }
+			if visible {
+				key := [2]int{ch.X, ch.Z}
+				if exact {
+					tiles[key] = pixels
+				} else {
+					var red, green, blue, weight uint64
+					for i := 0; i < len(pixels); i += 4 {
+						a := uint64(pixels[i+3])
+						red += uint64(pixels[i+2]) * a
+						green += uint64(pixels[i+1]) * a
+						blue += uint64(pixels[i]) * a
+						weight += a
+					}
+					if weight > 0 {
+						average[key] = imgcolor.NRGBA{
+							R: uint8(red / weight),
+							G: uint8(green / weight),
+							B: uint8(blue / weight),
+							A: 255,
+						}
+					}
+				}
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -102,44 +154,42 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 		return 0, fmt.Errorf("MiEx returned only %d of %d requested preview batches; refusing a partial map", batches, expectedBatches)
 	}
 	out := image.NewNRGBA(image.Rect(0, 0, 256, 256))
+	// Fill this fixed, in-bounds pixel buffer directly. It produces the exact
+	// same checkerboard while avoiding 65,536 image.SetNRGBA method calls.
 	for y := 0; y < 256; y++ {
+		row := out.Pix[y*out.Stride : y*out.Stride+256*4]
 		for x := 0; x < 256; x++ {
 			col := uint8(232)
 			if ((x/16)+(y/16))%2 == 0 {
 				col = 218
 			}
-			out.SetNRGBA(x, y, imgcolor.NRGBA{R: col, G: col, B: col, A: 255})
+			pixel := row[x*4 : x*4+4]
+			pixel[0], pixel[1], pixel[2], pixel[3] = col, col, col, 255
 		}
 	}
-	minX := centerX - size/2
-	minZ := centerZ - size/2
-	firstChunkX := int(math.Floor(float64(minX) / 16))
-	firstChunkZ := int(math.Floor(float64(minZ) / 16))
-	lastChunkX := int(math.Floor(float64(minX+size-1) / 16))
-	lastChunkZ := int(math.Floor(float64(minZ+size-1) / 16))
-	spanX := lastChunkX - firstChunkX + 1
-	spanZ := lastChunkZ - firstChunkZ + 1
-	// Match the 9,216-chunk upper bound used by Export_World.ps1.
-	// Within that limit every source chunk is queried, so draw every pixel
-	// at its real Minecraft block coordinate rather than stretching 16
-	// noncontiguous samples into a deceptively continuous terrain map.
-	exact := spanX*spanZ <= 9216
+	// Within the 9,216-chunk limit every source chunk is queried. Draw
+	// exact block positions instead of inventing terrain between samples.
 	paintPixel := func(x, y int, data []byte, offset int) {
 		alpha := data[offset+3]
 		if alpha == 0 {
 			return
 		}
-		pixel := imgcolor.NRGBA{R: data[offset+2], G: data[offset+1], B: data[offset], A: 255}
+		// All callers use 0..255 pixel coordinates in the fixed-size map.
+		// Write the same opaque or alpha-blended RGB bytes directly, avoiding
+		// a paired NRGBAAt/SetNRGBA call for every sampled Minecraft block.
+		start := y*out.Stride + x*4
+		pixel := out.Pix[start : start+4]
 		if alpha < 255 {
-			bg := out.NRGBAAt(x, y)
 			blend := func(source, background uint8) uint8 {
 				return uint8((uint32(source)*uint32(alpha) + uint32(background)*uint32(255-alpha) + 127) / 255)
 			}
-			pixel.R = blend(pixel.R, bg.R)
-			pixel.G = blend(pixel.G, bg.G)
-			pixel.B = blend(pixel.B, bg.B)
+			pixel[0] = blend(data[offset+2], pixel[0])
+			pixel[1] = blend(data[offset+1], pixel[1])
+			pixel[2] = blend(data[offset], pixel[2])
+		} else {
+			pixel[0], pixel[1], pixel[2] = data[offset+2], data[offset+1], data[offset]
 		}
-		out.SetNRGBA(x, y, pixel)
+		pixel[3] = 255
 	}
 	// Every output column/row maps to a single world coordinate.
 	// Compute those mappings once instead of repeating float division and
@@ -167,25 +217,7 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 		// Very large regions cannot cheaply fetch every chunk. Show a coarse
 		// color overview instead of falsely stitching distant 16x16 block
 		// textures together and suggesting non-existent rivers or buildings.
-		average := make(map[[2]int]imgcolor.NRGBA, len(tiles))
-		for key, data := range tiles {
-			var red, green, blue, weight uint64
-			for i := 0; i < len(data); i += 4 {
-				a := uint64(data[i+3])
-				red += uint64(data[i+2]) * a
-				green += uint64(data[i+1]) * a
-				blue += uint64(data[i]) * a
-				weight += a
-			}
-			if weight > 0 {
-				average[key] = imgcolor.NRGBA{
-					R: uint8(red / weight),
-					G: uint8(green / weight),
-					B: uint8(blue / weight),
-					A: 255,
-				}
-			}
-		}
+		// Colors were accumulated while decoding, with no BGRA tile retention.
 		nearestSample := func(chunk, first, last int) int {
 			samples := min(96, last-first+1)
 			if samples <= 1 {
@@ -216,5 +248,8 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 	defer dest.Close()
 	if err := png.Encode(dest, out); err != nil { return 0, err }
 	// Report unique real chunk images, not repeated visual grid cells.
-	return len(tiles), nil
+	if exact {
+		return len(tiles), nil
+	}
+	return len(average), nil
 }

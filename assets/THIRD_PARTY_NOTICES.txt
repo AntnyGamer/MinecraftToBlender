@@ -8,16 +8,36 @@ tools/build_bedrock_reader_patch.py. It fixes block-entity section bounds,
 preserves shulker facing, translates Bedrock banner dyes/patterns and normalizes
 legacy sign text, potted plants, legacy skull types/rotation and Bedrock armor
 stand equipment while retaining the original saved tags.
+It also prevents translating already translated palette states a second time,
+preserves bed dyes and undyed shulker IDs, and reads saved piston extension.
+It resolves legacy chain IDs against available resource definitions and applies
+saved chest pair coordinates to normal, trapped and copper chest variants.
 Additional BSD MiEx skull, armor-stand and equipment model definitions are
 adapted by tools/build_bedrock_detail_models.py. Their inputs are pinned and
 the generated JSON files are reproduced in CI.
+Copper chest definitions adapt MiEx's BSD chest geometry and UV layout.
+Copper statues use Mojang's pinned copper_golem.geo.json standing geometry;
+non-standing Bedrock pose metadata is not yet verified. The generated standing
+mesh and UVs are compared with MiEx's native Bedrock model reader in CI.
 Detail geometry and UV measurements were checked against Mojang client 26.1.2
 (SHA1 4e618f09a0c649dde3fdf829df443ce0b8831e65). Static armor-stand pose rotation
 data is derived from Mojang/bedrock-samples revision
 15701fa9c13923f12662984c32c124327e40e3d3, resource_pack/animations/armor_stand.animation.json.
 https://github.com/Mojang/bedrock-samples
+Java statue pose geometry/UV facts are recorded in tools/java_statue_parts.py
+from the same verified client, using tools/DumpJavaStatues.java. The author-created
+generator adapts those measurements to MiEx's model format. Native baked-quad
+fingerprints check vertices, UVs and winding. Java conduit activation follows
+the measured water/frame conditions; the static geometry adapts the existing
+Bedrock definition. Generated Java models are reproduced in CI.
+Java_Bed_Textures.json pins the official client and sixteen original bed atlases.
+Only missing atlases are installed at run time, using a verified local client or
+a temporary official download; the downloaded client is removed afterwards.
 The EXE does NOT bundle MiEx.jar, Minecraft client JARs, texture images,
 world saves, or Blender. Minecraft texture images are installed on demand.
+The End portal fallback uses the verified blocks/end_portal.png from the same
+pinned Mojang sample revision. Portal surfaces are static texture approximations;
+Minecraft's animated portal shader and gateway beams are not reproduced.
 The Blender importer and MiEx resource-pack templates are downloaded at run time
 from pinned MiEx repository commit 631e9fc2fde8c749bf59d4c3495492e62a83ef6c.
 

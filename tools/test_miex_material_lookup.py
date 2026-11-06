@@ -211,9 +211,35 @@ def test_shared_image_color_and_alpha_are_isolated():
     assert shared.copy_count == 1
 
 
+def test_flat_shading_buffer_preserves_every_flag():
+    import textwrap
+    tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+              and node.name == "load_patched_importer")
+    assignments = [node.value.value for node in fn.body
+                   if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+                   and isinstance(node.value.value, str)
+                   and any(isinstance(t, ast.Name) and t.id == "faster" for t in node.targets)
+                   and 'foreach_set("use_smooth"' in node.value.value]
+    assert len(assignments) == 1
+    for count in (0, 1, 17, 1000000):
+        class Polygons:
+            def __len__(self):
+                return count
+
+            def foreach_set(self, name, values):
+                assert name == "use_smooth"
+                assert len(values) == count
+                assert not any(values), "Every polygon must keep flat shading"
+                assert values.format == "?" and values.nbytes == count
+        mesh = SimpleNamespace(data=SimpleNamespace(polygons=Polygons()))
+        exec(textwrap.dedent(assignments[0]), {"mesh": mesh})
+
+
 if __name__ == "__main__":
     test_material_lookup()
     test_redundant_preview_shaders_are_skipped()
     test_minecraft_shader_graph_starts_clean()
     test_shared_image_color_and_alpha_are_isolated()
+    test_flat_shading_buffer_preserves_every_flag()
     print("Pinned MiEx materials preserve shared-image appearance, shader reset, fast lookup and USD imports.")

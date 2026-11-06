@@ -89,6 +89,28 @@ def main():
     assert "seen_columns.get(name, -1) >= column" in patched
     assert "import_usd_preview=False" in patched
     assert "self.mat.node_tree.nodes.clear()" in patched
+    assert 'memoryview(bytearray(len(mesh.data.polygons))).cast("?")' in patched
+    # Only the temporary layout wrapper's unused Python list is removed.
+    # Actual shader node outputs/connections must still be present.
+    raw_tree = ast.parse(raw)
+    setup = next(n for n in raw_tree.body if isinstance(n, ast.ClassDef)
+                 and n.name == "SetupMaterials")
+    layout = next(n for n in setup.body if isinstance(n, ast.FunctionDef)
+                  and n.name == "layoutNodes")
+    outputs = [n for n in ast.walk(layout)
+               if isinstance(n, ast.Attribute) and n.attr == "outputs"]
+    assert len(outputs) == 1 and isinstance(outputs[0].ctx, ast.Store)
+    assert 'self.outputs : list[Node] = []' not in patched
+    assert 'node0.outputs[attr0], node1.inputs[attr1]' in patched
+    patched_tree = ast.parse(patched)
+    wrapper = next(n for n in ast.walk(patched_tree)
+                   if isinstance(n, ast.ClassDef) and n.name == 'Node')
+    scope = {'bpy': types.SimpleNamespace(types=types.SimpleNamespace(Node=object))}
+    exec(compile(ast.Module(body=[wrapper], type_ignores=[]), '<layout-wrapper>', 'exec'), scope)
+    wrapped = scope['Node'](object(), 2, 3)
+    wrapped.creation_index = 4
+    assert (wrapped.column, wrapped.row, wrapped.creation_index) == (2, 3, 4)
+    assert not hasattr(wrapped, '__dict__'), 'Private layout wrappers should not allocate instance dictionaries'
     assert "for node2 in self.nodes:\n                    if node2.node.name == node.name" not in patched
     ast.parse(patched)
 
@@ -107,6 +129,17 @@ def main():
         assert "material node lookup changed" in str(exc)
     else:
         raise AssertionError("Unexpected import patch accepted altered code")
+
+    changed = raw.replace(
+        '[False for _ in range(len(mesh.data.polygons))]',
+        '[True for _ in range(len(mesh.data.polygons))]', 1)
+    assert changed != raw
+    try:
+        patch_without_blender(function, changed)
+    except RuntimeError as exc:
+        assert "flat-shading assignment changed" in str(exc)
+    else:
+        raise AssertionError("Flat-shading patch accepted changed source behavior")
 
     print("Full pinned MiEx importer patch compiled; whitespace-only lines "
           "are normalized and meaningful source mismatches remain guarded.")

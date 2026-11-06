@@ -8,7 +8,33 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 )
+
+func TestResumePipelineHashTracksAllExportAssets(t *testing.T) {
+	files := fstest.MapFS{
+		"assets/Export_World.ps1": {Data: []byte("export")},
+		"assets/Convert_USD_To_Crate.py": {Data: []byte("crate")},
+		"assets/Bedrock_Assets.ps1": {Data: []byte("bedrock")},
+		"assets/Java_Bed_Textures.json": {Data: []byte("beds")},
+		"assets/Java_Conduits.json": {Data: []byte("conduit")},
+		"assets/Java_Copper_Statues.json": {Data: []byte("statues")},
+		"assets/Import_Existing_USD.py": {Data: []byte("display")},
+	}
+	before := resumePipelineHash(files)
+	if len(before) != 64 { t.Fatalf("invalid pipeline hash: %q", before) }
+	for name, file := range files {
+		files[name] = &fstest.MapFile{Data: append(append([]byte(nil), file.Data...), '!')}
+		after := resumePipelineHash(files)
+		files[name] = file
+		if name == "assets/Import_Existing_USD.py" {
+			if after != before { t.Fatal("Blender-only changes invalidated reusable USD") }
+		} else if after == before {
+			t.Fatalf("changed export asset did not invalidate checkpoint: %s", name)
+		}
+	}
+	if resumePipelineHash(fstest.MapFS{}) != "" { t.Fatal("missing export assets produced a reusable digest") }
+}
 
 func TestResumeCheckpointRequiresIdenticalFilesAndSettings(t *testing.T) {
 	base:=t.TempDir()

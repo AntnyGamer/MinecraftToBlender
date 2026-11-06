@@ -56,6 +56,25 @@ func TestSampledPreviewUsesActualChunkColors(t *testing.T) {
 	}
 }
 
+func TestPreviewKeepsRealPixelsWithoutLayerCountMetadata(t *testing.T) {
+	dir:=t.TempDir()
+	logPath:=filepath.Join(dir,"miex.log")
+	output:=filepath.Join(dir,"preview.png")
+	// Both omitted and zero layerCount must still allow a complete BGRA image.
+	payload:=fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"image\":\"%s\"}]}\n",
+		solidChunkImage(64,128,192))
+	if err:=os.WriteFile(logPath,[]byte(payload),0600);err!=nil {t.Fatal(err)}
+	n,err:=renderSampledPreview(logPath,output,8,8,16)
+	if err!=nil || n!=1 {t.Fatalf("real image dropped with absent layerCount: %d, %v",n,err)}
+	file,err:=os.Open(output);if err!=nil {t.Fatal(err)}
+	defer file.Close()
+	img,err:=png.Decode(file);if err!=nil {t.Fatal(err)}
+	r,g,b,_:=img.At(0,0).RGBA()
+	if r>>8!=64 || g>>8!=128 || b>>8!=192 {
+		t.Fatalf("valid chunk image was discarded: %d,%d,%d",r>>8,g>>8,b>>8)
+	}
+}
+
 func TestPreviewOfUnexploredAreaIsClickableGrayMap(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "miex.log")
@@ -244,6 +263,70 @@ func TestHugePreviewUsesAverageColorsRatherThanInventedBlockGeometry(t *testing.
 	r, g, b, _ := img.At(0, 0).RGBA()
 	if r>>8 != 127 || g>>8 != 0 || b>>8 != 127 {
 		t.Fatalf("coarse preview must use mean color, not raw texture pixels: %d,%d,%d", r>>8, g>>8, b>>8)
+	}
+}
+
+func TestHugePreviewRejectsOversizedOrInvalidBGRAWithoutPublishing(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "miex.log")
+	output := filepath.Join(dir, "preview.png")
+	for _, encoded := range []string{
+		base64.StdEncoding.EncodeToString(make([]byte, 1025)),
+		base64.StdEncoding.EncodeToString(make([]byte, 1028)),
+		"not valid base64",
+	} {
+		message := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-64,\"chunkZ\":-64,\"image\":\"%s\"}]}\n", encoded)
+		if err := os.WriteFile(logPath, []byte(message), 0600); err != nil { t.Fatal(err) }
+		if _, err := renderSampledPreview(logPath, output, 0, 0, 2048); err == nil {
+			t.Fatal("invalid coarse BGRA image was accepted")
+		}
+		if _, err := os.Stat(output); !os.IsNotExist(err) {
+			t.Fatalf("invalid coarse BGRA image produced an output PNG: %v", err)
+		}
+	}
+}
+
+func TestHugePreviewKeepsAlphaWeightedColorsAndRepeatedChunks(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "miex.log")
+	output := filepath.Join(dir, "preview.png")
+	// The 128x128-chunk source exceeds the 9,216-chunk exact-pixel limit.
+	// Coarse sampling must retain the same alpha-weighted averages as before.
+	red := make([]byte, 16*16*4)
+	green := make([]byte, 16*16*4)
+	for i := 0; i < len(red); i += 4 {
+		if i < len(red)/2 {
+			red[i+2], red[i+3] = 200, 255
+		} else {
+			red[i], red[i+3] = 240, 64
+		}
+		green[i+1], green[i+3] = 180, 255
+	}
+	// A later response for the same chunk replaces its earlier visible image.
+	first := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-64,\"chunkZ\":-64,\"image\":\"%s\"},{\"chunkX\":-63,\"chunkZ\":-64,\"image\":\"%s\"}]}\n",
+		base64.StdEncoding.EncodeToString(red), base64.StdEncoding.EncodeToString(red))
+	second := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-63,\"chunkZ\":-64,\"image\":\"%s\"}]}\n",
+		base64.StdEncoding.EncodeToString(green))
+	if err := os.WriteFile(logPath, []byte(first+second), 0600); err != nil { t.Fatal(err) }
+	count, err := renderSampledPreview(logPath, output, 0, 0, 2048)
+	if err != nil || count != 2 {
+		t.Fatalf("expected two unique valid coarse samples: %d, %v", count, err)
+	}
+	f, err := os.Open(output)
+	if err != nil { t.Fatal(err) }
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil { t.Fatal(err) }
+	for _, sample := range []struct{ x,y int; r,g,b uint32 } {
+		{0,0,159,0,48},
+		{2,0,0,180,0},
+		{6,0,218,218,218},
+	} {
+		r,g,b,_ := img.At(sample.x,sample.y).RGBA()
+		if r>>8 != sample.r || g>>8 != sample.g || b>>8 != sample.b {
+			t.Fatalf("coarse pixel (%d,%d) got %d,%d,%d expected %d,%d,%d",
+				sample.x,sample.y,r>>8,g>>8,b>>8,sample.r,sample.g,sample.b)
+		}
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -37,23 +38,30 @@ type resumeCheckpoint struct {
 func makeResumeIdentity(world string,edition worldEdition,name string,options exportOptions,size,x,z,minY,maxY int,worldPacks bool) resumeIdentity {
 	full,err:=filepath.Abs(world)
 	if err!=nil {full=world}
-	hasher := sha256.New()
-	entries, _ := payload.ReadDir("assets")
-	for _, entry := range entries {
-		if entry.IsDir() { continue }
-		// Blender display/import changes can reuse the same verified USD.
-		// Only export/model/texture assets invalidate expensive Minecraft work.
-		if entry.Name() != "Export_World.ps1" && entry.Name() != "Convert_USD_To_Crate.py" && !strings.HasPrefix(entry.Name(), "Bedrock_") { continue }
-		data, _ := payload.ReadFile("assets/" + entry.Name())
-		_, _ = fmt.Fprintf(hasher, "%s\x00%d\x00", entry.Name(), len(data))
-		_, _ = hasher.Write(data)
-	}
 	return resumeIdentity{
 		WorldPath:filepath.Clean(full),Edition:string(edition),ExportName:name,
 		Dimension:options.Dimension,Size:size,X:x,Z:z,MinY:minY,MaxY:maxY,
 		WorldPacks:worldPacks,Entities:options.EntityList(),AppVersion:appVersion(),
-		PipelineHash:hex.EncodeToString(hasher.Sum(nil)),
+		PipelineHash:resumePipelineHash(payload),
 	}
+}
+
+func resumePipelineHash(assets fs.FS) string {
+	hasher := sha256.New()
+	entries, err := fs.ReadDir(assets, "assets")
+	if err != nil { return "" }
+	for _, entry := range entries {
+		if entry.IsDir() { continue }
+		// Blender display/import changes can reuse the same verified USD.
+		// Only export/model/texture assets invalidate expensive Minecraft work.
+		if entry.Name() != "Export_World.ps1" && entry.Name() != "Convert_USD_To_Crate.py" &&
+			!strings.HasPrefix(entry.Name(), "Bedrock_") && !strings.HasPrefix(entry.Name(), "Java_") { continue }
+		data, err := fs.ReadFile(assets, "assets/" + entry.Name())
+		if err != nil { return "" }
+		_, _ = fmt.Fprintf(hasher, "%s\x00%d\x00", entry.Name(), len(data))
+		_, _ = hasher.Write(data)
+	}
+	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 // Calculate an exact digest before reusing work. File sizes or timestamps
@@ -128,6 +136,7 @@ func saveResumeCheckpoint(ctx context.Context,path string,identity resumeIdentit
 }
 
 func verifiedResumeCheckpoint(ctx context.Context,path string,identity resumeIdentity,worldPath,usdPath string) bool{
+	if identity.PipelineHash == "" { return false }
 	data,err:=os.ReadFile(path);if err!=nil{return false}
 	var saved resumeCheckpoint
 	if json.Unmarshal(data,&saved)!=nil||saved.Identity!=identity||saved.WorldHash==""||saved.ExportHash==""{return false}

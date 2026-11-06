@@ -92,6 +92,14 @@ def load_patched_importer(src):
         "mtl_name_collision_mode='REFERENCE_EXISTING',import_usd_preview=False,import_proxy=",
         1,
     )
+    # Keep the same per-polygon flat-shading flags without constructing a
+    # Python pointer list for every imported face. A contiguous native bool
+    # view uses one byte per flag and remains a normal foreach_set sequence.
+    original = '                mesh.data.polygons.foreach_set("use_smooth", [False for _ in range(len(mesh.data.polygons))])'
+    faster = '                mesh.data.polygons.foreach_set("use_smooth", memoryview(bytearray(len(mesh.data.polygons))).cast("?"))'
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx flat-shading assignment changed; refusing unverified buffer optimization.')
+    contents = contents.replace(original, faster, 1)
     log('PERF: Skipped redundant USD PreviewSurface shader conversion; MiEx Minecraft shaders still imported.')
     original = '                        node.image = bpy.data.images.load(imagePath)'
     safe = '''                        try:
@@ -156,6 +164,25 @@ def load_patched_importer(src):
         raise Exception("Node not found: " + name)'''
     if contents.count(original) != 1:
         raise RuntimeError('Pinned MiEx material node lookup changed; cannot apply verified optimization.')
+    contents = contents.replace(original, faster, 1)
+    # NodeGrid's temporary Node wrapper never reads its outputs list. Keep
+    # the real Blender node sockets intact and avoid an empty Python list
+    # allocation for every shader-layout wrapper.
+    original = '                self.outputs : list[Node] = []'
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx layout wrapper changed; refusing unverified allocation cleanup.')
+    contents = contents.replace(original, '', 1)
+    # These private, temporary wrappers have exactly four fields. Slots avoid
+    # a per-node instance dictionary; real shader nodes are never changed.
+    original = '''        class Node:
+
+            def __init__(self, node: bpy.types.Node, column:int, row:int) -> None:'''
+    faster = '''        class Node:
+            __slots__ = ('node', 'column', 'row', 'creation_index')
+
+            def __init__(self, node: bpy.types.Node, column:int, row:int) -> None:'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx layout wrapper fields changed; refusing unverified storage optimization.')
     contents = contents.replace(original, faster, 1)
     # Upstream's material node layout repeatedly scans the entire NodeGrid to
     # find an already-placed node, which becomes quadratic for large graphs.
@@ -459,42 +486,21 @@ def apply_minecraft_texture_preview():
     """Opt-in Blender display preset; preserve all shader and mesh datablocks.
 
     Standard leaves Minecraft's existing sRGB texture palette closer to its
-    ungraded colors than the default film-style AgX tone mapping. Solid-mode
-    TEXTURE shows the active image texture without requiring an EEVEE material
-    preview, which can be expensive for very large exported worlds. This is an
-    editor/display preference, not a replacement for the full shader network.
+    ungraded colors than the default film-style AgX tone mapping. Material
+    Preview evaluates MiEx's texture, biome tint and alpha shader connections.
+    This is an editor/display preference, not a replacement shader network.
     """
     bpy.context.scene.view_settings.view_transform = 'Standard'
-    # Solid texture shading needs an active image node. Only assign one
-    # when a material has exactly one loaded texture and the existing active
-    # node is not already an image. Layered/animated materials are ambiguous.
-    activated = 0
-    for material in bpy.data.materials:
-        if not material.use_nodes:
-            continue
-        nodes = material.node_tree.nodes
-        active = nodes.active
-        if active is not None and active.type == 'TEX_IMAGE':
-            continue
-        images = [node for node in nodes
-                  if node.type == 'TEX_IMAGE' and node.image is not None]
-        if len(images) == 1:
-            nodes.active = images[0]
-            activated += 1
     changed = 0
     for screen in bpy.data.screens:
         for area in screen.areas:
             for space in area.spaces:
                 if space.type == 'VIEW_3D':
-                    # This explicit option must also switch a saved Material
-                    # Preview/Rendered workspace into the requested fast view.
-                    space.shading.type = 'SOLID'
-                    space.shading.color_type = 'TEXTURE'
+                    space.shading.type = 'MATERIAL'
                     changed += 1
     log('MINECRAFT TEXTURE PREVIEW: Standard color transform,',
-        changed, 'solid 3D views display active textures,',
-        activated, 'single-texture materials made active.',
-        'Full biome tint, alpha and lighting still require Material Preview.')
+        changed, '3D views use Material Preview with textures, tints and alpha,',
+        'Large worlds may take time to compile material shaders.')
     return changed
 
 
@@ -564,11 +570,21 @@ def frame_actual_scene(evaluate_instances=True):
                             instance_corners[key] = corners
                 else:
                     corners = (Vector(p) for p in ob.bound_box)
+                # The transform is constant across these eight corners.
+                # Reading RNA matrix properties repeatedly creates wrappers.
+                matrix_world = instance.matrix_world
                 for p in corners:
-                    world_p = instance.matrix_world @ p
+                    world_p = matrix_world @ p
+                    # Read each coordinate once. Strict comparisons preserve
+                    # min/max's existing behavior for ties and NaN values.
                     for axis in range(3):
-                        bounds_min[axis] = min(bounds_min[axis], world_p[axis])
-                        bounds_max[axis] = max(bounds_max[axis], world_p[axis])
+                        value = world_p[axis]
+                        if value < bounds_min[axis]:
+                            bounds_min[axis] = value
+                        if value > bounds_max[axis]:
+                            bounds_max[axis] = value
+                    del value
+                del matrix_world
                 encountered += 1
         except Exception as exc:
             log('WARNING: Evaluated Geometry Nodes bounds were incomplete:', repr(exc))
@@ -578,11 +594,17 @@ def frame_actual_scene(evaluate_instances=True):
         for ob in bpy.context.scene.objects:
             if ob.type != 'MESH' or not ob.visible_get():
                 continue
+            matrix_world = ob.matrix_world
             for p in ob.bound_box:
-                world_p = ob.matrix_world @ Vector(p)
+                world_p = matrix_world @ Vector(p)
                 for axis in range(3):
-                    bounds_min[axis] = min(bounds_min[axis], world_p[axis])
-                    bounds_max[axis] = max(bounds_max[axis], world_p[axis])
+                    value = world_p[axis]
+                    if value < bounds_min[axis]:
+                        bounds_min[axis] = value
+                    if value > bounds_max[axis]:
+                        bounds_max[axis] = value
+                del value
+            del matrix_world
             encountered += 1
     if not encountered:
         log('WARNING: Unable to calculate real visible mesh bounds. Press Home to frame the scene in Blender.')
@@ -816,18 +838,23 @@ def compact_redundant_usd_normals():
         attr.data.foreach_get('vector', source)
         mesh.corner_normals.foreach_get('vector', native)
         if source != native:
+            del source, native
             continue
         mesh.attributes.remove(attr)
-        after = array('f', [0.0]) * count
-        mesh.corner_normals.foreach_get('vector', after)
-        if native != after:
+        # source equals the native normals above, so retain it for comparison
+        # and rollback, then reuse the other buffer for the post-removal read.
+        # This avoids a third full corner-normal array on large meshes.
+        mesh.corner_normals.foreach_get('vector', native)
+        if source != native:
             # A future Blender storage change must not silently change shading.
             restored = mesh.attributes.new(name='normals', type='FLOAT_VECTOR', domain='CORNER')
             restored.data.foreach_set('vector', source)
             log('MESH MEMORY: restored normals attribute after a native-normal mismatch.')
+            del source, native
             continue
         removed += 1
         released += count * source.itemsize
+        del source, native
     log('MESH MEMORY:', removed, 'unused duplicate normal arrays removed;',
         released, 'attribute bytes saved; native split normals, faces, UVs and colors retained.')
     return released
@@ -899,11 +926,16 @@ def deduplicate_exact_material_slots():
         if ob.type != 'MESH' or ob.data.users != 1:
             continue
         mesh = ob.data
-        if mesh.as_pointer() in visited:
+        # Most MiEx terrain meshes have one material. Avoid copying their
+        # material collections when there is nothing to deduplicate.
+        if len(mesh.materials) < 2:
             continue
-        visited.add(mesh.as_pointer())
+        key = mesh.as_pointer()
+        if key in visited:
+            continue
+        visited.add(key)
         slots = list(mesh.materials)
-        if len(slots) < 2 or any(mat is None for mat in slots):
+        if any(mat is None for mat in slots):
             continue
         unique = []
         positions = {}
@@ -947,9 +979,10 @@ def clear_bulk_import_selection(min_meshes=128):
     select everything; drawing and testing thousands of orange outlines can
     burden the viewport. Small scenes retain their initial selection.
     """
-    selected = tuple(bpy.context.selected_objects)
+    # Blender already returns a selection snapshot. Finish counting before
+    # changing selection, without copying that list into a second container.
     mesh_count = sum(
-        ob.type == 'MESH' and ob.visible_get() for ob in selected
+        ob.type == 'MESH' and ob.visible_get() for ob in bpy.context.selected_objects
     )
     if mesh_count < min_meshes:
         return 0

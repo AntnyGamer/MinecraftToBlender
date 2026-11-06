@@ -1,0 +1,408 @@
+{
+    "blocks": [
+        "minecraft:conduit"
+    ],
+    "isLocationDependent": true,
+    "doubleSided": true,
+    "defaultTexture": "minecraft:entity/conduit/base",
+    "handler": [
+        {
+            "variables": [
+                "active = thisBlock.state.waterlogged == true"
+            ]
+        },
+        {
+            "condition": "active",
+            "variables": [
+                "waterBlock = Block.getBlockRelative(-1, -1, -1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(-1, -1, 0)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(-1, -1, 1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(-1, 0, -1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(-1, 0, 0)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(-1, 0, 1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(-1, 1, -1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(-1, 1, 0)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(-1, 1, 1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(0, -1, -1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(0, -1, 0)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(0, -1, 1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(0, 0, -1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(0, 0, 1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(0, 1, -1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(0, 1, 0)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(0, 1, 1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(1, -1, -1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(1, -1, 0)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(1, -1, 1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(1, 0, -1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(1, 0, 0)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(1, 0, 1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(1, 1, -1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(1, 1, 0)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))",
+                "waterBlock = Block.getBlockRelative(1, 1, 1)",
+                "active = active && ((waterBlock.name == 'minecraft:water') || (waterBlock.name == 'minecraft:bubble_column') || (waterBlock.state.waterlogged == true))"
+            ]
+        },
+        {
+            "condition": "active",
+            "variables": [
+                "frameCount = 0",
+                "frameBlock = Block.getBlockRelative(-2, -2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-2, -1, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-2, 0, -2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-2, 0, -1).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-2, 0, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-2, 0, 1).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-2, 0, 2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-2, 1, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-2, 2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-1, -2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-1, 0, -2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-1, 0, 2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(-1, 2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, -2, -2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, -2, -1).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, -2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, -2, 1).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, -2, 2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, -1, -2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, -1, 2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, 0, -2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, 0, 2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, 1, -2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, 1, 2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, 2, -2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, 2, -1).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, 2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, 2, 1).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(0, 2, 2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(1, -2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(1, 0, -2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(1, 0, 2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(1, 2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(2, -2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(2, -1, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(2, 0, -2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(2, 0, -1).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(2, 0, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(2, 0, 1).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(2, 0, 2).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(2, 1, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "frameBlock = Block.getBlockRelative(2, 2, 0).name",
+                "frameCount = frameCount + (((frameBlock == 'minecraft:prismarine') || (frameBlock == 'minecraft:prismarine_bricks') || (frameBlock == 'minecraft:dark_prismarine') || (frameBlock == 'minecraft:sea_lantern')) ? 1 : 0)",
+                "active = frameCount >= 16"
+            ]
+        },
+        {
+            "condition": "!active",
+            "textures": {
+                "texture": "'minecraft:entity/conduit/base'"
+            },
+            "elements": [
+                {
+                    "from": [
+                        5,
+                        5,
+                        5
+                    ],
+                    "to": [
+                        11,
+                        11,
+                        11
+                    ],
+                    "faces": {
+                        "up": {
+                            "uv": [
+                                3.0,
+                                0.0,
+                                6.0,
+                                6.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "down": {
+                            "uv": [
+                                6.0,
+                                6.0,
+                                9.0,
+                                0.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "west": {
+                            "uv": [
+                                0.0,
+                                6.0,
+                                3.0,
+                                12.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "south": {
+                            "uv": [
+                                3.0,
+                                6.0,
+                                6.0,
+                                12.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "east": {
+                            "uv": [
+                                6.0,
+                                6.0,
+                                9.0,
+                                12.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "north": {
+                            "uv": [
+                                9.0,
+                                6.0,
+                                12.0,
+                                12.0
+                            ],
+                            "texture": "'#texture'"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "condition": "active",
+            "textures": {
+                "texture": "'minecraft:entity/conduit/cage'",
+                "wind": "'minecraft:entity/conduit/wind'",
+                "eye": "frameCount >= 42 ? 'minecraft:entity/conduit/open_eye' : 'minecraft:entity/conduit/closed_eye'"
+            },
+            "elements": [
+                {
+                    "from": [
+                        4,
+                        4,
+                        4
+                    ],
+                    "to": [
+                        12,
+                        12,
+                        12
+                    ],
+                    "faces": {
+                        "up": {
+                            "uv": [
+                                4.0,
+                                0.0,
+                                8.0,
+                                8.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "down": {
+                            "uv": [
+                                8.0,
+                                8.0,
+                                12.0,
+                                0.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "west": {
+                            "uv": [
+                                0.0,
+                                8.0,
+                                4.0,
+                                16.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "south": {
+                            "uv": [
+                                4.0,
+                                8.0,
+                                8.0,
+                                16.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "east": {
+                            "uv": [
+                                8.0,
+                                8.0,
+                                12.0,
+                                16.0
+                            ],
+                            "texture": "'#texture'"
+                        },
+                        "north": {
+                            "uv": [
+                                12.0,
+                                8.0,
+                                16.0,
+                                16.0
+                            ],
+                            "texture": "'#texture'"
+                        }
+                    }
+                },
+                {
+                    "from": [
+                        0,
+                        0,
+                        0
+                    ],
+                    "to": [
+                        16,
+                        16,
+                        16
+                    ],
+                    "faces": {
+                        "up": {
+                            "uv": [
+                                4.0,
+                                0.0,
+                                8.0,
+                                8.0
+                            ],
+                            "texture": "'#wind'"
+                        },
+                        "down": {
+                            "uv": [
+                                8.0,
+                                8.0,
+                                12.0,
+                                0.0
+                            ],
+                            "texture": "'#wind'"
+                        },
+                        "west": {
+                            "uv": [
+                                0.0,
+                                8.0,
+                                4.0,
+                                16.0
+                            ],
+                            "texture": "'#wind'"
+                        },
+                        "south": {
+                            "uv": [
+                                4.0,
+                                8.0,
+                                8.0,
+                                16.0
+                            ],
+                            "texture": "'#wind'"
+                        },
+                        "east": {
+                            "uv": [
+                                8.0,
+                                8.0,
+                                12.0,
+                                16.0
+                            ],
+                            "texture": "'#wind'"
+                        },
+                        "north": {
+                            "uv": [
+                                12.0,
+                                8.0,
+                                16.0,
+                                16.0
+                            ],
+                            "texture": "'#wind'"
+                        }
+                    }
+                },
+                {
+                    "from": [
+                        4,
+                        4,
+                        8.01
+                    ],
+                    "to": [
+                        12,
+                        12,
+                        8.01
+                    ],
+                    "faces": {
+                        "south": {
+                            "uv": [
+                                0,
+                                0,
+                                8,
+                                8
+                            ],
+                            "texture": "'#eye'"
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}

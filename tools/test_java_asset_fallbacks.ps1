@@ -47,6 +47,30 @@ try {
     Ensure-LegacyChainModel $root
     Assert-VisualTest ([IO.File]::ReadAllText($chain) -eq $customChain) 'Custom alias was overwritten'
 
+    # A cached portal must be a decodable PNG, not merely an existing path.
+    # Custom portal images remain intact; invalid files and directories are
+    # reported without overwriting anything or unexpectedly using the network.
+    Add-Type -AssemblyName System.Drawing
+    $portal = Join-Path (Get-MiExExporterPackRoot $root) 'assets/minecraft/textures/block/end_portal.png'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $portal) | Out-Null
+    $portalImage = [Drawing.Bitmap]::new(16,16)
+    try { $portalImage.Save($portal,[Drawing.Imaging.ImageFormat]::Png) } finally { $portalImage.Dispose() }
+    $portalHash = (Get-FileHash -LiteralPath $portal -Algorithm SHA256).Hash
+    Ensure-BedrockPortalTexture $root java
+    Assert-VisualTest ((Get-FileHash -LiteralPath $portal -Algorithm SHA256).Hash -eq $portalHash) 'Valid custom portal PNG changed'
+    [IO.File]::WriteAllText($portal,'truncated portal fixture')
+    $badPortalHash = (Get-FileHash -LiteralPath $portal -Algorithm SHA256).Hash
+    $portalRejected = $false
+    try { Ensure-BedrockPortalTexture $root java } catch { $portalRejected = $_.Exception.Message -like '*End portal texture*valid PNG*' }
+    Assert-VisualTest $portalRejected 'Corrupt existing portal image was accepted or downloaded over'
+    Assert-VisualTest ((Get-FileHash -LiteralPath $portal -Algorithm SHA256).Hash -eq $badPortalHash) 'Corrupt portal file was modified'
+    Remove-Item -LiteralPath $portal -Force
+    New-Item -ItemType Directory -Path $portal | Out-Null
+    $portalRejected = $false
+    try { Ensure-BedrockPortalTexture $root java } catch { $portalRejected = $_.Exception.Message -like '*End portal texture*valid PNG*' }
+    Assert-VisualTest ($portalRejected -and (Test-Path -LiteralPath $portal -PathType Container)) 'Portal directory was overwritten or accepted'
+    Remove-Item -LiteralPath $portal -Recurse -Force
+
     # A synthetic, hash-verified client exercises extraction without game art
     # or network access. All sixteen entries are real 64x64 PNG files.
     Add-Type -AssemblyName System.Drawing

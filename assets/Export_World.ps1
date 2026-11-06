@@ -143,7 +143,11 @@ function Get-PreviewChunkCoordinates([int]$firstX,[int]$lastX,[int]$firstZ,[int]
     # hashtables would repeatedly copy the entire array.
     $locations = New-Object 'System.Collections.Generic.List[object]'
     if(([long]$spanX * [long]$spanZ) -le 9216) {
-        for($z = $firstZ; $z -le $lastZ; $z++) {
+        # Let the first MiEx getChunk batch warm the world reader using
+        # interior terrain. The northern edge is requested last, not omitted.
+        # This changes only ordering, not the sampled positions or workload.
+        for($pass = 1; $pass -le $spanZ; $pass++) {
+            $z = $firstZ + ($pass % $spanZ)
             for($x = $firstX; $x -le $lastX; $x++) {
                 $locations.Add(@{chunkX=$x;chunkZ=$z})
             }
@@ -151,7 +155,8 @@ function Get-PreviewChunkCoordinates([int]$firstX,[int]$lastX,[int]$firstZ,[int]
     } else {
         $cols = [int][math]::Min(96, $spanX)
         $rows = [int][math]::Min(96, $spanZ)
-        for($row = 0; $row -lt $rows; $row++) {
+        for($pass = 1; $pass -le $rows; $pass++) {
+            $row = $pass % $rows
             $z = if($rows -eq 1) { $firstZ } else {
                 [int][math]::Floor($firstZ + ($lastZ - $firstZ) * ($row / [double]($rows - 1)))
             }

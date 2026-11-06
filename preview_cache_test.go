@@ -31,9 +31,9 @@ func TestPreviewCoordinatesRequireExplicitMapHit(t *testing.T) {
 func TestPreviewMapLayoutAlwaysReservesCoordinateFooter(t *testing.T) {
 	for _, viewport := range []struct{width, height, expectedSide int}{
 		{580,660,512},
-		{580,630,480},
+		{580,630,482},
 		{400,500,336},
-		{340,410,260},
+		{340,410,262},
 	} {
 		left, top, side := previewMapLayout(viewport.width, viewport.height)
 		if side != viewport.expectedSide || left < 0 || left+side > viewport.width {

@@ -74,10 +74,13 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 		sawChunkResponse = true
 		batches++
 		for _, ch := range response.Chunks {
-			if ch.LayerCount <= 0 {
-				continue // Missing/empty terrain is a legitimate gray tile.
-			}
+			// The image bytes are the source of truth. MiEx may omit layer
+			// metadata even when it returned a valid colored preview tile.
+			// Do not discard those real pixels as missing terrain.
 			if ch.Image == "" {
+				if ch.LayerCount <= 0 {
+					continue // An actually absent chunk stays gray.
+				}
 				return 0, fmt.Errorf("MiEx omitted image data for loaded chunk (%d,%d)", ch.X, ch.Z)
 			}
 			pixels, err := base64.StdEncoding.DecodeString(ch.Image)

@@ -28,6 +28,41 @@ func TestPreviewCoordinatesRequireExplicitMapHit(t *testing.T) {
 	}
 }
 
+func TestPreviewMapLayoutAlwaysReservesCoordinateFooter(t *testing.T) {
+	for _, viewport := range []struct{width, height, expectedSide int}{
+		{580,660,512},
+		{580,630,480},
+		{400,500,336},
+		{340,410,260},
+	} {
+		left, top, side := previewMapLayout(viewport.width, viewport.height)
+		if side != viewport.expectedSide || left < 0 || left+side > viewport.width {
+			t.Fatalf("map layout %dx%d produced (%d,%d,%d)", viewport.width, viewport.height, left, top, side)
+		}
+		if top+side+66 > viewport.height {
+			t.Fatalf("coordinate footer clipped below %dx%d client at Y=%d",
+				viewport.width, viewport.height, top+side+66)
+		}
+	}
+}
+
+func TestPreviewCoordinatesMatchScaledPreviewMap(t *testing.T) {
+	left,top,side:=previewMapLayout(580,630)
+	for _, sample:=range []struct{x,y,wantX,wantZ int; hit bool}{
+		{left,top,-508,-982,true},
+		{left+side/2,top+side/2,4,-470,true},
+		{left+side-1,top+side-1,513,39,true},
+		{left-1,top,0,0,false},
+		{left,top+side,0,0,false},
+	} {
+		x,z,ok:=previewCoordinatesInMap(-508,-982,1024,sample.x,sample.y,left,top,side)
+		if ok!=sample.hit || (ok&&(x!=sample.wantX||z!=sample.wantZ)) {
+			t.Fatalf("scaled preview hit (%d,%d) -> (%d,%d,%t), want (%d,%d,%t)",
+				sample.x,sample.y,x,z,ok,sample.wantX,sample.wantZ,sample.hit)
+		}
+	}
+}
+
 func TestPreviewCacheKeyIncludesEveryPreviewChoice(t *testing.T) {
 	base := previewCacheKey("C:/world","bedrock","overworld",false,1024,0,0,"1.1.2","unchanged")
 	for _, changed := range []string{

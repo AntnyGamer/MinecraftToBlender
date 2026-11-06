@@ -266,6 +266,46 @@ func TestHugePreviewUsesAverageColorsRatherThanInventedBlockGeometry(t *testing.
 	}
 }
 
+func TestHugePreviewKeepsAlphaWeightedColorsAndRepeatedChunks(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "miex.log")
+	output := filepath.Join(dir, "preview.png")
+	// The 128x128-chunk source exceeds the 9,216-chunk exact-pixel limit.
+	// Coarse sampling must retain the same alpha-weighted averages as before.
+	red := make([]byte, 16*16*4)
+	green := make([]byte, 16*16*4)
+	for i := 0; i < len(red); i += 4 {
+		red[i+2], red[i+3] = 220, 255
+		green[i+1], green[i+3] = 180, 255
+	}
+	// A later response for the same chunk replaces its earlier visible image.
+	first := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-64,\"chunkZ\":-64,\"image\":\"%s\"},{\"chunkX\":-63,\"chunkZ\":-64,\"image\":\"%s\"}]}\\n",
+		base64.StdEncoding.EncodeToString(red), base64.StdEncoding.EncodeToString(red))
+	second := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":-63,\"chunkZ\":-64,\"image\":\"%s\"}]}\\n",
+		base64.StdEncoding.EncodeToString(green))
+	if err := os.WriteFile(logPath, []byte(first+second), 0600); err != nil { t.Fatal(err) }
+	count, err := renderSampledPreview(logPath, output, 0, 0, 2048)
+	if err != nil || count != 2 {
+		t.Fatalf("expected two unique valid coarse samples: %d, %v", count, err)
+	}
+	f, err := os.Open(output)
+	if err != nil { t.Fatal(err) }
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil { t.Fatal(err) }
+	for _, sample := range []struct{ x,y int; r,g,b uint32 } {
+		{0,0,220,0,0},
+		{2,0,0,180,0},
+		{4,0,218,218,218},
+	} {
+		r,g,b,_ := img.At(sample.x,sample.y).RGBA()
+		if r>>8 != sample.r || g>>8 != sample.g || b>>8 != sample.b {
+			t.Fatalf("coarse pixel (%d,%d) got %d,%d,%d expected %d,%d,%d",
+				sample.x,sample.y,r>>8,g>>8,b>>8,sample.r,sample.g,sample.b)
+		}
+	}
+}
+
 func TestPreviewCombinesSeparateMiExChunkBatches(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "miex.log")

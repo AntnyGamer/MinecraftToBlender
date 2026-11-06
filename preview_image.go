@@ -140,13 +140,17 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 		return 0, fmt.Errorf("MiEx returned only %d of %d requested preview batches; refusing a partial map", batches, expectedBatches)
 	}
 	out := image.NewNRGBA(image.Rect(0, 0, 256, 256))
+	// Fill this fixed, in-bounds pixel buffer directly. It produces the exact
+	// same checkerboard while avoiding 65,536 image.SetNRGBA method calls.
 	for y := 0; y < 256; y++ {
+		row := out.Pix[y*out.Stride : y*out.Stride+256*4]
 		for x := 0; x < 256; x++ {
 			col := uint8(232)
 			if ((x/16)+(y/16))%2 == 0 {
 				col = 218
 			}
-			out.SetNRGBA(x, y, imgcolor.NRGBA{R: col, G: col, B: col, A: 255})
+			pixel := row[x*4 : x*4+4]
+			pixel[0], pixel[1], pixel[2], pixel[3] = col, col, col, 255
 		}
 	}
 	// Within the 9,216-chunk limit every source chunk is queried. Draw

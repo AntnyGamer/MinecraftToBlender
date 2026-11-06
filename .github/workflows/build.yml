@@ -327,8 +327,8 @@ jobs:
           if($exact.Count -ne 5184) { throw "A 1152-block region did not request full chunk coverage: $($exact.Count)" }
           $large = @(Get-PreviewChunkCoordinates -64 63 -64 63)
           if($large.Count -ne 9216) { throw "Large preview did not honor its sample cap: $($large.Count)" }
-          if($large[0].chunkX -ne -64 -or $large[0].chunkZ -ne -64 -or
-             $large[-1].chunkX -ne 63 -or $large[-1].chunkZ -ne 63) {
+          if((@($large | Where-Object { $_.chunkX -eq -64 -and $_.chunkZ -eq -64 })).Count -ne 1 -or
+             (@($large | Where-Object { $_.chunkX -eq 63 -and $_.chunkZ -eq 63 })).Count -ne 1) {
             throw 'Large sample grid did not include its full geographic bounds'
           }
           $generatedStage = Join-Path $env:RUNNER_TEMP 'generated_materials'

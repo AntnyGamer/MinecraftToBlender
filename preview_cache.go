@@ -140,9 +140,28 @@ func trimPreviewCache(dir string) {
 	}
 }
 
-func previewCoordinates(minX, minZ, size, mouseX, mouseY int) (int, int, bool) {
-	if size <= 0 || mouseX < 32 || mouseX >= 544 || mouseY < 70 || mouseY >= 582 {
+// Reserve the title and two footer lines before sizing the square map.
+// The window's outer size includes the Windows caption and borders, so using
+// a fixed 512px image can otherwise push the coordinates below the client area.
+func previewMapLayout(clientW, clientH int) (left, top, side int) {
+	const margin, header, footer = 32, 70, 80
+	side = min(512, clientW-2*margin, clientH-header-footer)
+	if side <= 0 {
+		return 0, header, 0
+	}
+	return (clientW-side)/2, header, side
+}
+
+func previewCoordinatesInMap(minX, minZ, size, mouseX, mouseY, left, top, side int) (int, int, bool) {
+	if size <= 0 || side <= 0 || mouseX < left || mouseX >= left+side ||
+		mouseY < top || mouseY >= top+side {
 		return 0, 0, false
 	}
-	return minX + (mouseX-32)*size/512, minZ + (mouseY-70)*size/512, true
+	return minX + (mouseX-left)*size/side, minZ + (mouseY-top)*size/side, true
+}
+
+// Preserve the original 512px coordinate mapping for callers using that
+// fixed-size viewport; the Windows preview uses previewCoordinatesInMap.
+func previewCoordinates(minX, minZ, size, mouseX, mouseY int) (int, int, bool) {
+	return previewCoordinatesInMap(minX, minZ, size, mouseX, mouseY, 32, 70, 512)
 }

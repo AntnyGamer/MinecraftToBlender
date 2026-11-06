@@ -13,19 +13,44 @@ function Copy-VerifiedLegacyTexture([string]$miexDir,[string]$target,[string]$re
     }
     return $false
 }
+function Test-UsablePortalTexture([string]$path) {
+    if(-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+    try {
+        Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+        $image = [System.Drawing.Image]::FromFile($path)
+        try {
+            return ($image.RawFormat.Guid -eq [System.Drawing.Imaging.ImageFormat]::Png.Guid -and
+                    $image.Width -gt 0 -and $image.Height -gt 0)
+        } finally { $image.Dispose() }
+    } catch { return $false }
+}
 function Ensure-BedrockPortalTexture([string]$miexDir,[string]$edition) {
-    $target = Join-Path (Get-MiExExporterPackRoot $miexDir) 'assets/minecraft/textures/block/end_portal.png'
+    $relative = 'assets/minecraft/textures/block/end_portal.png'
+    $target = Join-Path (Get-MiExExporterPackRoot $miexDir) $relative
     $hash = '7b4dbaf59ac9a115c7b6af2a1cfdbd110470255a'
-    # Both editions' pinned models request this otherwise absent texture.
-    # The surface is a static approximation of Minecraft's portal shader.
-    if(Test-Path -LiteralPath $target -PathType Leaf) { return }
+    # Both editions' pinned models use this static portal approximation.
+    # Keep valid custom PNGs, but never treat a corrupt cache entry as usable.
+    if(Test-Path -LiteralPath $target) {
+        if(-not (Test-UsablePortalTexture $target)) {
+            throw ('Existing End portal texture is not a valid PNG: ' + $target +
+                   '. The file was preserved; repair it and retry.')
+        }
+        return
+    }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
-    if(Copy-VerifiedLegacyTexture $miexDir $target 'assets/minecraft/textures/block/end_portal.png' $hash) { return }
+    if(Copy-VerifiedLegacyTexture $miexDir $target $relative $hash) {
+        if(-not (Test-UsablePortalTexture $target)) {
+            throw 'Hash-matched legacy End portal texture could not be decoded as PNG.'
+        }
+        return
+    }
     $temp = $target + '.' + [guid]::NewGuid().ToString('N') + '.partial'
     try {
         $url = 'https://raw.githubusercontent.com/Mojang/bedrock-samples/15701fa9c13923f12662984c32c124327e40e3d3/resource_pack/textures/blocks/end_portal.png'
         Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $temp -TimeoutSec 15 -ErrorAction Stop
-        if(-not (Test-GitBlobSha1 $temp $hash)) { throw 'Official End portal texture hash mismatch.' }
+        if(-not (Test-GitBlobSha1 $temp $hash) -or -not (Test-UsablePortalTexture $temp)) {
+            throw 'Official End portal texture failed hash or PNG validation.'
+        }
         Move-Item -LiteralPath $temp -Destination $target -ErrorAction Stop
     } finally {
         if(Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }

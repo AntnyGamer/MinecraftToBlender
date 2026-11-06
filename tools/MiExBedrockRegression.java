@@ -10,6 +10,7 @@ import nl.bramstout.mcworldexporter.resourcepack.java.ResourcePackJavaEdition;
 import nl.bramstout.mcworldexporter.model.Model;
 import nl.bramstout.mcworldexporter.model.builtins.BuiltInModel;
 import nl.bramstout.mcworldexporter.translation.BlockTranslation.BlockTranslatorManager;
+import nl.bramstout.mcworldexporter.translation.BlockTranslation;
 
 /** Semantic checks using the actual pinned MiEx evaluator and reader overlay. */
 public final class MiExBedrockRegression {
@@ -186,7 +187,76 @@ public final class MiExBedrockRegression {
             }
         }
     }
+    static void checkPaletteAndEntityStates() throws Exception {
+        Class<?> reader=Class.forName("nl.bramstout.mcworldexporter.world.bedrock.ChunkBedrock");
+        Method palette=reader.getDeclaredMethod("translateBedrockPalette",String.class,NbtTagCompound.class,BlockTranslatorManager.class);
+        Method merge=reader.getDeclaredMethod("mergeBedrockBlockEntity",NbtTagCompound.class,NbtTagCompound.class);
+        Method details=reader.getDeclaredMethod("normalizeBedrockDetails",String.class,NbtTagCompound.class,BlockTranslatorManager.class);
+        palette.setAccessible(true);merge.setAccessible(true);details.setAccessible(true);
+        Path root=Files.createTempDirectory("miex-translated-state-");
+        var packs=ResourcePacks.getActiveResourcePacks();var previous=new ArrayList<>(packs);
+        try {
+            Path file=root.resolve("translation/minecraft/bedrock/miex_blocks.json");
+            Files.createDirectories(file.getParent());
+            try(var in=BlockTranslation.class.getResourceAsStream("/default_data/base_resource_pack/translation/minecraft/bedrock/miex_blocks.json")) {
+                Files.copy(Objects.requireNonNull(in),file);
+            }
+            packs.clear();packs.add(new ResourcePackJavaEdition(root.toFile()));
+            BlockTranslation translation=new BlockTranslation("bedrock");translation.load();
+            BlockTranslatorManager translator=translation.getTranslator(0);
+            for(int dye=0;dye<16;dye++) {
+                NbtTagCompound state=props(),entity=props();
+                state.addElement(NbtTagInt.newNonPooledInstance("direction",2));
+                state.addElement(NbtTagByte.newNonPooledInstance("head_piece_bit",(byte)1));
+                String name=(String)palette.invoke(null,"minecraft:bed",state,translator);
+                expect(name,"minecraft:bed");
+                entity.addElement(NbtTagByte.newNonPooledInstance("color",(byte)dye));
+                merge.invoke(null,entity,state);
+                name=(String)details.invoke(null,name,entity,translator);
+                expect(name,"minecraft:"+COLORS[dye]+"_bed");
+                expect(textures(bake("Bedrock_Beds.json",name,entity)),Set.of("minecraft:entity/bed/"+COLORS[dye]));
+                // A separately named modern bed retains its explicit color.
+                expect(details.invoke(null,"minecraft:red_bed",entity,translator),"minecraft:red_bed");
+            }
+            for(String source:new String[]{"undyed_shulker_box","blue_shulker_box","black_shulker_box","shulker_box"}) {
+                NbtTagCompound state=props(),entity=props();
+                state.addElement(NbtTagString.newNonPooledInstance("color","red"));
+                String name=(String)palette.invoke(null,"minecraft:"+source,state,translator);
+                entity.addElement(NbtTagByte.newNonPooledInstance("facing",(byte)1));
+                merge.invoke(null,entity,state);
+                String expected=source.equals("undyed_shulker_box")?"shulker":source.equals("shulker_box")?"shulker_red":"shulker_"+source.substring(0,source.indexOf("_shulker"));
+                expect(textures(bake("Bedrock_Shulkers.json",name,entity)),Set.of("minecraft:entity/shulker/"+expected));
+                expect(entity.get("facing").asInt(),1);
+            }
+            for(String attachment:new String[]{"standing","hanging","side","multiple"}) {
+                NbtTagCompound state=props();state.addElement(NbtTagString.newNonPooledInstance("attachment",attachment));
+                state.addElement(NbtTagInt.newNonPooledInstance("direction",2));
+                expect(palette.invoke(null,"minecraft:bell",state,translator),"minecraft:bell");
+                String expected=attachment.equals("standing")?"floor":attachment.equals("hanging")?"ceiling":attachment.equals("side")?"single_wall":"double_wall";
+                expect(state.get("attachment").asString(),expected);
+                NbtTagCompound entity=props();merge.invoke(null,entity,state);
+                expect(details.invoke(null,"minecraft:bell",entity,translator),"minecraft:bell");
+                expect(entity.get("attachment").asString(),expected);
+                expect(entity.get("facing").asString(),"south");
+            }
+            for(String name:new String[]{"piston","sticky_piston"})for(int animation=0;animation<4;animation++) {
+                NbtTagCompound state=props(),entity=props();
+                state.addElement(NbtTagInt.newNonPooledInstance("facing_direction",1));
+                palette.invoke(null,"minecraft:"+name,state,translator);
+                entity.addElement(NbtTagByte.newNonPooledInstance("State",(byte)animation));merge.invoke(null,entity,state);
+                details.invoke(null,"minecraft:"+name,entity,translator);
+                expect(entity.get("extended").asString(),animation==1||animation==2?"true":"false");
+            }
+        } finally {
+            packs.clear();packs.addAll(previous);
+            try(var paths=Files.walk(root)){for(Path path:paths.sorted(Comparator.reverseOrder()).toList())Files.delete(path);}
+        }
+    }
     static void runChecks() throws Exception {
+        expect(bake("Bedrock_End_Portals.json","minecraft:end_portal",props()).getFaces().size(),1);
+        expect(bake("Bedrock_End_Portals.json","minecraft:end_gateway",props()).getFaces().size(),6);
+        expect(textures(bake("Bedrock_End_Portals.json","minecraft:end_gateway",props())),Set.of("minecraft:block/end_portal"));
+        checkPaletteAndEntityStates();
         checkPartialPackFallbacks();
         checkDetails();
         checkLeatherDye();

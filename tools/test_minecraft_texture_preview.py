@@ -57,21 +57,21 @@ original_world = scene.world
 
 assert ns["apply_minecraft_texture_preview"]() == 2
 assert scene.view_settings.view_transform == "Standard"
-assert solid.shading.type == "SOLID"
-assert solid.shading.color_type == "TEXTURE"
-assert material.shading.type == "SOLID"
-assert material.shading.color_type == "TEXTURE"
+assert solid.shading.type == "MATERIAL"
+assert solid.shading.color_type == "MATERIAL"
+assert material.shading.type == "MATERIAL"
+assert material.shading.color_type == "MATERIAL"
 assert camera.type == "IMAGE_EDITOR"
 assert scene.objects is original_objects
 assert scene.world is original_world
-assert base_nodes.active is base_image
+assert base_nodes.active is mat_node
 assert layered_nodes.active is mat_node, "Ambiguous layered texture must be left alone"
 assert selected_nodes.active is base_image
 assert missing_nodes.active is mat_node
 
 # Reapplying the optional preference must be safe and repeatable.
 assert ns["apply_minecraft_texture_preview"]() == 2
-assert solid.shading.color_type == "TEXTURE"
+assert solid.shading.color_type == "MATERIAL"
 
 # These flags enable the preview through the existing EXE/import helper;
 # no new user-run Blender script, migration, or extra mesh is introduced.
@@ -80,4 +80,4 @@ assert "'--minecraft-view' in flags" in source
 assert "if minecraft_view:" in source
 assert "apply_minecraft_texture_preview()" in source
 assert "'--minecraft-view'" in source
-print("Minecraft texture preview explicitly activates textured Solid view in every workspace and preserves shaders/geometry.")
+print("Minecraft texture preview activates Material Preview in every workspace and preserves shaders/geometry.")

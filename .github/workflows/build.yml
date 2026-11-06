@@ -69,6 +69,9 @@ jobs:
           cache: false
       - name: Run_tests
         run: go test ./... -count=1 -timeout 3m
+      - name: Validate_Bedrock_state_model_installation
+        shell: powershell
+        run: ./tools/test_bedrock_state_corrections.ps1
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin

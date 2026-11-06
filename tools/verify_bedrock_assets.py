@@ -166,6 +166,18 @@ def main():
     assert "Ensure-BedrockShulkerTextures $miexDir $shulkerTextureManifest" in exporter
     assert "Remove-ManagedBedrockShulkerTextures $miexDir $shulkerTextureManifest" in exporter
     helper = (ASSETS / "Bedrock_Assets.ps1").read_text(encoding="utf-8")
+    portals = load("Bedrock_End_Portals.json")
+    check_block_names(portals)
+    assert set(portals["blocks"]) == {"minecraft:end_portal", "minecraft:end_gateway"}
+    assert "Bedrock_End_Portals.json" in exporter
+    assert "Ensure-BedrockPortalTexture $miexDir $Edition" in exporter
+    assert "Set-BedrockStateCorrections $miexDir $base $Edition" in exporter
+    assert "7b4dbaf59ac9a115c7b6af2a1cfdbd110470255a" in helper
+    connections = load("Bedrock_Block_Connections.json")[0]
+    assert set(connections) == {"mappings"}  # MiEx silently ignores 'translations'.
+    rules = connections["mappings"]["redstone_wire"]
+    for check, action in rules[0]["connections"].items():
+        assert len(action["blockState"]) == 1, check  # Never add an opposite arm at a corner.
     assert "function Test-BedrockBedAtlas" in helper
     assert "function Ensure-BedrockBedTextures" in helper
     assert "function Ensure-BedrockShulkerTextures" in helper

@@ -67,8 +67,38 @@ NORMALIZE_BANNER = '''
 '''
 
 NORMALIZE_DETAILS = '''
+    // Palette blocks have already been translated to Java state names. Running
+    // the Bedrock translator again turns undyed shulkers white and wall bells
+    // into floor bells. Beds need their block-entity dye before choosing an ID.
+    private static String translateBedrockPalette(String name, NbtTagCompound tag, BlockTranslatorManager translator) {
+        String mapped = translator.map(name, tag);
+        return name.equals("minecraft:bed") || name.equals("minecraft:undyed_shulker_box") ? name : mapped;
+    }
+
+    private static void mergeBedrockBlockEntity(NbtTagCompound entity, NbtTagCompound palette) {
+        // Preserve saved block-entity fields; palette state supplies orientation
+        // and attachment, but must not overwrite dye or piston animation state.
+        for(int i = 0; i < palette.getSize(); ++i) {
+            NbtTag value = palette.get(i);
+            if(entity.get(value.getName()) == null) entity.addElement(value.copy());
+        }
+    }
+
     // Palette-only translations cannot inspect the saved contents of a pot.
     private static String normalizeBedrockDetails(String name, NbtTagCompound tag, BlockTranslatorManager translator) {
+        if(name.equals("minecraft:bed")) {
+            NbtTag dye = tag.get("color");
+            if(dye == null) dye = tag.get("Color");
+            if(dye != null && dye.asInt() >= 0 && dye.asInt() < 16) {
+                String[] colors = {"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"};
+                name = "minecraft:" + colors[dye.asInt()] + "_bed";
+            }
+        }
+        if(name.equals("minecraft:piston") || name.equals("minecraft:sticky_piston")) {
+            NbtTag state = tag.get("State");
+            if(state != null) tag.addElement(NbtTagString.newInstance("extended",
+                state.asInt() == 1 || state.asInt() == 2 ? "true" : "false"));
+        }
         NbtTag plantTag = tag.get("PlantBlock");
         NbtTag entityId = tag.get("id");
         boolean flowerPotEntity = entityId != null && entityId.asString().equalsIgnoreCase("FlowerPot");
@@ -154,17 +184,17 @@ def patch_source(data):
         'blockEntity.addAllElements(currentBlock.getProperties());': '''int savedShulkerFacing = -1;
                     if(blockEntityName.equalsIgnoreCase("ShulkerBox") && blockEntity.get("facing") != null)
                         savedShulkerFacing = blockEntity.get("facing").asInt();
-                    blockEntity.addAllElements(currentBlock.getProperties());
+                    mergeBedrockBlockEntity(blockEntity, currentBlock.getProperties());
                     if(savedShulkerFacing >= 0 && savedShulkerFacing <= 5)
                         blockEntity.addElement(NbtTagInt.newInstance("facing_direction", savedShulkerFacing));''',
         'blockEntityName = blockTranslatorManager.map(blockEntityName, blockEntity);':
-            'blockEntityName = blockTranslatorManager.map(blockEntityName, blockEntity);\n'
+            'if(currentBlockId <= 0) blockEntityName = blockTranslatorManager.map(blockEntityName, blockEntity);\n'
             '                    blockEntityName = normalizeBedrockBanner(blockEntityName, blockEntity);\n'
             '                    normalizeBedrockSign(blockEntityName, blockEntity);\n'
             '                    blockEntityName = normalizeBedrockDetails(blockEntityName, blockEntity, blockTranslatorManager);',
         'blockName = blockTranslatorManager.map(blockName, blockProperties);':
             'if(blockName.equals("minecraft:skull")) blockProperties.addElement(NbtTagInt.newInstance("miex_legacy_skull", 1));\n'
-            '                            blockName = blockTranslatorManager.map(blockName, blockProperties);',
+            '                            blockName = translateBedrockPalette(blockName, blockProperties, blockTranslatorManager);',
         'Entity entity = EntityRegistry.getEntity(identifierTag.getData(), data);':
             'normalizeBedrockArmorStand(identifierTag.getData(), data);\n'
             '            Entity entity = EntityRegistry.getEntity(identifierTag.getData(), data);',

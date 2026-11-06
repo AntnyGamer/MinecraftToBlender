@@ -752,6 +752,8 @@ try {
         Abort 'Bedrock asset helper is missing.'
     }
     . $bedrockAssetHelper
+    Set-BedrockStateCorrections $miexDir $base $Edition
+    Ensure-BedrockPortalTexture $miexDir $Edition
     if($Edition -eq 'bedrock') {
         $bedrockClassRoot = Install-BedrockReaderClass $jar (Join-Path $base 'Bedrock_ChunkReader.class')
     }
@@ -788,6 +790,7 @@ try {
         'Bedrock_Decorated_Pots.json' = 'decorated_pot.json'
         'Bedrock_Conduits.json' = 'conduit.json'
         'Bedrock_Enchanting_Table.json' = 'enchanting_table.json'
+        'Bedrock_End_Portals.json' = 'end_portals.json'
     }
     if($Edition -eq 'bedrock') {
         New-Item -ItemType Directory -Force -Path $blockOverrideDir | Out-Null

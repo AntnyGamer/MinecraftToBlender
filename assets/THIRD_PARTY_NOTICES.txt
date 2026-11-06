@@ -8,6 +8,8 @@ tools/build_bedrock_reader_patch.py. It fixes block-entity section bounds,
 preserves shulker facing, translates Bedrock banner dyes/patterns and normalizes
 legacy sign text, potted plants, legacy skull types/rotation and Bedrock armor
 stand equipment while retaining the original saved tags.
+It also prevents translating already translated palette states a second time,
+preserves bed dyes and undyed shulker IDs, and reads saved piston extension.
 Additional BSD MiEx skull, armor-stand and equipment model definitions are
 adapted by tools/build_bedrock_detail_models.py. Their inputs are pinned and
 the generated JSON files are reproduced in CI.
@@ -18,6 +20,9 @@ data is derived from Mojang/bedrock-samples revision
 https://github.com/Mojang/bedrock-samples
 The EXE does NOT bundle MiEx.jar, Minecraft client JARs, texture images,
 world saves, or Blender. Minecraft texture images are installed on demand.
+The End portal fallback uses the verified blocks/end_portal.png from the same
+pinned Mojang sample revision. Portal surfaces are static texture approximations;
+Minecraft's animated portal shader and gateway beams are not reproduced.
 The Blender importer and MiEx resource-pack templates are downloaded at run time
 from pinned MiEx repository commit 631e9fc2fde8c749bf59d4c3495492e62a83ef6c.
 

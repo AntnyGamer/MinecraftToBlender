@@ -1,6 +1,87 @@
 # Bedrock reader overlay and official vanilla textures for MiEx model paths.
+function Ensure-BedrockPortalTexture([string]$miexDir,[string]$edition) {
+    $target = Join-Path $miexDir 'resources/BlenderEEVEE/assets/minecraft/textures/block/end_portal.png'
+    $hash = '7b4dbaf59ac9a115c7b6af2a1cfdbd110470255a'
+    if($edition -ne 'bedrock') {
+        if(Test-GitBlobSha1 $target $hash) { Remove-Item -LiteralPath $target -Force }
+        return
+    }
+    if(Test-Path -LiteralPath $target -PathType Leaf) { return }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+    $temp = $target + '.' + [guid]::NewGuid().ToString('N') + '.partial'
+    try {
+        $url = 'https://raw.githubusercontent.com/Mojang/bedrock-samples/15701fa9c13923f12662984c32c124327e40e3d3/resource_pack/textures/blocks/end_portal.png'
+        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $temp -TimeoutSec 15 -ErrorAction Stop
+        if(-not (Test-GitBlobSha1 $temp $hash)) { throw 'Official End portal texture hash mismatch.' }
+        Move-Item -LiteralPath $temp -Destination $target -ErrorAction Stop
+    } finally {
+        if(Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+    }
+}
+
+function Set-BedrockStateCorrections([string]$miexDir,[string]$assetDir,[string]$edition) {
+    $pack = Join-Path $miexDir 'resources/BlenderEEVEE'
+    $connections = Join-Path $pack 'translation/minecraft/bedrock/miex_block_connections.json'
+    $models = Join-Path $pack 'assets/minecraft/models/block'
+    # Preserve installed vanilla models where available. On a first run MiEx
+    # installs its base pack later, so use equivalent simple dust planes until
+    # those files exist. No game textures or upstream files are changed.
+    $names = @('redstone_dust_dot', 'redstone_dust_side', 'redstone_dust_side_alt', 'redstone_dust_up')
+    if($edition -ne 'bedrock') {
+        foreach($target in @($connections) + @($names | ForEach-Object { Join-Path $models ($_ + '.json') })) {
+            if(Test-Path -LiteralPath $target -PathType Leaf) { Remove-Item -LiteralPath $target -Force }
+        }
+        return
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $connections), $models | Out-Null
+    Copy-Item -LiteralPath (Join-Path $assetDir 'Bedrock_Block_Connections.json') -Destination $connections -Force
+    foreach($name in $names) {
+        $source = Join-Path $miexDir ('resources/base_resource_pack/assets/minecraft/models/block/' + $name + '.json')
+        $target = Join-Path $models ($name + '.json')
+        if(Test-Path -LiteralPath $source -PathType Leaf) {
+            $model = Get-Content -LiteralPath $source -Raw | ConvertFrom-Json
+        } else {
+            $from = @(0, 0.25, 0); $to = @(16, 0.25, 16)
+            $uv = @(0, 0, 16, 16); $uvBack = @(0, 16, 16, 0)
+            $front = 'up'; $back = 'down'; $line = 'block/redstone_dust_dot'
+            if($name -eq 'redstone_dust_side') { $to[2] = 8; $uv[3] = 8; $uvBack = @(0, 8, 16, 0) }
+            if($name -eq 'redstone_dust_side_alt') { $from[2] = 8; $uv[1] = 8; $uvBack = @(0, 16, 16, 8) }
+            if($name -eq 'redstone_dust_up') {
+                $from = @(0, 0, 0.25); $to = @(16, 16, 0.25)
+                $front = 'south'; $back = 'north'; $uvBack = @(16, 0, 0, 16)
+                $line = 'block/redstone_dust_line1'
+            }
+            $elements = foreach($texture in @('#line', '#overlay')) {
+                $faces = @{}
+                $faces[$front] = @{uv=$uv; texture=$texture}
+                $faces[$back] = @{uv=$uvBack; texture=$texture}
+                if($texture -eq '#line') { $faces[$front].tintindex = 0; $faces[$back].tintindex = 0 }
+                @{from=$from.Clone(); to=$to.Clone(); faces=$faces}
+            }
+            $model = @{ambientocclusion=$false; textures=@{particle='block/redstone_dust_dot'; line=$line; overlay='block/redstone_dust_overlay'}; elements=@($elements)} |
+                ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        }
+        foreach($element in $model.elements) {
+            $faces = @($element.faces.PSObject.Properties)
+            if($faces.Count -eq 0 -or @($faces | Where-Object { $_.Value.texture -ne '#overlay' }).Count -gt 0) { continue }
+            # Vanilla's coplanar line/overlay draw order is not encoded in USD.
+            # Separate the coincident planes
+            # by 1/16000 of a block to avoid a flickering dark second wire.
+            for($axis = 0; $axis -lt 3; $axis++) {
+                if($element.from[$axis] -eq $element.to[$axis]) {
+                    $element.from[$axis] = [double]$element.from[$axis] + 0.001
+                    $element.to[$axis] = [double]$element.to[$axis] + 0.001
+                    break
+                }
+            }
+        }
+        [IO.File]::WriteAllText($target, ($model | ConvertTo-Json -Depth 40), [Text.UTF8Encoding]::new($false))
+    }
+    Write-Host 'Bedrock state corrections: directional redstone connections and separated dust overlay planes.'
+}
+
 function Install-BedrockReaderClass([string]$sourceJar, [string]$classPath) {
-    $expectedClass = 'f1cb94f95ed619139acdfe0ed2207fe21531613b9a160d818e792034c20718d5'
+    $expectedClass = '5f527339c6a3f4a90b78bf679b80fc300d1cf677e07d0cb8495ab37af951aea5'
     if((Get-FileHash -LiteralPath $sourceJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne
        'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707' -or
        (Get-FileHash -LiteralPath $classPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedClass) {
@@ -10,7 +91,7 @@ function Install-BedrockReaderClass([string]$sourceJar, [string]$classPath) {
     $target = Join-Path $root 'nl/bramstout/mcworldexporter/world/bedrock/ChunkBedrock.class'
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
     [IO.File]::Copy($classPath, $target, $true)
-    Write-Host 'Bedrock block-entity reader: corrected section bounds; original MiEx.jar unchanged.'
+    Write-Host 'Bedrock block-entity reader: corrected bounds, dye, attachments and piston state; original MiEx.jar unchanged.'
     return $root
 }
 

@@ -459,42 +459,21 @@ def apply_minecraft_texture_preview():
     """Opt-in Blender display preset; preserve all shader and mesh datablocks.
 
     Standard leaves Minecraft's existing sRGB texture palette closer to its
-    ungraded colors than the default film-style AgX tone mapping. Solid-mode
-    TEXTURE shows the active image texture without requiring an EEVEE material
-    preview, which can be expensive for very large exported worlds. This is an
-    editor/display preference, not a replacement for the full shader network.
+    ungraded colors than the default film-style AgX tone mapping. Material
+    Preview evaluates MiEx's texture, biome tint and alpha shader connections.
+    This is an editor/display preference, not a replacement shader network.
     """
     bpy.context.scene.view_settings.view_transform = 'Standard'
-    # Solid texture shading needs an active image node. Only assign one
-    # when a material has exactly one loaded texture and the existing active
-    # node is not already an image. Layered/animated materials are ambiguous.
-    activated = 0
-    for material in bpy.data.materials:
-        if not material.use_nodes:
-            continue
-        nodes = material.node_tree.nodes
-        active = nodes.active
-        if active is not None and active.type == 'TEX_IMAGE':
-            continue
-        images = [node for node in nodes
-                  if node.type == 'TEX_IMAGE' and node.image is not None]
-        if len(images) == 1:
-            nodes.active = images[0]
-            activated += 1
     changed = 0
     for screen in bpy.data.screens:
         for area in screen.areas:
             for space in area.spaces:
                 if space.type == 'VIEW_3D':
-                    # This explicit option must also switch a saved Material
-                    # Preview/Rendered workspace into the requested fast view.
-                    space.shading.type = 'SOLID'
-                    space.shading.color_type = 'TEXTURE'
+                    space.shading.type = 'MATERIAL'
                     changed += 1
     log('MINECRAFT TEXTURE PREVIEW: Standard color transform,',
-        changed, 'solid 3D views display active textures,',
-        activated, 'single-texture materials made active.',
-        'Full biome tint, alpha and lighting still require Material Preview.')
+        changed, '3D views use Material Preview with textures, tints and alpha,',
+        'Large worlds may take time to compile material shaders.')
     return changed
 
 

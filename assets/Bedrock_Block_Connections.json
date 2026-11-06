@@ -1,0 +1,134 @@
+[
+    {
+        "mappings": {
+            "redstone_wire": [
+                {
+                    "connections": {
+                        "1_0_0=redstone_wire|redstone_block|#block/buttons|#blocks/buttons|calibrated_sculk_sensor|daylight_detector|detector_rail|jukebox|lectern|lever|lightning_rod|observer|#block/pressure_plates|#blocks/pressure_plates|redstone_torch|redstone_wall_torch|target|trapped_chest|repeater[facing=east]|repeater[facing=west]|comparator[facing=east]|comparator[facing=west]": {
+                            "blockState": {
+                                "east": "side"
+                            }
+                        },
+                        "1_-1_0=redstone_wire&1_0_0=!$solid_block": {
+                            "blockState": {
+                                "east": "side"
+                            }
+                        },
+                        "1_1_0=redstone_wire&0_1_0=!$solid_block": {
+                            "blockState": {
+                                "east": "up"
+                            }
+                        },
+                        "-1_0_0=redstone_wire|redstone_block|#block/buttons|#blocks/buttons|calibrated_sculk_sensor|daylight_detector|detector_rail|jukebox|lectern|lever|lightning_rod|observer|#block/pressure_plates|#blocks/pressure_plates|redstone_torch|redstone_wall_torch|target|trapped_chest|repeater[facing=east]|repeater[facing=west]|comparator[facing=east]|comparator[facing=west]": {
+                            "blockState": {
+                                "west": "side"
+                            }
+                        },
+                        "-1_-1_0=redstone_wire&-1_0_0=!$solid_block": {
+                            "blockState": {
+                                "west": "side"
+                            }
+                        },
+                        "-1_1_0=redstone_wire&0_1_0=!$solid_block": {
+                            "blockState": {
+                                "west": "up"
+                            }
+                        },
+                        "0_0_1=redstone_wire|redstone_block|#block/buttons|#blocks/buttons|calibrated_sculk_sensor|daylight_detector|detector_rail|jukebox|lectern|lever|lightning_rod|observer|#block/pressure_plates|#blocks/pressure_plates|redstone_torch|redstone_wall_torch|target|trapped_chest|repeater[facing=north]|repeater[facing=south]|comparator[facing=north]|comparator[facing=south]": {
+                            "blockState": {
+                                "south": "side"
+                            }
+                        },
+                        "0_-1_1=redstone_wire&0_0_1=!$solid_block": {
+                            "blockState": {
+                                "south": "side"
+                            }
+                        },
+                        "0_1_1=redstone_wire&0_1_0=!$solid_block": {
+                            "blockState": {
+                                "south": "up"
+                            }
+                        },
+                        "0_0_-1=redstone_wire|redstone_block|#block/buttons|#blocks/buttons|calibrated_sculk_sensor|daylight_detector|detector_rail|jukebox|lectern|lever|lightning_rod|observer|#block/pressure_plates|#blocks/pressure_plates|redstone_torch|redstone_wall_torch|target|trapped_chest|repeater[facing=north]|repeater[facing=south]|comparator[facing=north]|comparator[facing=south]": {
+                            "blockState": {
+                                "north": "side"
+                            }
+                        },
+                        "0_-1_-1=redstone_wire&0_0_-1=!$solid_block": {
+                            "blockState": {
+                                "north": "side"
+                            }
+                        },
+                        "0_1_-1=redstone_wire&0_1_0=!$solid_block": {
+                            "blockState": {
+                                "north": "up"
+                            }
+                        }
+                    }
+                },
+                {
+                    "condition": "north=none,south=none,east=side||north=none,south=none,west=side",
+                    "connections": {
+                        "": {
+                            "blockState": {
+                                "east": "side",
+                                "west": "side"
+                            }
+                        }
+                    }
+                },
+                {
+                    "condition": "east=none,west=none,north=side||east=none,west=none,south=side",
+                    "connections": {
+                        "": {
+                            "blockState": {
+                                "north": "side",
+                                "south": "side"
+                            }
+                        }
+                    }
+                },
+                {
+                    "condition": "north=none,south=none,east=up",
+                    "connections": {
+                        "": {
+                            "blockState": {
+                                "west": "side"
+                            }
+                        }
+                    }
+                },
+                {
+                    "condition": "north=none,south=none,west=up",
+                    "connections": {
+                        "": {
+                            "blockState": {
+                                "east": "side"
+                            }
+                        }
+                    }
+                },
+                {
+                    "condition": "east=none,west=none,north=up",
+                    "connections": {
+                        "": {
+                            "blockState": {
+                                "south": "side"
+                            }
+                        }
+                    }
+                },
+                {
+                    "condition": "east=none,west=none,south=up",
+                    "connections": {
+                        "": {
+                            "blockState": {
+                                "north": "side"
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    }
+]

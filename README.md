@@ -2,7 +2,7 @@
 
 <p align="center"><img src="branding/logo.svg" alt="MinecraftToBlender logo" width="112" height="112"></p>
 
-**Version:** v1.0  
+**Version:** v1.0.1  
 **Platform:** Windows 10/11 (64-bit)  
 **Languages:** Go (Win32 interface), PowerShell, Python
 
@@ -27,7 +27,7 @@ Use the **same MinecraftToBlender EXE**: open **Import USD**, browse to an exist
 
 **Automatic Bedrock visual accuracy fixes:** Bedrock hanging signs now use the saved `attached_bit` state to select the correct attached-chain model, rather than relying only on Java's `attached` state. For imported custom-material textures, the Blender importer avoids modifying another material's color-space/alpha settings when a shared image file needs different interpretations; an image datablock is copied only for that genuine conflict. Normal identical texture settings still share images. These corrections require no new options and do not alter the source Minecraft world. Real world screenshots are still needed for pixel-by-pixel fidelity verification.
 
-### Export options (v1.0)
+### Export options (v1.0.1)
 
 **Bedrock rendering regression fixes:** A verified reader overlay corrects the pinned MiEx release's block-entity section bounds, which previously discarded bed colors, banner patterns and frame data at normal building heights. Bedrock banner dye order and ominous-banner layers are normalized before MiEx generates its textures. The shulker model now resolves undyed textures correctly and retains the saved facing. A texture alias supports the moved banner pole sheet. These data fixes require a **fresh Bedrock export**: an existing USD cannot recover data that was omitted. Safe resume now fingerprints the embedded pipeline, so an older export checkpoint cannot bypass these fixes. The original MiEx JAR and Minecraft save remain unchanged.
 

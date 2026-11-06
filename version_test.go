@@ -13,7 +13,7 @@ func TestReleaseVersionMatchesBuildAndDocumentation(t *testing.T) {
 	if !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(version) {
 		t.Fatalf("invalid release version %q", version)
 	}
-	// Release 1.0 has a short public label, but the executable keeps the
+	// Public release names may omit a trailing .0; the executable keeps a
 	// standard three-part package version and four-part Windows file version.
 	release := strings.TrimSuffix(version, ".0")
 	cases := []struct {

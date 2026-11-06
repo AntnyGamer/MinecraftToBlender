@@ -13,7 +13,7 @@ no ordinary `minecraft:` texture references were missing.
 | Decorated pots | Particle-only block model produces no faces. | Share the pot model, including the Java saved sherd list. |
 | Conduits | Particle-only block model produces no faces. | Restore the model and derive Java activation from water and frame blocks. Bedrock retains its saved activation field. |
 | Dragon and piglin heads, floor and wall | These newer IDs have no native MiEx geometry. | Supply the four missing IDs, retaining native Java handling for the other skull and player-head types. |
-| Legacy `chain` | Current resources contain `iron_chain` instead. | Add an alias only when the legacy definition is absent; preserve existing custom definitions. |
+| Legacy `chain` | Current resources contain `iron_chain` instead. | Add an alias only when the legacy definition is absent and the modern definition exists; preserve existing custom definitions. |
 | Sixteen bed colors | The pinned exporter expects `entity/bed/*.png`; recent decomposed bed textures do not satisfy those paths. | Restore the original Java atlases instead of using incompatible Bedrock sheets. |
 | End portals and gateways | Missing texture path and empty gateway model. | Share the existing static portal fallback. Minecraft's animated shader and gateway beams are not reproduced. |
 
@@ -59,6 +59,10 @@ Switching editions cannot replace the bed sheets referenced by an earlier
 export. The previous `BlenderEEVEE` folder stays intact for older projects;
 only hash-verified fallback images/templates are reused from it. World
 resource packs, when enabled, retain higher priority.
+
+If no base resources exist yet, chain alias preparation is deferred until
+the next run: MiEx may initially install an older client that still uses
+the legacy name. Installing an unverified modern alias would break that client.
 
 PowerShell 5 tests cover atlas validation, corrupt extraction, repeated runs,
 custom textures, legacy chain resources and edition switching. CI reproduces

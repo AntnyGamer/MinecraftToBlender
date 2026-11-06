@@ -83,12 +83,11 @@ function Ensure-LegacyChainModel([string]$miexDir) {
     if(Test-Path -LiteralPath $modern -PathType Leaf) {
         $doc = Get-Content -LiteralPath $modern -Raw | ConvertFrom-Json
     } else {
-        # MiEx installs current Java assets after preparation on a first run.
-        $doc = @{variants=@{
-            'axis=x'=@{model='minecraft:block/iron_chain'; x=90; y=90}
-            'axis=y'=@{model='minecraft:block/iron_chain'}
-            'axis=z'=@{model='minecraft:block/iron_chain'; x=90}
-        }} | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+        # On a first run MiEx chooses the newest *installed* client, which
+        # may still use the old name. Do not override it with an unverified
+        # modern model reference. Recheck once the base resources exist.
+        if($managed) { Remove-Item -LiteralPath $target -Force }
+        return
     }
     $doc | Add-Member -NotePropertyName '_minecraft_to_blender_generated' -NotePropertyValue 'legacy_chain_v1' -Force
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null

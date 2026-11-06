@@ -31,7 +31,7 @@ try {
     # Legacy names need an alias only when their original definition is absent.
     Ensure-LegacyChainModel $root
     $chain = Join-Path $root 'resources/BlenderEEVEE/assets/minecraft/blockstates/chain.json'
-    Assert-VisualTest (Test-Path -LiteralPath $chain) 'First-run legacy chain alias absent'
+    Assert-VisualTest (-not (Test-Path -LiteralPath $chain)) 'Unknown first-run resources must not receive an unverified chain alias'
     $modern = Join-Path $root 'resources/base_resource_pack/assets/minecraft/blockstates/iron_chain.json'
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $modern) | Out-Null
     [IO.File]::WriteAllText($modern,'{"variants":{"axis=x":{"model":"minecraft:block/custom_iron_chain","x":45}}}')

@@ -1012,8 +1012,10 @@ def hide_imported_transform_markers():
     """
     count = 0
     for ob in bpy.context.scene.objects:
-        if ob.type == 'EMPTY' and ob.empty_display_type == 'PLAIN_AXES' and ob.empty_display_size != 0:
-            ob.empty_display_size = 0.0
+        if ob.type == 'EMPTY' and ob.empty_display_type == 'PLAIN_AXES' and ob.empty_display_size > 0.0001:
+            # Blender clamps display size to 0.0001. Use its supported
+            # minimum instead of assigning zero, which isn't representable.
+            ob.empty_display_size = 0.0001
             count += 1
     if count:
         log('VIEWPORT: hidden', count, 'USD transform-axis markers; '
@@ -1048,6 +1050,7 @@ def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
     # material datablocks and parent relationships remain unchanged.
     if len(meshes) >= 128:
         hide_relationship_lines()
+    hide_imported_transform_markers()
     if batch_meshes:
         compact_redundant_usd_normals()
         remove_unused_usd_display_colors()

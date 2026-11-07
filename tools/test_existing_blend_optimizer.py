@@ -43,6 +43,9 @@ with tempfile.TemporaryDirectory() as folder:
         return 0
     def hide_relationships():
         operations.append("hide_relationships")
+    def hide_markers():
+        operations.append("hide_markers")
+        return 1
     scope = {
         "bpy": bpy,
         "Path": Path,
@@ -54,6 +57,7 @@ with tempfile.TemporaryDirectory() as folder:
         "remove_unused_usd_display_colors": lambda: operations.append("preview_colors"),
         "deduplicate_exact_material_slots": dedup,
         "hide_relationship_lines": hide_relationships,
+        "hide_imported_transform_markers": hide_markers,
     }
     exec(compile(ast.Module(body=[function], type_ignores=[]),
                  "<optimize>", "exec"), scope)
@@ -62,7 +66,7 @@ with tempfile.TemporaryDirectory() as folder:
     optimize(output)
     assert original.read_bytes() == b"untouched original world"
     assert output.read_bytes() == b"optimized test output"
-    assert operations == ["clear", "dedup", "save"]
+    assert operations == ["clear", "hide_markers", "dedup", "save"]
     assert len(mesh.data.polygons) == 4
 
     # Optimizing compressed projects should retain their original save format,
@@ -99,7 +103,7 @@ with tempfile.TemporaryDirectory() as folder:
     original.write_bytes(b"untouched original world")
     bpy.ops.wm.save_as_mainfile = save_mainfile
     optimize(output, batch_meshes=True)
-    assert operations == ["clear", "normals", "preview_colors", "batch", "dedup", "save"]
+    assert operations == ["clear", "hide_markers", "normals", "preview_colors", "batch", "dedup", "save"]
     assert original.read_bytes() == b"untouched original world"
 
     # Large saved models hide only relationship line overlays; all polygons
@@ -108,7 +112,7 @@ with tempfile.TemporaryDirectory() as folder:
     operations.clear()
     bpy.context.scene.objects = [mesh] * 128
     optimize(output)
-    assert operations == ["clear", "hide_relationships", "dedup", "save"]
+    assert operations == ["clear", "hide_relationships", "hide_markers", "dedup", "save"]
     assert original.read_bytes() == b"untouched original world"
 
     # Reject non-terrain scenes instead of reporting a false performance win.

@@ -16,6 +16,10 @@ from pxr import Usd, UsdGeom
 from mathutils import Vector
 
 
+CHUNK_MESH_PATTERN = re.compile(r'mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)', re.I)
+CHUNK_PARENT_PATTERN = re.compile(r'region_\d+_chunk_(_?-?\d+)_(_?-?\d+)(?:\.\d+)?', re.I)
+
+
 def log(*parts):
     print(*parts, flush=True)
 
@@ -842,13 +846,12 @@ def terrain_mesh_batch_key(ob, ancestor_cache=None, opaque_mat_cache=None):
     # MiEx's Util.makeSafeName changes a negative '-' sign to '_'.
     # Thus chunk X=-1 Z=-2 becomes mesh_chunk__1__2_<hash> in USD.
     # Recognize both that upstream-safe form and raw signed names.
-    match = re.search(r'mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)', ob.name, re.I)
+    match = CHUNK_MESH_PATTERN.search(ob.name)
     # Blender's USD importer names each mesh after its texture. The chunk
     # coordinates live on its region_<n>_chunk_<x>_<z> parent instead.
     parent = ob.parent
     while match is None and parent is not None:
-        match = re.fullmatch(r'region_\d+_chunk_(_?-?\d+)_(_?-?\d+)(?:\.\d+)?',
-                             parent.name, re.I)
+        match = CHUNK_PARENT_PATTERN.fullmatch(parent.name)
         parent = parent.parent
     if match is None:
         return None

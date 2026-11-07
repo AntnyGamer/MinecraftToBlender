@@ -1094,6 +1094,37 @@ def hide_imported_transform_markers():
 
 
 
+def avoid_drawing_unused_import_empties(min_helpers=128):
+    """Skip drawing USD-only transform helpers, not any imported mesh.
+
+    The completed fresh USD import owns the scene: no user-created helpers
+    have been mixed in yet. Only do this if *all* Empties are plain axes and
+    there are enough of them for draw overhead to potentially matter.
+    Blender's per-3D-view object-type visibility is reversible and does not
+    change individual objects, parenting, modifiers, render visibility or
+    materials. Keep other Empty types visible for image/rig helpers.
+    """
+    helpers = [ob for ob in bpy.context.scene.objects if ob.type == 'EMPTY']
+    if len(helpers) < min_helpers:
+        return 0
+    if any(ob.empty_display_type != 'PLAIN_AXES' or len(ob.modifiers)
+           for ob in helpers):
+        return 0
+    changed = 0
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            for space in area.spaces:
+                if space.type == 'VIEW_3D' and space.show_object_viewport_empty:
+                    space.show_object_viewport_empty = False
+                    changed += 1
+    if changed:
+        log('VIEWPORT: disabled drawing', len(helpers),
+            'imported Plain Axes Empty helpers in', changed, '3D views;',
+            'all mesh geometry and Empty parent transforms are retained.',
+            'Restore via Object Type Visibility > Empties.')
+    return changed
+
+
 def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
     """Optimize the Blender project already loaded by the EXE, saving a copy."""
     source = Path(bpy.data.filepath).resolve() if bpy.data.filepath else None
@@ -1218,6 +1249,7 @@ def main():
     log('[PERF] Scene framing:', round(time.monotonic() - phase_start, 2), 'seconds')
     hide_relationship_lines()
     hide_imported_transform_markers()
+    avoid_drawing_unused_import_empties()
     clear_bulk_import_selection()
     if batch_meshes:
         phase_start = time.monotonic()

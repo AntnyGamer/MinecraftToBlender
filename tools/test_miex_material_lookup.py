@@ -180,6 +180,68 @@ def test_minecraft_shader_graph_starts_clean():
     assert not nodes, "The new Minecraft material graph must start with no stale nodes"
 
 
+def test_unchanged_usd_diffuse_colors_avoid_repeated_material_updates():
+    import textwrap
+    tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+              and node.name == "load_patched_importer")
+    patches = []
+    previous = None
+    for stmt in fn.body:
+        if not isinstance(stmt, ast.Assign) or not isinstance(stmt.value, ast.Constant):
+            continue
+        if not isinstance(stmt.value.value, str):
+            continue
+        if any(isinstance(t, ast.Name) and t.id == "original" for t in stmt.targets):
+            previous = stmt.value.value
+        elif (previous and
+              any(isinstance(t, ast.Name) and t.id == "faster" for t in stmt.targets)
+              and "mat.diffuse_color =" in previous):
+            patches.append((previous, stmt.value.value))
+    assert len(patches) == 1
+    original, optimized = patches[0]
+    assert "last_display_colors.get(mat_key) != rgb" in optimized
+    originals = compile(textwrap.dedent(original), "<original-diffuse>", "exec")
+    improved = compile(textwrap.dedent(optimized), "<optimized-diffuse>", "exec")
+
+    class Material:
+        def __init__(self, pointer):
+            self.pointer, self.updates = pointer, []
+            self.diffuse_color = None
+        def as_pointer(self):
+            return self.pointer
+        def __setattr__(self, name, value):
+            if name == "diffuse_color" and value is not None:
+                self.updates.append(tuple(value))
+            object.__setattr__(self, name, value)
+
+    inputs = [
+        ("stone", (0.4, 0.5, 0.6)), ("stone", (0.4, 0.5, 0.6)),
+        ("wood", (0.4, 0.5, 0.6)), ("stone", (0.4, 0.5, 0.6)),
+        ("stone", (0.7, 0.3, 0.1)), ("stone", (0.7, 0.3, 0.1)),
+        ("wood", (0.4, 0.5, 0.6)), ("stone", (0.4, 0.5, 0.6)),
+    ]
+    def run(source):
+        mats = {"stone": Material(100), "wood": Material(200)}
+        scope = {"last_display_colors": {}}
+        for name, color in inputs:
+            scope.update(mat=mats[name], displayColor=color)
+            exec(source, scope)
+        return mats
+    old_mats, fast_mats = run(originals), run(improved)
+    for name in old_mats:
+        assert fast_mats[name].diffuse_color == old_mats[name].diffuse_color
+        # Changes to actual tint values must still trigger a material update;
+        # repeated copies of the same color should not call RNA setters.
+        expected = []
+        for value in old_mats[name].updates:
+            if not expected or value != expected[-1]:
+                expected.append(value)
+        assert fast_mats[name].updates == expected
+    assert len(fast_mats["stone"].updates) == 3
+    assert len(fast_mats["wood"].updates) == 1
+
+
 def test_shared_image_color_and_alpha_are_isolated():
     import textwrap
     tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
@@ -285,6 +347,7 @@ if __name__ == "__main__":
     test_shader_input_number_fast_path()
     test_redundant_preview_shaders_are_skipped()
     test_minecraft_shader_graph_starts_clean()
+    test_unchanged_usd_diffuse_colors_avoid_repeated_material_updates()
     test_shared_image_color_and_alpha_are_isolated()
     test_flat_shading_buffer_preserves_every_flag()
     print("Pinned MiEx materials preserve shared-image appearance, shader reset, fast lookup and USD imports.")

@@ -66,6 +66,50 @@ def test_material_lookup():
         raise AssertionError("missing shader node did not report original error")
 
 
+def test_shader_input_number_fast_path():
+    # Only numeric socket names need Python's int parser. Ordinary material
+    # sockets are words; avoid raising/catching ValueError for each of them.
+    tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
+    fn = next(x for x in tree.body if isinstance(x, ast.FunctionDef)
+              and x.name == "load_patched_importer")
+    pairs = []
+    preceding = None
+    for statement in fn.body:
+        if not isinstance(statement, ast.Assign) or not isinstance(statement.value, ast.Constant):
+            continue
+        if not isinstance(statement.value.value, str):
+            continue
+        if any(isinstance(x, ast.Name) and x.id == "original" for x in statement.targets):
+            preceding = statement.value.value
+        elif (preceding and
+              any(isinstance(x, ast.Name) and x.id == "faster" for x in statement.targets)
+              and "def is_number(self" in preceding):
+            pairs.append((preceding, statement.value.value))
+    assert len(pairs) == 1
+    old, new = pairs[0]
+    assert "isdecimal()" in new and "any(char.isdecimal()" in new
+    def load_method(source, optional_scope=None):
+        scope = dict(optional_scope or {})
+        exec("class Parser:\n" + source, scope)
+        return scope["Parser"]().is_number
+    original = load_method(old)
+    optimized = load_method(new)
+    names = ["Base Color", "Normal", "Roughness", "Alpha", "Shader", "",
+             "0", "12", "-2", "+7", " 8 ", "1_234", "1.0",
+             "Texture2", "12a", " \\t ", "٠٣", "²", "١_٢", "+_2"]
+    assert [optimized(s) for s in names] == [original(s) for s in names]
+    parsed = []
+    def track_int(value):
+        parsed.append(value)
+        return int(value)
+    fast = load_method(new, {"int":track_int})
+    for name in ("Base Color", "Normal", "Shader", "Alpha", "Roughness"):
+        assert not fast(name)
+    assert not parsed, "Non-numeric shader sockets must not invoke int()"
+    assert fast("12") and not parsed, "Plain decimal sockets need no int()"
+    assert fast("1_234") and parsed == ["1_234"], "Preserve Python's full integer syntax"
+
+
 def test_redundant_preview_shaders_are_skipped():
     tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
     fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
@@ -134,6 +178,68 @@ def test_minecraft_shader_graph_starts_clean():
     scope = {"self": instance}
     exec(safe[0].strip(), scope)
     assert not nodes, "The new Minecraft material graph must start with no stale nodes"
+
+
+def test_unchanged_usd_diffuse_colors_avoid_repeated_material_updates():
+    import textwrap
+    tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+              and node.name == "load_patched_importer")
+    patches = []
+    previous = None
+    for stmt in fn.body:
+        if not isinstance(stmt, ast.Assign) or not isinstance(stmt.value, ast.Constant):
+            continue
+        if not isinstance(stmt.value.value, str):
+            continue
+        if any(isinstance(t, ast.Name) and t.id == "original" for t in stmt.targets):
+            previous = stmt.value.value
+        elif (previous and
+              any(isinstance(t, ast.Name) and t.id == "faster" for t in stmt.targets)
+              and "mat.diffuse_color =" in previous):
+            patches.append((previous, stmt.value.value))
+    assert len(patches) == 1
+    original, optimized = patches[0]
+    assert "last_display_colors.get(mat_key) != rgb" in optimized
+    originals = compile(textwrap.dedent(original), "<original-diffuse>", "exec")
+    improved = compile(textwrap.dedent(optimized), "<optimized-diffuse>", "exec")
+
+    class Material:
+        def __init__(self, pointer):
+            self.pointer, self.updates = pointer, []
+            self.diffuse_color = None
+        def as_pointer(self):
+            return self.pointer
+        def __setattr__(self, name, value):
+            if name == "diffuse_color" and value is not None:
+                self.updates.append(tuple(value))
+            object.__setattr__(self, name, value)
+
+    inputs = [
+        ("stone", (0.4, 0.5, 0.6)), ("stone", (0.4, 0.5, 0.6)),
+        ("wood", (0.4, 0.5, 0.6)), ("stone", (0.4, 0.5, 0.6)),
+        ("stone", (0.7, 0.3, 0.1)), ("stone", (0.7, 0.3, 0.1)),
+        ("wood", (0.4, 0.5, 0.6)), ("stone", (0.4, 0.5, 0.6)),
+    ]
+    def run(source):
+        mats = {"stone": Material(100), "wood": Material(200)}
+        scope = {"last_display_colors": {}}
+        for name, color in inputs:
+            scope.update(mat=mats[name], displayColor=color)
+            exec(source, scope)
+        return mats
+    old_mats, fast_mats = run(originals), run(improved)
+    for name in old_mats:
+        assert fast_mats[name].diffuse_color == old_mats[name].diffuse_color
+        # Changes to actual tint values must still trigger a material update;
+        # repeated copies of the same color should not call RNA setters.
+        expected = []
+        for value in old_mats[name].updates:
+            if not expected or value != expected[-1]:
+                expected.append(value)
+        assert fast_mats[name].updates == expected
+    assert len(fast_mats["stone"].updates) == 3
+    assert len(fast_mats["wood"].updates) == 1
 
 
 def test_shared_image_color_and_alpha_are_isolated():
@@ -236,10 +342,106 @@ def test_flat_shading_buffer_preserves_every_flag():
         exec(textwrap.dedent(assignments[0]), {"mesh": mesh})
 
 
+def test_direct_material_socket_lookup():
+    import textwrap
+    tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+              and node.name == "load_patched_importer")
+    patches = []
+    previous = None
+    for stmt in fn.body:
+        if not isinstance(stmt, ast.Assign) or not isinstance(stmt.value, ast.Constant):
+            continue
+        if not isinstance(stmt.value.value, str):
+            continue
+        if any(isinstance(t, ast.Name) and t.id == "original" for t in stmt.targets):
+            previous = stmt.value.value
+        elif (previous and
+              any(isinstance(t, ast.Name) and t.id == "faster" for t in stmt.targets)
+              and "node.inputs.get(attrName)" in stmt.value.value):
+            patches.append((previous, stmt.value.value))
+    assert len(patches) == 1
+    orig_str, fast_str = patches[0]
+    assert "attrName in node.inputs" in orig_str
+    assert "node.inputs.get(attrName)" in fast_str
+
+    class FakeSocket:
+        def __init__(self):
+            self.default_value = None
+
+    class FakeInputs(dict):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.contains_checked = False
+
+        def __contains__(self, key):
+            self.contains_checked = True
+            return super().__contains__(key)
+
+    class FakeNode(dict):
+        def __init__(self):
+            super().__init__()
+            self.inputs = FakeInputs()
+            self.existing_prop = None
+
+    class Helper:
+        def is_number(self, s):
+            try:
+                int(s)
+                return True
+            except ValueError:
+                return False
+
+    orig_block = textwrap.dedent(orig_str.replace("elif 'value' in attrData:", "if True:"))
+    fast_block = textwrap.dedent(fast_str.replace("elif 'value' in attrData:", "if True:"))
+
+    # Case 1: node has existing property
+    n1, n2 = FakeNode(), FakeNode()
+    scope1 = {"node": n1, "attrName": "existing_prop", "attrData": {"value": 42}, "self": Helper()}
+    scope2 = {"node": n2, "attrName": "existing_prop", "attrData": {"value": 42}, "self": Helper()}
+    exec(orig_block, scope1)
+    exec(fast_block, scope2)
+    assert n1.existing_prop == n2.existing_prop == 42
+
+    # Case 2: named socket in inputs
+    sock1, sock2 = FakeSocket(), FakeSocket()
+    n1, n2 = FakeNode(), FakeNode()
+    n1.inputs["Base Color"] = sock1
+    n2.inputs["Base Color"] = sock2
+    scope1 = {"node": n1, "attrName": "Base Color", "attrData": {"value": (1, 0, 0, 1)}, "self": Helper()}
+    scope2 = {"node": n2, "attrName": "Base Color", "attrData": {"value": (1, 0, 0, 1)}, "self": Helper()}
+    exec(orig_block, scope1)
+    exec(fast_block, scope2)
+    assert sock1.default_value == sock2.default_value == (1, 0, 0, 1)
+    assert not n2.inputs.contains_checked, "Optimized lookup must use .get() without linear __contains__"
+
+    # Case 3: numeric socket index
+    sock1, sock2 = FakeSocket(), FakeSocket()
+    n1, n2 = FakeNode(), FakeNode()
+    n1.inputs[0] = sock1
+    n2.inputs[0] = sock2
+    scope1 = {"node": n1, "attrName": "0", "attrData": {"value": 0.5}, "self": Helper()}
+    scope2 = {"node": n2, "attrName": "0", "attrData": {"value": 0.5}, "self": Helper()}
+    exec(orig_block, scope1)
+    exec(fast_block, scope2)
+    assert sock1.default_value == sock2.default_value == 0.5
+
+    # Case 4: custom RNA attribute on node
+    n1, n2 = FakeNode(), FakeNode()
+    scope1 = {"node": n1, "attrName": "custom_val", "attrData": {"value": "custom"}, "self": Helper()}
+    scope2 = {"node": n2, "attrName": "custom_val", "attrData": {"value": "custom"}, "self": Helper()}
+    exec(orig_block, scope1)
+    exec(fast_block, scope2)
+    assert n1["custom_val"] == n2["custom_val"] == "custom"
+
+
 if __name__ == "__main__":
     test_material_lookup()
+    test_shader_input_number_fast_path()
     test_redundant_preview_shaders_are_skipped()
     test_minecraft_shader_graph_starts_clean()
+    test_unchanged_usd_diffuse_colors_avoid_repeated_material_updates()
     test_shared_image_color_and_alpha_are_isolated()
     test_flat_shading_buffer_preserves_every_flag()
+    test_direct_material_socket_lookup()
     print("Pinned MiEx materials preserve shared-image appearance, shader reset, fast lookup and USD imports.")

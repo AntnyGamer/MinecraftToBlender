@@ -28,10 +28,15 @@ if($coarse.Count -ne 9216 -or $coarse[0].chunkZ -le -80 -or
     throw 'Coarse preview did not keep the northern sampled edge last'
 }
 $commands = @(New-PreviewChunkCommands $chunks 64)
-if($chunks.Count -ne 4096 -or $commands.Count -ne 64) {
-    throw 'Expected 4096 positions in 64 preview batches'
+if($chunks.Count -ne 4096 -or $commands.Count -ne 65) {
+    throw 'Expected 4096 positions, 64 regular batches and one cold-start replay'
 }
-$sent = @($commands | ForEach-Object {
+$firstKeys = @($commands[0].chunks | ForEach-Object { "$($_.chunkX),$($_.chunkZ)" })
+$retryKeys = @($commands[-1].chunks | ForEach-Object { "$($_.chunkX),$($_.chunkZ)" })
+if(($retryKeys -join ';') -ne ($firstKeys -join ';')) {
+    throw 'Final warm-reader retry must repeat the original first batch exactly'
+}
+$sent = @($commands[0..($commands.Count - 2)] | ForEach-Object {
     if($_.command -ne 'getChunk' -or $_.image -ne $true -or
        @($_.chunks).Count -gt 64 -or @($_.chunks).Count -lt 1) {
         throw 'Invalid preview batch shape'
@@ -44,8 +49,9 @@ if(($actualKeys -join ';') -ne ($expectedKeys -join ';')) {
     throw 'Preview batches lost, duplicated or reordered source coordinates'
 }
 $tail = @(New-PreviewChunkCommands $chunks[0..64] 64)
-if($tail.Count -ne 2 -or @($tail[1].chunks).Count -ne 1) {
-    throw 'Final partial preview batch was not preserved'
+if($tail.Count -ne 3 -or @($tail[1].chunks).Count -ne 1 -or
+   @($tail[2].chunks).Count -ne 64) {
+    throw 'Final partial batch or first-batch replay was not preserved'
 }
 if(@(New-PreviewChunkCommands @() 64).Count -ne 0) {
     throw 'Empty preview created commands'
@@ -98,4 +104,4 @@ exit 0
     }
     Remove-Item -LiteralPath $fixture -Force
 }
-Write-Host 'Lossless preview batches, incremental/partial progress and final pipe drain passed.'
+Write-Host 'Lossless preview batches, cold-start replay, incremental/partial progress and final pipe drain passed.'

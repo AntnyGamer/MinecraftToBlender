@@ -7,20 +7,34 @@ try {
     # must still have distinct tinted-line and untinted-overlay planes.
     Set-BedrockStateCorrections $root (Join-Path $PSScriptRoot '../assets') bedrock
     $models = Join-Path $root 'resources/BlenderEEVEE/assets/minecraft/models/block'
+    $depths = [System.Collections.Generic.HashSet[string]]::new()
     foreach($name in @('redstone_dust_dot','redstone_dust_side','redstone_dust_side_alt','redstone_dust_up')) {
         $path = Join-Path $models ($name + '.json')
         $model = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
         $line = $model.elements[0]; $overlay = $model.elements[1]
         $axis = if($name -eq 'redstone_dust_up') { 2 } else { 1 }
-        if([Math]::Abs(($overlay.from[$axis] - $line.from[$axis]) - 0.001) -gt 0.0000001) {
-            throw ('Redstone overlay remains coincident: ' + $name)
+        $baseOffset = switch($name) {
+            'redstone_dust_side' { 0.0625 }
+            'redstone_dust_side_alt' { 0.125 }
+            default { 0.0 }
+        }
+        if([Math]::Abs(($overlay.from[$axis] - $line.from[$axis]) - 0.03125) -gt 0.0000001) {
+            throw ('Redstone overlay remains coincident or incorrectly layered: ' + $name)
+        }
+        if($name -ne 'redstone_dust_up') {
+            foreach($element in @($line,$overlay)) {
+                $depth = [string]([Math]::Round([double]$element.from[$axis],7))
+                if(-not $depths.Add($depth)) { throw ('Redstone corner planes overlap at ' + $depth) }
+            }
         }
         if($line.faces.PSObject.Properties.Value[0].tintindex -ne 0) { throw 'Lost redstone power tint' }
-        # Once the vanilla model exists, preserve its material/UV definition
-        # and derive the correction from it each run, without accumulating bias.
+        # Reconstruct the unmodified vanilla-equivalent cached model to verify
+        # installation never accumulates height offsets across invocations.
         $base = Join-Path $root ('resources/base_resource_pack/assets/minecraft/models/block/' + $name + '.json')
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $base) | Out-Null
-        $overlay.from[$axis] -= 0.001; $overlay.to[$axis] -= 0.001
+        $line.from[$axis] -= $baseOffset; $line.to[$axis] -= $baseOffset
+        $overlay.from[$axis] -= ($baseOffset + 0.03125)
+        $overlay.to[$axis] -= ($baseOffset + 0.03125)
         [IO.File]::WriteAllText($base, ($model | ConvertTo-Json -Depth 40))
     }
     Set-BedrockStateCorrections $root (Join-Path $PSScriptRoot '../assets') bedrock
@@ -35,7 +49,7 @@ try {
     Set-BedrockStateCorrections $root (Join-Path $PSScriptRoot '../assets') java
     if(Test-Path -LiteralPath $connections) { throw 'Bedrock connections leaked into Java export' }
     if(@(Get-ChildItem -LiteralPath $models -Filter 'redstone_*.json').Count -ne 0) { throw 'Bedrock model overrides leaked into Java export' }
-    Write-Host 'Bedrock dust models: fresh install, cached base, overlay spacing, idempotence and edition cleanup passed.'
+    Write-Host 'Bedrock dust models: fresh install, corner/overlay depth separation, idempotence and edition cleanup passed.'
 } finally {
     # Only remove this test's explicitly allocated temporary tree.
     $resolvedRoot = [IO.Path]::GetFullPath($root)

@@ -54,14 +54,78 @@ NORMALIZE_BANNER = '''
 
     // Older Bedrock signs store front text at the root. Do not synthesize
     // null fields in expression dictionaries or discard a modern back side.
-    private static void normalizeBedrockSign(String name, NbtTagCompound tag) {
-        if(!name.contains("sign") || tag.get("FrontText") != null || tag.get("Text") == null) return;
-        NbtTagCompound front = NbtTagCompound.newInstance("FrontText");
-        for(String field : new String[]{"Text", "SignTextColor", "IgnoreLighting", "HideGlowOutline"}) {
-            NbtTag value = tag.get(field);
-            if(value != null) front.addElement(value.copy());
+    // MiEx's text mesh creator uses the active font's character widths in
+    // eighths of a Minecraft font pixel, with a one-pixel inter-character gap.
+    // Vanilla signs are limited to 90 pixels per line (60 on hanging signs).
+    // Keep the same glyphs, size, colour codes and centring; only suppress the
+    // overflow that cannot be entered through Minecraft's normal sign editor.
+    private static String fitBedrockSignLine(String line,
+            nl.bramstout.mcworldexporter.resourcepack.Font font, float widthLimit) {
+        if(line.isEmpty() || font == null) return line;
+        StringBuilder kept = new StringBuilder(line.length());
+        float width = 0f;
+        boolean bold = false;
+        for(int offset = 0; offset < line.length();) {
+            int cp = line.codePointAt(offset);
+            if(cp == 167 && offset + 1 < line.length()) {
+                int codeIndex = offset + 1;
+                boolean undo = line.charAt(codeIndex) == '!';
+                if(undo && codeIndex + 1 < line.length()) codeIndex++;
+                char code = line.charAt(codeIndex);
+                if(code == 'l') bold = !undo;
+                else if(code != 'm' && code != 'n' && code != 'o') bold = false;
+                kept.append(line, offset, codeIndex + 1);
+                offset = codeIndex + 1;
+                continue;
+            }
+            nl.bramstout.mcworldexporter.resourcepack.Font.Character glyph =
+                font.getCharacterInfo(cp);
+            if(glyph != null) {
+                float advance = glyph.getWidth() + (bold ? 0.125f : 0f) +
+                    (width > 0f ? 0.125f : 0f);
+                if(width + advance > widthLimit + 0.000001f) break;
+                width += advance;
+            }
+            kept.appendCodePoint(cp);
+            offset += Character.charCount(cp);
         }
-        tag.addElement(front);
+        return kept.toString();
+    }
+
+    private static void fitBedrockSignSide(NbtTagCompound tag,
+            nl.bramstout.mcworldexporter.resourcepack.Font font, float widthLimit) {
+        NbtTag text = tag.get("Text");
+        if(text == null || !(text instanceof NbtTagString)) return;
+        String original = text.asString();
+        String[] lines = original.split("\\n", -1);
+        StringBuilder clipped = new StringBuilder(original.length());
+        for(int i = 0; i < lines.length; i++) {
+            if(i > 0) clipped.append('\\n');
+            clipped.append(fitBedrockSignLine(lines[i], font, widthLimit));
+        }
+        if(!original.contentEquals(clipped))
+            tag.addElement(NbtTagString.newInstance("Text", clipped.toString()));
+    }
+
+    private static void normalizeBedrockSign(String name, NbtTagCompound tag) {
+        if(!name.contains("sign")) return;
+        if(tag.get("FrontText") == null && tag.get("Text") != null) {
+            NbtTagCompound front = NbtTagCompound.newInstance("FrontText");
+            for(String field : new String[]{"Text", "SignTextColor", "IgnoreLighting", "HideGlowOutline"}) {
+                NbtTag value = tag.get(field);
+                if(value != null) front.addElement(value.copy());
+            }
+            tag.addElement(front);
+        }
+        nl.bramstout.mcworldexporter.resourcepack.Font font =
+            nl.bramstout.mcworldexporter.resourcepack.ResourcePacks.getFont("minecraft:default");
+        if(font == null) return;
+        float limit = name.contains("hanging_sign") ? 60f / 8f : 90f / 8f;
+        for(String side : new String[]{"FrontText", "BackText"}) {
+            NbtTag value = tag.get(side);
+            if(value instanceof NbtTagCompound)
+                fitBedrockSignSide((NbtTagCompound) value, font, limit);
+        }
     }
 
 '''

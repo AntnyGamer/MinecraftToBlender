@@ -94,6 +94,7 @@ assert avoid_pointclouds() == 1
 assert empty_with_mod.hide_viewport is True
 assert empty_with_mod.hide_render is False, "Render visibility must remain untouched"
 assert empty_with_mod.modifiers[0].show_viewport is False, "Modifier viewport evaluation must be disabled"
+assert already_hidden.modifiers[0].show_viewport is False, "Modifier evaluation on already-hidden empty point clouds must also be disabled"
 assert has_points_with_mod.hide_viewport is False, "Point clouds with points must stay visible"
 assert empty_no_mod.hide_viewport is False, "Point clouds without modifiers must stay visible"
 assert empty_with_children.hide_viewport is False, "Point clouds with children must not be hidden"

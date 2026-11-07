@@ -142,3 +142,15 @@ and the source comparison exports stayed unchanged. Automated tests retain the
 smaller-only replacement rule, repeated-run behavior and present-helper path.
 Compaction keeps its existing opt-in activation and conversion work; these
 storage figures apply to USD files, not saved `.blend` projects.
+
+## Further pass: Viewport FPS, modifier evaluation and modern Blender compatibility
+
+Four additional refinements run automatically during imports and existing project optimizations:
+
+| Operation | Change | Rationale and Verification |
+| --- | --- | --- |
+| Evaluated bounds fast-path | Skip scene-wide dependency graph evaluation when modified objects have viewport evaluation disabled (`show_viewport = False`) or are hidden in viewport (`hide_viewport = True`). | When viewport evaluation is disabled on all modifiers of an object, its visible viewport extents cannot differ from stored bounds. Automated unit test `test_blender_bounds_fastpath.py` verifies both active and disabled modifier cases. |
+| Empty point-cloud modifier disabling | Also disable modifier viewport evaluation (`show_viewport = False`) on empty point clouds that were already hidden. | Catches empty point clouds in previously saved or user-toggled projects where an empty point cloud was hidden but its Geometry Nodes modifier graph still evaluated. Unit test `test_viewport_fps_optimizations.py` validates both unhidden and pre-hidden objects. |
+| Modern Blender material compatibility | Replace deprecated `Material.use_nodes` property accesses with `getattr(material, 'node_tree', None) is not None` across texture audit, water materials, normal compaction, and display color cleanup. | Eliminates `DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0` on Blender 5.2+ while preserving exact material node-tree filtering. Verified on Blender 5.2.3 LTS. |
+| Scene framing instance cache | Increase the cached prototype instance bounding box corners capacity from 512 to 4,096 instances. | Avoids thrashing and recalculating corner tuples for scenes with hundreds of instanced prototype collections (e.g. Night Blades Survival with 844 collection instances). Retains exact visible extents framing. |
+

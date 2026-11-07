@@ -409,11 +409,13 @@ def load_patched_importer(src):
 
 def needs_evaluated_bounds(ob):
     """Whether an object's visible extents can differ from its stored bounds."""
+    if getattr(ob, 'hide_viewport', False):
+        return False
     if getattr(ob, 'instance_type', 'NONE') != 'NONE':
         return True
     if getattr(ob, 'type', None) == 'POINTCLOUD':
         return len(getattr(getattr(ob, 'data', None), 'points', ())) > 0
-    if len(getattr(ob, 'modifiers', ())):
+    if any(getattr(mod, 'show_viewport', True) for mod in getattr(ob, 'modifiers', ())):
         return True
     return False
 
@@ -479,7 +481,7 @@ def audit_imported_textures(target):
     """Report missing external source images without modifying the scene."""
     image_nodes = sum(
         node.type == 'TEX_IMAGE'
-        for material in bpy.data.materials if material.use_nodes
+        for material in bpy.data.materials if getattr(material, 'node_tree', None) is not None
         for node in material.node_tree.nodes
     )
     missing = []
@@ -538,7 +540,7 @@ def apply_minecraft_water_materials():
     """
     count = 0
     for material in bpy.data.materials:
-        if not is_minecraft_water_material(material.name) or not material.use_nodes:
+        if not is_minecraft_water_material(material.name) or getattr(material, 'node_tree', None) is None:
             continue
         # MiEx expands the JSON node key MAT into MAT_<texture>_<hash>.
         # Use the actual node type rather than the unexpanded template key.
@@ -667,7 +669,7 @@ def frame_actual_scene(evaluate_instances=True):
                     corners = instance_corners.get(key)
                     if corners is None:
                         corners = tuple(Vector(p) for p in ob.bound_box)
-                        if len(instance_corners) < 512:
+                        if len(instance_corners) < 4096:
                             instance_corners[key] = corners
                 else:
                     corners = (Vector(p) for p in ob.bound_box)
@@ -905,7 +907,7 @@ def compact_redundant_usd_normals():
     """
     from array import array
 
-    trees = [mat.node_tree for mat in bpy.data.materials if mat.use_nodes]
+    trees = [mat.node_tree for mat in bpy.data.materials if getattr(mat, 'node_tree', None) is not None]
     trees.extend(bpy.data.node_groups)
     for tree in trees:
         for node in tree.nodes:
@@ -977,7 +979,7 @@ def remove_unused_usd_display_colors():
                     log('MESH MEMORY: retained USD displayColor for vertex-color viewport display.')
                     return 0
 
-    trees = [mat.node_tree for mat in bpy.data.materials if mat.use_nodes]
+    trees = [mat.node_tree for mat in bpy.data.materials if getattr(mat, 'node_tree', None) is not None]
     trees.extend(bpy.data.node_groups)
     for tree in trees:
         for node in tree.nodes:
@@ -1199,15 +1201,16 @@ def avoid_evaluating_empty_pointclouds():
                 and hasattr(ob.data, 'points')
                 and len(ob.data.points) == 0
                 and len(getattr(ob, 'modifiers', ())) > 0
-                and len(getattr(ob, 'children', ())) == 0
-                and not getattr(ob, 'hide_viewport', False)):
-            ob.hide_viewport = True
+                and len(getattr(ob, 'children', ())) == 0):
+            if not getattr(ob, 'hide_viewport', False):
+                ob.hide_viewport = True
+                count += 1
             for mod in getattr(ob, 'modifiers', ()):
-                try:
-                    setattr(mod, 'show_viewport', False)
-                except Exception:
-                    pass
-            count += 1
+                if getattr(mod, 'show_viewport', True):
+                    try:
+                        setattr(mod, 'show_viewport', False)
+                    except Exception:
+                        pass
     if count:
         log('VIEWPORT: skipped modifier evaluation for', count,
             'empty point-cloud objects with 0 points; geometry and renders unchanged.')

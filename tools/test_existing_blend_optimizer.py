@@ -129,4 +129,25 @@ with tempfile.TemporaryDirectory() as folder:
 
 assert source.count("def optimize_existing_blend(") == 1
 assert "'--optimize-blend' in arguments" in source
+
+# Verify main() CLI argument extraction handles both with and without '--' delimiter
+main_node = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+called_optimize = []
+scope_main = {
+    "sys": NS(argv=["blender.exe", "--background", "--python", "importer.py", "--", "target.blend", "--optimize-blend"]),
+    "Path": Path,
+    "optimize_existing_blend": lambda target, **kw: called_optimize.append((target, kw)),
+}
+exec(compile(ast.Module(body=[main_node], type_ignores=[]), "<main>", "exec"), scope_main)
+scope_main["main"]()
+assert len(called_optimize) == 1
+assert called_optimize[0][0].name == "target.blend"
+
+# Direct invocation without '--'
+called_optimize.clear()
+scope_main["sys"].argv = ["importer.py", "target.blend", "--optimize-blend"]
+scope_main["main"]()
+assert len(called_optimize) == 1
+assert called_optimize[0][0].name == "target.blend"
+
 print("Existing Blender optimization saves a separate copy and preserves the original.")

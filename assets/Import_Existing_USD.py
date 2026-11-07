@@ -1337,7 +1337,7 @@ def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
 
 
 def main():
-    arguments = sys.argv[sys.argv.index('--') + 1:]
+    arguments = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else sys.argv[1:]
     if '--optimize-blend' in arguments:
         flags = arguments[1:]
         allowed = {'--optimize-blend', '--batch-static-meshes', '--minecraft-view'}
@@ -1353,7 +1353,7 @@ def main():
     flags = arguments[3:]
     accepted = {'--minecraft-water', '--batch-static-meshes', '--minecraft-view'}
     if len(arguments) < 3 or len(flags) != len(set(flags)) or not set(flags) <= accepted:
-        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water] [--batch-static-meshes]')
+        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water] [--batch-static-meshes] [--minecraft-view]')
     minecraft_water = '--minecraft-water' in flags
     batch_meshes = '--batch-static-meshes' in flags
     minecraft_view = '--minecraft-view' in flags

@@ -718,7 +718,13 @@ func buttonText(dc uintptr, t string, r rect, fg uint32, f uintptr, align uintpt
 // Simple, consistent Win32 owner-drawn buttons. Every control is borderless;
 // selection/focus is communicated by fill and text contrast, not a focus box.
 func paintButton(lp uintptr) uintptr {
-	d := (*drawItem)(unsafe.Pointer(lp))
+	if lp == 0 {
+		return 0
+	}
+	d := *(**drawItem)(unsafe.Pointer(&lp))
+	if d == nil {
+		return 0
+	}
 	id, r := int(d.ID), d.Rect
 	nav := id == idTabExport || id == idTabImport || id == idTabSettings || id == idTabOptions
 	active := (id == idTabExport && ui.tab == 0) || (id == idTabImport && ui.tab == 1) || (id == idTabSettings && ui.tab == 2) || (id == idTabOptions && ui.tab == 3)
@@ -1005,7 +1011,13 @@ func loadSelectedImage(path string) {
 }
 
 func setMinimumSize(lp uintptr) {
-	mi := (*minmax)(unsafe.Pointer(lp))
+	if lp == 0 {
+		return
+	}
+	mi := *(**minmax)(unsafe.Pointer(&lp))
+	if mi == nil {
+		return
+	}
 	mi.MinTrack = point{810, 570}
 }
 

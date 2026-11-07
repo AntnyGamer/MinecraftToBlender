@@ -7,6 +7,7 @@
 *.usda
 *.usdc
 *.miex
+tools/*.class
 
 # Local runs, world snapshots, downloaded dependencies
 AppTools/

@@ -204,6 +204,15 @@ function New-PreviewChunkCommands([object[]]$chunks, [int]$batchSize = 64) {
         }
         $requests.Add(@{command='getChunk'; chunks=$batch.ToArray(); image=$true})
     }
+    if($requests.Count -gt 0) {
+        # MiEx can return zero-alpha tiles in its FIRST getChunk response while
+        # starting the world reader. The older "move north row last" workaround
+        # merely moved that one-row gap to the next sampled Z. Re-request that
+        # exact first batch after the remaining chunks have warmed the reader.
+        # A later empty tile never erases an earlier valid tile in the Go renderer.
+        $firstBatch = $requests[0]
+        $requests.Add(@{command='getChunk'; chunks=$firstBatch.chunks; image=$true})
+    }
     return $requests.ToArray()
 }
 function Update-PreviewChunkProgress([string]$logPath, [int]$requestedChunks, [int]$batchSize) {
@@ -234,8 +243,9 @@ function Update-PreviewChunkProgress([string]$logPath, [int]$requestedChunks, [i
         $script:previewBatchesFinished++
         $script:previewLastResponse = [DateTime]::UtcNow
         $done = [math]::Min($requestedChunks, $script:previewBatchesFinished * $batchSize)
-        Write-Host ("[PREVIEW] MiEx replied for {0}/{1} requested chunks ({2} batches)." -f
-            $done, $requestedChunks, $script:previewBatchesFinished) -ForegroundColor Cyan
+        $totalBatches = [int][math]::Ceiling($requestedChunks / [double]$batchSize) + [int]($requestedChunks -gt 0)
+        Write-Host ("[PREVIEW] MiEx replied for {0}/{1} requested chunks ({2}/{3} batches, including cold-start retry)." -f
+            $done, $requestedChunks, $script:previewBatchesFinished, $totalBatches) -ForegroundColor Cyan
     }
 }
 function Format-MiExMemory([System.Diagnostics.Process]$process) {
@@ -976,8 +986,8 @@ try {
             Write-Host ("Preview: large area ($spanX x $spanZ chunks); requesting $($probeChunks.Count) coarse color samples.")
         }
         $commands += @(New-PreviewChunkCommands $probeChunks 64)
-        Write-Host ("Preview: requesting images in {0} sequential batches of at most 64 chunks." -f
-            [int][math]::Ceiling($probeChunks.Count / 64.0)) -ForegroundColor Cyan
+        Write-Host ("Preview: requesting images in {0} sequential batches of at most 64 chunks, including a final retry of the first batch." -f
+            ([int][math]::Ceiling($probeChunks.Count / 64.0) + [int]($probeChunks.Count -gt 0))) -ForegroundColor Cyan
     } else {
         $commands += @(
           @{command='getWorld'},

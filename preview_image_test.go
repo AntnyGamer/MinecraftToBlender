@@ -365,6 +365,38 @@ func TestPreviewCombinesSeparateMiExChunkBatches(t *testing.T) {
 }
 
 
+func TestPreviewColdFirstBatchIsRecoveredByFinalReplay(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "miex.log")
+	output := filepath.Join(dir, "preview.png")
+	// First getChunk batch returns blank pixels on a cold MiEx reader.
+	// Later batches are valid, then the first batch is requested again.
+	blank := base64.StdEncoding.EncodeToString(make([]byte, 16*16*4))
+	first := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"layerCount\":1,\"image\":\"%s\"}]}\n", blank)
+	next := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":0,\"chunkZ\":1,\"image\":\"%s\"}]}\n", solidChunkImage(23, 121, 34))
+	retry := fmt.Sprintf("[COMMAND] {\"chunks\":[{\"chunkX\":0,\"chunkZ\":0,\"image\":\"%s\"}]}\n", solidChunkImage(210, 31, 42))
+	if err := os.WriteFile(logPath, []byte(first+next+retry), 0600); err != nil { t.Fatal(err) }
+	loaded, err := renderSampledPreviewExpected(logPath, output, 16, 16, 32, 3)
+	if err != nil || loaded != 2 {
+		t.Fatalf("first cold batch was not restored: loaded=%d err=%v", loaded, err)
+	}
+	f, err := os.Open(output)
+	if err != nil { t.Fatal(err) }
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil { t.Fatal(err) }
+	for _, sample := range []struct{x,y int; red,green,blue uint32}{
+		{0,0,210,31,42},
+		{0,128,23,121,34},
+	} {
+		r,g,b,_ := img.At(sample.x,sample.y).RGBA()
+		if r>>8 != sample.red || g>>8 != sample.green || b>>8 != sample.blue {
+			t.Fatalf("recovered chunk (%d,%d) got %d,%d,%d; want %d,%d,%d",
+				sample.x,sample.y,r>>8,g>>8,b>>8,sample.red,sample.green,sample.blue)
+		}
+	}
+}
+
 func TestPreviewRequiresEveryMiExBatch(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir,"preview.log")
@@ -385,10 +417,10 @@ func TestPreviewRequiresEveryMiExBatch(t *testing.T) {
 
 func TestPreviewBatchCountMatchesExporterChunkGrid(t *testing.T) {
 	for _, sample := range []struct{ x,z,size,batches int } {
-		{8,8,16,1},
-		{0,0,1024,64},
-		{4,-470,1024,67}, // Actual nonaligned Bedrock region: 65 x 65 chunks.
-		{0,0,8192,144}, // Coarse 96 x 96 sample grid.
+		{8,8,16,2},
+		{0,0,1024,65},
+		{4,-470,1024,68}, // Actual nonaligned Bedrock region: 65 x 65 chunks.
+		{0,0,8192,145}, // Coarse 96 x 96 sample grid.
 	} {
 		if got:=previewBatchCount(sample.x,sample.z,sample.size);got!=sample.batches {
 			t.Fatalf("preview (%d,%d) size %d: %d batches, expected %d",sample.x,sample.z,sample.size,got,sample.batches)

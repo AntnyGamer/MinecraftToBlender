@@ -387,13 +387,13 @@ public final class MiExBedrockRegression {
         for(String modelFile:new String[]{"Bedrock_Signs.json","Bedrock_Hanging_Signs.json"}) {
             NbtTagCompound shortSign=props(), shortFront=props();
             shortFront.setName("FrontText");
-            shortFront.addElement(NbtTagString.newNonPooledInstance("Text","Hello\\nWorld"));
+            shortFront.addElement(NbtTagString.newNonPooledInstance("Text","Hello\nWorld"));
             shortSign.addElement(shortFront);
             ExprContext regular=evaluate(modelFile,"minecraft:oak"+(modelFile.contains("Hanging")?"_hanging":"")+"_sign",shortSign);
             expect(regular.variables.get("fitScale").asFloat(),1.0f);
             NbtTagCompound longSign=props(), longFront=props(), longBack=props();
             longFront.setName("FrontText");
-            longFront.addElement(NbtTagString.newNonPooledInstance("Text","Short\\nFREE COOKING SERVICES AND BUILDING MATERIALS"));
+            longFront.addElement(NbtTagString.newNonPooledInstance("Text","Short\nFREE COOKING SERVICES AND BUILDING MATERIALS"));
             longBack.setName("BackText");
             longBack.addElement(NbtTagString.newNonPooledInstance("Text","Back"));
             longSign.addElement(longFront);

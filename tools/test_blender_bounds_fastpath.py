@@ -27,6 +27,12 @@ assert need(obj(instance="COLLECTION")), "collection instance bounds require eva
 assert not need(obj(instance="COLLECTION", hide_viewport=True)), "hidden collection instance should not force evaluation"
 assert need(obj(typ="POINTCLOUD", points=[1])), "nonempty point cloud must retain evaluation"
 assert not need(obj(typ="POINTCLOUD", points=[1], hide_viewport=True)), "hidden point cloud should not force evaluation"
+assert not need(SimpleNamespace(type="MESH", instance_type="NONE", modifiers=["nodes"],
+                                data=SimpleNamespace(points=()), hide_viewport=False,
+                                hide_get=lambda: True)), "view-layer hidden object should not force evaluation"
+assert not need(SimpleNamespace(type="MESH", instance_type="NONE", modifiers=["nodes"],
+                                data=SimpleNamespace(points=()), hide_viewport=False,
+                                visible_get=lambda: False)), "invisible view-layer object should not force evaluation"
 frame = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
              and n.name == "frame_actual_scene")
 assert any(isinstance(n, ast.If) and isinstance(n.test, ast.Name)

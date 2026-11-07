@@ -409,6 +409,16 @@ def load_patched_importer(src):
 
 def needs_evaluated_bounds(ob):
     """Whether an object's visible extents can differ from its stored bounds."""
+    try:
+        if callable(getattr(ob, 'visible_get', None)) and not ob.visible_get():
+            return False
+    except Exception:
+        pass
+    try:
+        if callable(getattr(ob, 'hide_get', None)) and ob.hide_get():
+            return False
+    except Exception:
+        pass
     if getattr(ob, 'hide_viewport', False):
         return False
     if getattr(ob, 'instance_type', 'NONE') != 'NONE':
@@ -435,7 +445,7 @@ def scene_report():
         pending = []
         found = False
         while parent is not None:
-            key = parent.as_pointer()
+            key = parent.as_pointer() if hasattr(parent, 'as_pointer') else id(parent)
             cached = ancestor_prototype.get(key)
             if cached is not None:
                 found = cached
@@ -454,18 +464,21 @@ def scene_report():
     evaluate_bounds = False
     # Avoid materializing and revisiting every scene object several times.
     for o in bpy.context.scene.objects:
-        counts[o.type] += 1
+        o_type = o.type
+        counts[o_type] += 1
         evaluate_bounds = evaluate_bounds or needs_evaluated_bounds(o)
-        if o.type == 'MESH':
+        if o_type == 'MESH':
             mesh_count += 1
-            mesh_faces = len(o.data.polygons)
+            data = o.data
+            mesh_faces = len(data.polygons)
             faces += mesh_faces
-            verts += len(o.data.vertices)
+            verts += len(data.vertices)
             if not is_prototype(o):
                 terrain_faces += mesh_faces
-        elif o.type == 'POINTCLOUD':
+        elif o_type == 'POINTCLOUD':
             cloud_count += 1
-            points += len(o.data.points)
+            data = o.data
+            points += len(data.points)
             geonodes += sum(mod.type == 'NODES' for mod in o.modifiers)
 
     log('BLENDER scene object types:', dict(counts))
@@ -665,7 +678,7 @@ def frame_actual_scene(evaluate_instances=True):
                 else:
                     true_instances += 1
                 if instance.is_instance:
-                    key = ob.as_pointer()
+                    key = ob.as_pointer() if hasattr(ob, 'as_pointer') else id(ob)
                     corners = instance_corners.get(key)
                     if corners is None:
                         corners = tuple(Vector(p) for p in ob.bound_box)
@@ -686,7 +699,6 @@ def frame_actual_scene(evaluate_instances=True):
                             bounds_min[axis] = value
                         if value > bounds_max[axis]:
                             bounds_max[axis] = value
-                    del value
                 del matrix_world
                 encountered += 1
         except Exception as exc:
@@ -695,8 +707,20 @@ def frame_actual_scene(evaluate_instances=True):
         log('PHASE: Using stored mesh bounds; skipping redundant scene-wide dependency graph evaluation.')
     if not encountered:
         for ob in bpy.context.scene.objects:
-            if ob.type != 'MESH' or not ob.visible_get():
+            if getattr(ob, 'type', None) != 'MESH':
                 continue
+            if getattr(ob, 'hide_viewport', False):
+                continue
+            try:
+                if callable(getattr(ob, 'visible_get', None)) and not ob.visible_get():
+                    continue
+            except Exception:
+                pass
+            try:
+                if callable(getattr(ob, 'hide_get', None)) and ob.hide_get():
+                    continue
+            except Exception:
+                pass
             matrix_world = ob.matrix_world
             for p in ob.bound_box:
                 world_p = matrix_world @ Vector(p)
@@ -752,7 +776,7 @@ def is_conservatively_opaque_terrain_material(material):
     ))
 
 
-def terrain_mesh_batch_key(ob):
+def terrain_mesh_batch_key(ob, ancestor_cache=None, opaque_mat_cache=None):
     """Identify compatible static opaque terrain faces in nearby MiEx chunks.
 
     No entities, instancers, water, modifiers, shared mesh data, animations,
@@ -772,7 +796,17 @@ def terrain_mesh_batch_key(ob):
     if ob.material_slots[0].link != 'DATA':
         return None
     mat = ob.material_slots[0].material
-    if mat is None or not is_conservatively_opaque_terrain_material(mat):
+    if mat is None:
+        return None
+    mat_key = mat.as_pointer() if hasattr(mat, 'as_pointer') else id(mat)
+    if opaque_mat_cache is not None:
+        is_opaque = opaque_mat_cache.get(mat_key)
+        if is_opaque is None:
+            is_opaque = is_conservatively_opaque_terrain_material(mat)
+            opaque_mat_cache[mat_key] = is_opaque
+        if not is_opaque:
+            return None
+    elif not is_conservatively_opaque_terrain_material(mat):
         return None
     if getattr(mat, 'surface_render_method', 'DITHERED') == 'BLENDED':
         return None
@@ -783,14 +817,28 @@ def terrain_mesh_batch_key(ob):
         return None
     if ob.parent is not None:
         parent = ob.parent
+        pending = []
+        rejected = False
         while parent is not None:
+            pkey = parent.as_pointer() if hasattr(parent, 'as_pointer') else id(parent)
+            if ancestor_cache is not None and pkey in ancestor_cache:
+                rejected = ancestor_cache[pkey]
+                break
+            pending.append(pkey)
             if parent.name.partition('.')[0].lower() in (
                 'entities', 'prototypes', 'individualblocksbasemeshes', 'background'
             ):
-                return None
+                rejected = True
+                break
             if parent.animation_data or parent.constraints or parent.hide_render:
-                return None
+                rejected = True
+                break
             parent = parent.parent
+        if ancestor_cache is not None:
+            for pkey in pending:
+                ancestor_cache[pkey] = rejected
+        if rejected:
+            return None
     # MiEx's Util.makeSafeName changes a negative '-' sign to '_'.
     # Thus chunk X=-1 Z=-2 becomes mesh_chunk__1__2_<hash> in USD.
     # Recognize both that upstream-safe form and raw signed names.
@@ -815,7 +863,7 @@ def terrain_mesh_batch_key(ob):
     colors = tuple((attr.name, attr.domain, attr.data_type) for attr in ob.data.color_attributes)
     attributes = tuple((attr.name, attr.domain, attr.data_type)
                        for attr in getattr(ob.data, 'attributes', ()))
-    return (area, mat.as_pointer(), uv, colors, attributes)
+    return (area, mat_key, uv, colors, attributes)
 
 
 def batch_static_terrain_meshes(max_faces=75000, max_objects=8):
@@ -827,8 +875,10 @@ def batch_static_terrain_meshes(max_faces=75000, max_objects=8):
     """
     groups = {}
     before = 0
+    ancestor_cache = {}
+    opaque_mat_cache = {}
     for ob in tuple(bpy.context.scene.objects):
-        key = terrain_mesh_batch_key(ob)
+        key = terrain_mesh_batch_key(ob, ancestor_cache, opaque_mat_cache)
         if key is None:
             continue
         face_count = len(ob.data.polygons)
@@ -836,6 +886,11 @@ def batch_static_terrain_meshes(max_faces=75000, max_objects=8):
             continue
         before += 1
         groups.setdefault(key, []).append(ob)
+
+    if not any(len(g) >= 2 for g in groups.values()):
+        log('MESH BATCHING: no eligible similarly-materialed nearby meshes; '
+            'no viewport speedup is expected from this option.')
+        return 0
 
     joined = 0
     combined_faces = 0
@@ -927,7 +982,7 @@ def compact_redundant_usd_normals():
         if ob.type != 'MESH' or ob.modifiers or ob.animation_data:
             continue
         mesh = ob.data
-        key = mesh.as_pointer()
+        key = mesh.as_pointer() if hasattr(mesh, 'as_pointer') else id(mesh)
         if key in seen or mesh.users != 1 or mesh.shape_keys is not None or mesh.animation_data:
             continue
         seen.add(key)
@@ -998,7 +1053,7 @@ def remove_unused_usd_display_colors():
     removed = released = 0
     for ob in bpy.context.scene.objects:
         if (ob.type != 'MESH' or ob.modifiers or ob.animation_data or
-                ob.mode != 'OBJECT'):
+                getattr(ob, 'mode', 'OBJECT') != 'OBJECT'):
             continue
         mesh = ob.data
         if (mesh.users != 1 or mesh.shape_keys is not None or
@@ -1033,7 +1088,7 @@ def deduplicate_exact_material_slots():
         # material collections when there is nothing to deduplicate.
         if len(mesh.materials) < 2:
             continue
-        key = mesh.as_pointer()
+        key = mesh.as_pointer() if hasattr(mesh, 'as_pointer') else id(mesh)
         if key in visited:
             continue
         visited.add(key)
@@ -1044,7 +1099,7 @@ def deduplicate_exact_material_slots():
         positions = {}
         remap = []
         for mat in slots:
-            key = mat.as_pointer()
+            key = mat.as_pointer() if hasattr(mat, 'as_pointer') else id(mat)
             if key not in positions:
                 positions[key] = len(unique)
                 unique.append(mat)
@@ -1058,10 +1113,14 @@ def deduplicate_exact_material_slots():
         # Blender can retain stale face indices after a material slot was
         # removed. Preserve those meshes rather than crashing or guessing
         # which material the user intended for their unassigned faces.
-        if any(val < 0 or val >= len(remap) for val in values):
-            continue
+        stale = False
         for i, val in enumerate(values):
+            if val < 0 or val >= len(remap):
+                stale = True
+                break
             values[i] = remap[val]
+        if stale:
+            continue
         mesh.materials.clear()
         for mat in unique:
             mesh.materials.append(mat)
@@ -1098,10 +1157,10 @@ def clear_bulk_import_selection(min_meshes=128):
 
 
 def hide_relationship_lines():
-    for screen in bpy.data.screens:
-        for area in screen.areas:
-            for space in area.spaces:
-                if space.type == 'VIEW_3D':
+    for screen in getattr(bpy.data, 'screens', ()):
+        for area in getattr(screen, 'areas', ()):
+            for space in getattr(area, 'spaces', ()):
+                if getattr(space, 'type', None) == 'VIEW_3D' and hasattr(space, 'overlay'):
                     space.overlay.show_relationship_lines = False
 
 
@@ -1159,7 +1218,7 @@ def avoid_drawing_unused_import_empties(min_helpers=128):
     return changed
 
 
-def avoid_drawing_chunk_outlines(min_meshes=128):
+def avoid_drawing_chunk_outlines(min_meshes=128, mesh_count=None):
     """Skip drawing object silhouette outlines for chunked Minecraft terrain.
 
     When thousands of separate chunk meshes touch edge-to-edge, Blender's
@@ -1167,8 +1226,9 @@ def avoid_drawing_chunk_outlines(min_meshes=128):
     every frame. This hurts viewport FPS and causes dark seams along chunk
     borders. Reversible via Viewport Shading > Outline.
     """
-    meshes = sum(1 for ob in getattr(bpy.context.scene, 'objects', ()) if getattr(ob, 'type', None) == 'MESH')
-    if meshes < min_meshes:
+    if mesh_count is None:
+        mesh_count = sum(1 for ob in getattr(bpy.context.scene, 'objects', ()) if getattr(ob, 'type', None) == 'MESH')
+    if mesh_count < min_meshes:
         return 0
     changed = 0
     for screen in getattr(bpy.data, 'screens', ()):
@@ -1180,7 +1240,7 @@ def avoid_drawing_chunk_outlines(min_meshes=128):
                     space.shading.show_object_outline = False
                     changed += 1
     if changed:
-        log('VIEWPORT: disabled object outlines for', meshes,
+        log('VIEWPORT: disabled object outlines for', mesh_count,
             'chunk meshes in', changed, '3D views to improve FPS and remove chunk seams.',
             'Restore via Viewport Shading > Outline.')
     return changed
@@ -1338,14 +1398,14 @@ def main():
     # positions. Point clouds alone were what the broken output displayed.
     if scene['terrain_faces'] < stats['world_mesh_faces'] * 0.5:
         raise RuntimeError('Blender imported less than half of the terrain faces represented in the USD. No misleading success file saved.')
+    avoid_evaluating_empty_pointclouds()
     phase_start = time.monotonic()
     bounds = frame_actual_scene(scene['evaluate_bounds'])
     log('[PERF] Scene framing:', round(time.monotonic() - phase_start, 2), 'seconds')
     hide_relationship_lines()
     hide_imported_transform_markers()
     avoid_drawing_unused_import_empties()
-    avoid_drawing_chunk_outlines()
-    avoid_evaluating_empty_pointclouds()
+    avoid_drawing_chunk_outlines(mesh_count=scene['meshes'])
     clear_bulk_import_selection()
     if batch_meshes:
         phase_start = time.monotonic()

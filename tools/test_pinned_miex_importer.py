@@ -90,6 +90,7 @@ def main():
     assert "import_usd_preview=False" in patched
     assert "self.mat.node_tree.nodes.clear()" in patched
     assert 'memoryview(bytearray(len(mesh.data.polygons))).cast("?")' in patched
+    assert "input_sock = node.inputs.get(attrName)" in patched
     # Only the temporary layout wrapper's unused Python list is removed.
     # Actual shader node outputs/connections must still be present.
     raw_tree = ast.parse(raw)

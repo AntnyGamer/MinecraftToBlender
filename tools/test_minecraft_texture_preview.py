@@ -12,7 +12,7 @@ messages = []
 
 
 def viewport(mode, color_type):
-    return NS(type="VIEW_3D", shading=NS(type=mode, color_type=color_type))
+    return NS(type="VIEW_3D", shading=NS(type=mode, color_type=color_type, show_object_outline=True))
 
 
 solid = viewport("SOLID", "MATERIAL")
@@ -59,8 +59,10 @@ assert ns["apply_minecraft_texture_preview"]() == 2
 assert scene.view_settings.view_transform == "Standard"
 assert solid.shading.type == "MATERIAL"
 assert solid.shading.color_type == "MATERIAL"
+assert not solid.shading.show_object_outline
 assert material.shading.type == "MATERIAL"
 assert material.shading.color_type == "MATERIAL"
+assert not material.shading.show_object_outline
 assert camera.type == "IMAGE_EDITOR"
 assert scene.objects is original_objects
 assert scene.world is original_world

@@ -187,6 +187,32 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('Pinned MiEx socket index parsing changed; refusing unverified optimization.')
     contents = contents.replace(original, faster, 1)
+    # Blender's node inputs collection provides direct name lookup. Avoid
+    # redundant linear scans over all sockets for every attribute assigned
+    # during material graph construction.
+    original = '''                    elif 'value' in attrData:
+                        if hasattr(node, attrName):
+                            setattr(node, attrName, attrData['value'])
+                        elif attrName in node.inputs:
+                            node.inputs[attrName].default_value = attrData['value']
+                        elif self.is_number(attrName):
+                            node.inputs[int(attrName)].default_value = attrData['value']
+                        else:
+                            node[attrName] = attrData['value']'''
+    faster = '''                    elif 'value' in attrData:
+                        if hasattr(node, attrName):
+                            setattr(node, attrName, attrData['value'])
+                        else:
+                            input_sock = node.inputs.get(attrName)
+                            if input_sock is not None:
+                                input_sock.default_value = attrData['value']
+                            elif self.is_number(attrName):
+                                node.inputs[int(attrName)].default_value = attrData['value']
+                            else:
+                                node[attrName] = attrData['value']'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx material input lookup changed; refusing unverified optimization.')
+    contents = contents.replace(original, faster, 1)
     # The same Minecraft material is often used by thousands of exported
     # mesh pieces with the same USD displayColor. Avoid repeatedly updating
     # the Blender material when its last assigned source RGB is identical;
@@ -557,6 +583,8 @@ def apply_minecraft_texture_preview():
     Standard leaves Minecraft's existing sRGB texture palette closer to its
     ungraded colors than the default film-style AgX tone mapping. Material
     Preview evaluates MiEx's texture, biome tint and alpha shader connections.
+    Disabling object outlines avoids drawing thousands of chunk silhouette edges
+    and black seams along adjacent chunk blocks.
     This is an editor/display preference, not a replacement shader network.
     """
     bpy.context.scene.view_settings.view_transform = 'Standard'
@@ -566,6 +594,8 @@ def apply_minecraft_texture_preview():
             for space in area.spaces:
                 if space.type == 'VIEW_3D':
                     space.shading.type = 'MATERIAL'
+                    if hasattr(space.shading, 'show_object_outline'):
+                        space.shading.show_object_outline = False
                     changed += 1
     log('MINECRAFT TEXTURE PREVIEW: Standard color transform,',
         changed, '3D views use Material Preview with textures, tints and alpha,',
@@ -1125,6 +1155,58 @@ def avoid_drawing_unused_import_empties(min_helpers=128):
     return changed
 
 
+def avoid_drawing_chunk_outlines(min_meshes=128):
+    """Skip drawing object silhouette outlines for chunked Minecraft terrain.
+
+    When thousands of separate chunk meshes touch edge-to-edge, Blender's
+    viewport outline pass evaluates silhouette edges between adjacent chunks
+    every frame. This hurts viewport FPS and causes dark seams along chunk
+    borders. Reversible via Viewport Shading > Outline.
+    """
+    meshes = sum(1 for ob in bpy.context.scene.objects if ob.type == 'MESH')
+    if meshes < min_meshes:
+        return 0
+    changed = 0
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            for space in area.spaces:
+                if (space.type == 'VIEW_3D'
+                        and hasattr(space, 'shading')
+                        and getattr(space.shading, 'show_object_outline', False)):
+                    space.shading.show_object_outline = False
+                    changed += 1
+    if changed:
+        log('VIEWPORT: disabled object outlines for', meshes,
+            'chunk meshes in', changed, '3D views to improve FPS and remove chunk seams.',
+            'Restore via Viewport Shading > Outline.')
+    return changed
+
+
+def avoid_evaluating_empty_pointclouds():
+    """Skip per-frame Geometry Node modifier evaluation on empty point clouds.
+
+    MiEx creates an animated_blocks point cloud for every chunk with an attached
+    GeometryNodes modifier. Chunks with no animated blocks have 0 points and no
+    children; hiding them in the viewport avoids evaluating useless modifier graphs
+    every frame without affecting renders or any visible geometry.
+    """
+    count = 0
+    for ob in bpy.context.scene.objects:
+        if (ob.type == 'POINTCLOUD'
+                and hasattr(ob, 'data')
+                and hasattr(ob.data, 'points')
+                and len(ob.data.points) == 0
+                and len(getattr(ob, 'modifiers', ())) > 0
+                and len(getattr(ob, 'children', ())) == 0
+                and not getattr(ob, 'hide_viewport', False)):
+            ob.hide_viewport = True
+            count += 1
+    if count:
+        log('VIEWPORT: skipped modifier evaluation for', count,
+            'empty point-cloud objects with 0 points; geometry and renders unchanged.')
+    return count
+
+
 def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
     """Optimize the Blender project already loaded by the EXE, saving a copy."""
     source = Path(bpy.data.filepath).resolve() if bpy.data.filepath else None
@@ -1250,6 +1332,8 @@ def main():
     hide_relationship_lines()
     hide_imported_transform_markers()
     avoid_drawing_unused_import_empties()
+    avoid_drawing_chunk_outlines()
+    avoid_evaluating_empty_pointclouds()
     clear_bulk_import_selection()
     if batch_meshes:
         phase_start = time.monotonic()

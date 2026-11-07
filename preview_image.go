@@ -237,7 +237,9 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 			sampleZ := sampleZAt[y]
 			for x := 0; x < 256; x++ {
 				if pixel, ok := average[[2]int{sampleXAt[x], sampleZ}]; ok {
-					out.SetNRGBA(x, y, pixel)
+					start := y*out.Stride + x*4
+					out.Pix[start], out.Pix[start+1], out.Pix[start+2], out.Pix[start+3] =
+						pixel.R, pixel.G, pixel.B, pixel.A
 				}
 			}
 		}

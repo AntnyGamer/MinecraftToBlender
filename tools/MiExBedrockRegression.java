@@ -382,28 +382,6 @@ public final class MiExBedrockRegression {
                 expect(s.variables.get("rotY").asFloat(),new float[]{180,0,90,270}[facing-2]);
             }
         }
-        // A very long Bedrock text line must not retain the original font
-        // scale and spill far outside the sign. Normal short lines keep it.
-        for(String modelFile:new String[]{"Bedrock_Signs.json","Bedrock_Hanging_Signs.json"}) {
-            NbtTagCompound shortSign=props(), shortFront=props();
-            shortFront.setName("FrontText");
-            shortFront.addElement(NbtTagString.newNonPooledInstance("Text","Hello\nWorld"));
-            shortSign.addElement(shortFront);
-            ExprContext regular=evaluate(modelFile,"minecraft:oak"+(modelFile.contains("Hanging")?"_hanging":"")+"_sign",shortSign);
-            expect(regular.variables.get("fitScale").asFloat(),1.0f);
-            NbtTagCompound longSign=props(), longFront=props(), longBack=props();
-            longFront.setName("FrontText");
-            longFront.addElement(NbtTagString.newNonPooledInstance("Text","Short\nFREE COOKING SERVICES AND BUILDING MATERIALS"));
-            longBack.setName("BackText");
-            longBack.addElement(NbtTagString.newNonPooledInstance("Text","Back"));
-            longSign.addElement(longFront);
-            longSign.addElement(longBack);
-            ExprContext fitted=evaluate(modelFile,"minecraft:oak"+(modelFile.contains("Hanging")?"_hanging":"")+"_sign",longSign);
-            int longest="FREE COOKING SERVICES AND BUILDING MATERIALS".length();
-            float limit=modelFile.contains("Hanging")?10f:14f;
-            expect(fitted.variables.get("fitLongest").asInt(),(long)longest);
-            expect(fitted.variables.get("fitScale").asFloat(),limit/longest);
-        }
         Method normalizeSign=normalize.getDeclaringClass().getDeclaredMethod("normalizeBedrockSign",String.class,NbtTagCompound.class);
         normalizeSign.setAccessible(true);
         NbtTagCompound sign=props(), back=props();

@@ -172,15 +172,21 @@ function Get-PreviewChunkCoordinates([int]$firstX,[int]$lastX,[int]$firstZ,[int]
     } else {
         $cols = [int][math]::Min(96, $spanX)
         $rows = [int][math]::Min(96, $spanZ)
+        # Every coarse row uses the same sampled X positions. Calculate them
+        # once rather than repeating up to 96 floating-point divisions per row.
+        $sampleX = New-Object 'System.Collections.Generic.List[int]'
+        for($col = 0; $col -lt $cols; $col++) {
+            $x = if($cols -eq 1) { $firstX } else {
+                [int][math]::Floor($firstX + ($lastX - $firstX) * ($col / [double]($cols - 1)))
+            }
+            $sampleX.Add($x)
+        }
         for($pass = 1; $pass -le $rows; $pass++) {
             $row = $pass % $rows
             $z = if($rows -eq 1) { $firstZ } else {
                 [int][math]::Floor($firstZ + ($lastZ - $firstZ) * ($row / [double]($rows - 1)))
             }
-            for($col = 0; $col -lt $cols; $col++) {
-                $x = if($cols -eq 1) { $firstX } else {
-                    [int][math]::Floor($firstX + ($lastX - $firstX) * ($col / [double]($cols - 1)))
-                }
+            foreach($x in $sampleX) {
                 $locations.Add(@{chunkX=$x;chunkZ=$z})
             }
         }

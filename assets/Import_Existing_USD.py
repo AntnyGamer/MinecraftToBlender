@@ -16,6 +16,10 @@ from pxr import Usd, UsdGeom
 from mathutils import Vector
 
 
+CHUNK_MESH_PATTERN = re.compile(r'mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)', re.I)
+CHUNK_PARENT_PATTERN = re.compile(r'region_\d+_chunk_(_?-?\d+)_(_?-?\d+)(?:\.\d+)?', re.I)
+
+
 def log(*parts):
     print(*parts, flush=True)
 
@@ -842,13 +846,12 @@ def terrain_mesh_batch_key(ob, ancestor_cache=None, opaque_mat_cache=None):
     # MiEx's Util.makeSafeName changes a negative '-' sign to '_'.
     # Thus chunk X=-1 Z=-2 becomes mesh_chunk__1__2_<hash> in USD.
     # Recognize both that upstream-safe form and raw signed names.
-    match = re.search(r'mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)', ob.name, re.I)
+    match = CHUNK_MESH_PATTERN.search(ob.name)
     # Blender's USD importer names each mesh after its texture. The chunk
     # coordinates live on its region_<n>_chunk_<x>_<z> parent instead.
     parent = ob.parent
     while match is None and parent is not None:
-        match = re.fullmatch(r'region_\d+_chunk_(_?-?\d+)_(_?-?\d+)(?:\.\d+)?',
-                             parent.name, re.I)
+        match = CHUNK_PARENT_PATTERN.fullmatch(parent.name)
         parent = parent.parent
     if match is None:
         return None
@@ -1337,7 +1340,11 @@ def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
 
 
 def main():
-    arguments = sys.argv[sys.argv.index('--') + 1:]
+    arguments = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else sys.argv[1:]
+    if not arguments or any(h in arguments for h in ('-h', '--help')):
+        log('Usage: blender --background --python Import_Existing_USD.py -- <source.usd> <MiExImport.py> <output.blend> [--minecraft-water] [--batch-static-meshes] [--minecraft-view]')
+        log('   or: blender --background --python Import_Existing_USD.py -- <target.blend> --optimize-blend [--batch-static-meshes] [--minecraft-view]')
+        return
     if '--optimize-blend' in arguments:
         flags = arguments[1:]
         allowed = {'--optimize-blend', '--batch-static-meshes', '--minecraft-view'}
@@ -1353,7 +1360,7 @@ def main():
     flags = arguments[3:]
     accepted = {'--minecraft-water', '--batch-static-meshes', '--minecraft-view'}
     if len(arguments) < 3 or len(flags) != len(set(flags)) or not set(flags) <= accepted:
-        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water] [--batch-static-meshes]')
+        raise RuntimeError('Expected: source USD, MiExImport.py, output blend file [--minecraft-water] [--batch-static-meshes] [--minecraft-view]')
     minecraft_water = '--minecraft-water' in flags
     batch_meshes = '--batch-static-meshes' in flags
     minecraft_view = '--minecraft-view' in flags

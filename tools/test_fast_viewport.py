@@ -143,6 +143,15 @@ bpy = NS(context=NS(scene=NS(objects=all_objects), view_layer=view_layer,
                     selected_objects=[]),
          ops=NS(object=NS(select_all=deselect, join=join)))
 scope = {"bpy": bpy, "re": re, "log": lambda *args: records.append(args)}
+# Match the importer's module-level compiled patterns when extracting only
+# the batching functions. Keep tests coupled to the actual source patterns.
+pattern_names = {"CHUNK_MESH_PATTERN", "CHUNK_PARENT_PATTERN"}
+patterns = [node for node in tree.body if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id in pattern_names
+                    for target in node.targets)]
+assert len(patterns) == len(pattern_names), "Missing compiled chunk-name patterns"
+exec(compile(ast.Module(body=patterns, type_ignores=[]),
+             "<mesh-batch-patterns>", "exec"), scope)
 exec(compile(ast.Module(body=funcs, type_ignores=[]),
              "<mesh-batch-test>", "exec"), scope)
 key = scope["terrain_mesh_batch_key"]

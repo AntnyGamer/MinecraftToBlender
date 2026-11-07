@@ -701,12 +701,6 @@ func paintPill(dc uintptr, r rect, fill uint32, corner int) {
 	pSelectObject.Call(dc, oldBrush)
 	pDeleteObject.Call(brush)
 }
-func mix(c uint32, r, g, b uint32) uint32 {
-	red := uint32(c & 255)
-	green := uint32((c >> 8) & 255)
-	blue := uint32((c >> 16) & 255)
-	return color((red*3+r)/4, (green*3+g)/4, (blue*3+b)/4)
-}
 func buttonText(dc uintptr, t string, r rect, fg uint32, f uintptr, align uintptr) {
 	pSetBkMode.Call(dc, 1)
 	pSetTextColor.Call(dc, uintptr(fg))
@@ -718,7 +712,13 @@ func buttonText(dc uintptr, t string, r rect, fg uint32, f uintptr, align uintpt
 // Simple, consistent Win32 owner-drawn buttons. Every control is borderless;
 // selection/focus is communicated by fill and text contrast, not a focus box.
 func paintButton(lp uintptr) uintptr {
-	d := (*drawItem)(unsafe.Pointer(lp))
+	if lp == 0 {
+		return 0
+	}
+	d := *(**drawItem)(unsafe.Pointer(&lp))
+	if d == nil {
+		return 0
+	}
 	id, r := int(d.ID), d.Rect
 	nav := id == idTabExport || id == idTabImport || id == idTabSettings || id == idTabOptions
 	active := (id == idTabExport && ui.tab == 0) || (id == idTabImport && ui.tab == 1) || (id == idTabSettings && ui.tab == 2) || (id == idTabOptions && ui.tab == 3)
@@ -1005,7 +1005,13 @@ func loadSelectedImage(path string) {
 }
 
 func setMinimumSize(lp uintptr) {
-	mi := (*minmax)(unsafe.Pointer(lp))
+	if lp == 0 {
+		return
+	}
+	mi := *(**minmax)(unsafe.Pointer(&lp))
+	if mi == nil {
+		return
+	}
 	mi.MinTrack = point{810, 570}
 }
 

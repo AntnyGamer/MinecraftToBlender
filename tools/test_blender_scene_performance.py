@@ -1,5 +1,6 @@
 """Exercise Blender geometry reporting/framing without requiring Blender in CI."""
 import ast
+import re
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -302,7 +303,38 @@ def test_bounds_extrema_and_nonfinite_coordinates():
         assert tuple(v.values for v in actual) == expected, (evaluated, actual, expected)
 
 
+def test_chunk_name_patterns_preserve_matching():
+    source = Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8")
+    module = ast.parse(source)
+    names = {"CHUNK_MESH_PATTERN", "CHUNK_PARENT_PATTERN"}
+    assignments = [node for node in module.body
+                   if isinstance(node, ast.Assign)
+                   and any(isinstance(target, ast.Name) and target.id in names
+                           for target in node.targets)]
+    assert len(assignments) == 2
+    scope = {"re": re}
+    exec(compile(ast.Module(body=assignments, type_ignores=[]), "<chunk-patterns>", "exec"), scope)
+    cases = (
+        "mesh_chunk__1__2_stone", "mesh_chunk_10_20", "MESH_CHUNK_-2_5_x",
+        "mesh_chunk_1_2_material", "mesh_chunk_empty", "stone",
+        "region_1_chunk__32__1", "REGION_23_CHUNK_11_24.003",
+        "region_1_chunk_1_2suffix",
+    )
+    legacy_mesh = r"mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)"
+    legacy_parent = r"region_\d+_chunk_(_?-?\d+)_(_?-?\d+)(?:\.\d+)?"
+    for name in cases:
+        for original, replacement in (
+            (re.search(legacy_mesh, name, re.I), scope["CHUNK_MESH_PATTERN"].search(name)),
+            (re.fullmatch(legacy_parent, name, re.I), scope["CHUNK_PARENT_PATTERN"].fullmatch(name)),
+        ):
+            assert (original is None) == (replacement is None)
+            if original is not None:
+                assert original.span() == replacement.span()
+                assert original.groups() == replacement.groups()
+
+
 if __name__ == "__main__":
+    test_chunk_name_patterns_preserve_matching()
     test_scene_report()
     test_shared_prototype_ancestry_is_cached()
     test_repeated_instance_bounds()

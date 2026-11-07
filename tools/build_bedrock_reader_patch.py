@@ -19,25 +19,33 @@ NORMALIZE_BANNER = '''
     // Bedrock palette translations cannot see the block entity's dye/patterns.
     // Normalize them here, before registering the final block. Keep MiEx's
     // separate banner models so generated-texture extraData is preserved.
+    private static final String[] BEDROCK_DYE_COLORS = {"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"};
+    private static final String[] BEDROCK_OMNIOUS_NAMES = {"mr", "bs", "cs", "bo", "ms", "hh", "mc", "bo"};
+    private static final int[] BEDROCK_OMNIOUS_DYES = {9, 8, 7, 8, 15, 8, 8, 15};
+    private static final NbtTagList BEDROCK_OMNIOUS_PATTERNS = createBedrockOmniousPatterns();
+    private static final String[] BEDROCK_SIGN_SIDES = {"FrontText", "BackText"};
+    private static final String[] BEDROCK_SIGN_LEGACY_FIELDS = {"Text", "SignTextColor", "IgnoreLighting", "HideGlowOutline"};
+
+    private static NbtTagList createBedrockOmniousPatterns() {
+        NbtTag[] patterns = new NbtTag[BEDROCK_OMNIOUS_NAMES.length];
+        for(int i = 0; i < BEDROCK_OMNIOUS_NAMES.length; ++i) {
+            NbtTagCompound pattern = NbtTagCompound.newInstance("");
+            pattern.addElement(NbtTagString.newInstance("Pattern", BEDROCK_OMNIOUS_NAMES[i]));
+            pattern.addElement(NbtTagInt.newInstance("Color", BEDROCK_OMNIOUS_DYES[i]));
+            patterns[i] = pattern;
+        }
+        return NbtTagList.newInstance("Patterns", patterns);
+    }
+
     private static String normalizeBedrockBanner(String name, NbtTagCompound tag) {
         NbtTag baseTag = tag.get("Base");
         if(baseTag == null || !name.endsWith("banner")) return name;
-        String[] colors = {"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"};
         int color = Math.max(0, Math.min(15, 15 - baseTag.asInt()));
         NbtTag type = tag.get("Type");
         if(type != null && type.asInt() == 1) {
             // Bedrock stores the ominous pattern as Type=1 rather than a list.
             color = 0;
-            String[] names = {"mr", "bs", "cs", "bo", "ms", "hh", "mc", "bo"};
-            int[] dyes = {9, 8, 7, 8, 15, 8, 8, 15};
-            NbtTag[] patterns = new NbtTag[names.length];
-            for(int i = 0; i < names.length; ++i) {
-                NbtTagCompound pattern = NbtTagCompound.newInstance("");
-                pattern.addElement(NbtTagString.newInstance("Pattern", names[i]));
-                pattern.addElement(NbtTagInt.newInstance("Color", dyes[i]));
-                patterns[i] = pattern;
-            }
-            tag.addElement(NbtTagList.newInstance("Patterns", patterns));
+            tag.addElement(BEDROCK_OMNIOUS_PATTERNS.copy());
         } else {
             NbtTag list = tag.get("Patterns");
             if(list instanceof NbtTagList) {
@@ -49,7 +57,7 @@ NORMALIZE_BANNER = '''
                 }
             }
         }
-        return "minecraft:" + colors[color] + (name.contains("wall") ? "_wall_banner" : "_banner");
+        return "minecraft:" + BEDROCK_DYE_COLORS[color] + (name.contains("wall") ? "_wall_banner" : "_banner");
     }
 
     // Older Bedrock signs store front text at the root. Do not synthesize
@@ -57,11 +65,12 @@ NORMALIZE_BANNER = '''
     // MiEx's text mesh creator uses the active font's character widths in
     // eighths of a Minecraft font pixel, with a one-pixel inter-character gap.
     // Vanilla signs are limited to 90 pixels per line (60 on hanging signs).
-    // Keep the same glyphs, size, colour codes and centring; only suppress the
-    // overflow that cannot be entered through Minecraft's normal sign editor.
+    // Word-wrap across up to 4 lines when text exceeds the line width, preserving
+    // color codes and styling across wrapped lines, and breaking long unbroken
+    // sequences without dropping characters.
     private static String fitBedrockSignLine(String line,
             nl.bramstout.mcworldexporter.resourcepack.Font font, float widthLimit) {
-        if(line.isEmpty() || font == null) return line;
+        if(line.isEmpty()) return line;
         StringBuilder kept = new StringBuilder(line.length());
         float width = 0f;
         boolean bold = false;
@@ -69,27 +78,245 @@ NORMALIZE_BANNER = '''
             int cp = line.codePointAt(offset);
             if(cp == 167 && offset + 1 < line.length()) {
                 int codeIndex = offset + 1;
+                if(line.charAt(codeIndex) == '#') {
+                    int end = Math.min(line.length(), codeIndex + 7);
+                    kept.append(line, offset, end);
+                    offset = end;
+                    bold = false;
+                    continue;
+                }
                 boolean undo = line.charAt(codeIndex) == '!';
                 if(undo && codeIndex + 1 < line.length()) codeIndex++;
-                char code = line.charAt(codeIndex);
+                char code = Character.toLowerCase(line.charAt(codeIndex));
                 if(code == 'l') bold = !undo;
-                else if(code != 'm' && code != 'n' && code != 'o') bold = false;
+                else if(code != 'm' && code != 'n' && code != 'o' && code != 'k') bold = false;
                 kept.append(line, offset, codeIndex + 1);
                 offset = codeIndex + 1;
                 continue;
             }
-            nl.bramstout.mcworldexporter.resourcepack.Font.Character glyph =
-                font.getCharacterInfo(cp);
-            if(glyph != null) {
-                float advance = glyph.getWidth() + (bold ? 0.125f : 0f) +
-                    (width > 0f ? 0.125f : 0f);
-                if(width + advance > widthLimit + 0.000001f) break;
-                width += advance;
+            float charWidth = 0.625f;
+            if(font != null) {
+                nl.bramstout.mcworldexporter.resourcepack.Font.Character glyph =
+                    font.getCharacterInfo(cp);
+                if(glyph != null) charWidth = glyph.getWidth();
             }
+            float advance = charWidth + (bold ? 0.125f : 0f) +
+                (width > 0f ? 0.125f : 0f);
+            if(width + advance > widthLimit + 0.000001f) break;
+            width += advance;
             kept.appendCodePoint(cp);
             offset += Character.charCount(cp);
         }
         return kept.toString();
+    }
+
+    private static float measureBedrockSignTextWidth(String text,
+            nl.bramstout.mcworldexporter.resourcepack.Font font) {
+        if(text == null || text.isEmpty()) return 0f;
+        float width = 0f;
+        boolean bold = false;
+        for(int offset = 0; offset < text.length();) {
+            int cp = text.codePointAt(offset);
+            if(cp == 167 && offset + 1 < text.length()) {
+                int codeIndex = offset + 1;
+                if(text.charAt(codeIndex) == '#') {
+                    offset = Math.min(text.length(), codeIndex + 7);
+                    bold = false;
+                    continue;
+                }
+                boolean undo = text.charAt(codeIndex) == '!';
+                if(undo && codeIndex + 1 < text.length()) codeIndex++;
+                char code = Character.toLowerCase(text.charAt(codeIndex));
+                if(code == 'l') bold = !undo;
+                else if(code != 'm' && code != 'n' && code != 'o' && code != 'k') bold = false;
+                offset = codeIndex + 1;
+                continue;
+            }
+            float charWidth = 0.625f;
+            if(font != null) {
+                nl.bramstout.mcworldexporter.resourcepack.Font.Character glyph =
+                    font.getCharacterInfo(cp);
+                if(glyph != null) charWidth = glyph.getWidth();
+            }
+            float advance = charWidth + (bold ? 0.125f : 0f) +
+                (width > 0f ? 0.125f : 0f);
+            width += advance;
+            offset += Character.charCount(cp);
+        }
+        return width;
+    }
+
+    private static String getBedrockSignFormattingPrefix(String text, String initial) {
+        String color = "";
+        boolean bold = false, italic = false, underline = false, strikethrough = false, obfuscated = false;
+        String combined = (initial != null && !initial.isEmpty()) ? (initial + text) : text;
+        for(int i = 0; i < combined.length();) {
+            int cp = combined.codePointAt(i);
+            if(cp == 167 && i + 1 < combined.length()) {
+                int codeIndex = i + 1;
+                if(combined.charAt(codeIndex) == '#') {
+                    int end = Math.min(combined.length(), codeIndex + 7);
+                    color = combined.substring(i, end);
+                    bold = italic = underline = strikethrough = obfuscated = false;
+                    i = end;
+                    continue;
+                }
+                boolean undo = combined.charAt(codeIndex) == '!';
+                if(undo && codeIndex + 1 < combined.length()) codeIndex++;
+                char c = Character.toLowerCase(combined.charAt(codeIndex));
+                if(c == 'l') bold = !undo;
+                else if(c == 'o') italic = !undo;
+                else if(c == 'n') underline = !undo;
+                else if(c == 'm') strikethrough = !undo;
+                else if(c == 'k') obfuscated = !undo;
+                else if(c == 'r') {
+                    color = "";
+                    bold = italic = underline = strikethrough = obfuscated = false;
+                } else {
+                    color = "§" + c;
+                    bold = italic = underline = strikethrough = obfuscated = false;
+                }
+                i = codeIndex + 1;
+                continue;
+            }
+            i += Character.charCount(cp);
+        }
+        StringBuilder sb = new StringBuilder();
+        if(!color.isEmpty()) sb.append(color);
+        if(bold) sb.append("§l");
+        if(italic) sb.append("§o");
+        if(underline) sb.append("§n");
+        if(strikethrough) sb.append("§m");
+        if(obfuscated) sb.append("§k");
+        return sb.toString();
+    }
+
+    private static String appendBedrockWordOrBreak(String candidate, StringBuilder curLine,
+            List<String> result, nl.bramstout.mcworldexporter.resourcepack.Font font,
+            float widthLimit, String activePrefix) {
+        while(!candidate.isEmpty() && result.size() < 4) {
+            String part = fitBedrockSignLine(candidate, font, widthLimit);
+            if(part.isEmpty() && !candidate.isEmpty()) {
+                int cp = candidate.codePointAt(0);
+                part = candidate.substring(0, Character.charCount(cp));
+            }
+            candidate = candidate.substring(part.length());
+            if(candidate.isEmpty()) {
+                curLine.append(part);
+                break;
+            }
+            result.add(part);
+            if(result.size() >= 4) break;
+            activePrefix = getBedrockSignFormattingPrefix(part, activePrefix);
+            candidate = activePrefix.isEmpty() ? candidate : (activePrefix + candidate);
+        }
+        return activePrefix;
+    }
+
+    private static List<String> wrapBedrockSignLines(String text,
+            nl.bramstout.mcworldexporter.resourcepack.Font font, float widthLimit) {
+        List<String> result = new ArrayList<String>(4);
+        String[] paragraphs = text.split("\\\\r?\\\\n|\\\\r", -1);
+        for(String para : paragraphs) {
+            if(result.size() >= 4) break;
+            if(para.isEmpty()) {
+                result.add("");
+                continue;
+            }
+            if(measureBedrockSignTextWidth(para, font) <= widthLimit + 0.000001f) {
+                result.add(para);
+                continue;
+            }
+            StringBuilder curLine = new StringBuilder();
+            String activePrefix = "";
+            for(int i = 0; i < para.length();) {
+                if(result.size() >= 4) break;
+                int start = i;
+                char ch = para.charAt(i);
+                boolean isSpace = ch == ' ';
+                while(i < para.length() && (para.charAt(i) == ' ') == isSpace) i++;
+                String token = para.substring(start, i);
+
+                if(isSpace) {
+                    if(curLine.length() == 0) {
+                        String candidate = activePrefix.isEmpty() ? token : (activePrefix + token);
+                        if(measureBedrockSignTextWidth(candidate, font) <= widthLimit + 0.000001f) {
+                            curLine.append(candidate);
+                            activePrefix = "";
+                        } else {
+                            String fitted = fitBedrockSignLine(candidate, font, widthLimit);
+                            if(!fitted.isEmpty()) {
+                                curLine.append(fitted);
+                                activePrefix = "";
+                            }
+                        }
+                    } else {
+                        String test = curLine.toString() + token;
+                        if(measureBedrockSignTextWidth(test, font) <= widthLimit + 0.000001f) {
+                            curLine.append(token);
+                        } else {
+                            String lineToAdd = curLine.toString();
+                            while(lineToAdd.endsWith(" ")) lineToAdd = lineToAdd.substring(0, lineToAdd.length() - 1);
+                            result.add(lineToAdd);
+                            if(result.size() >= 4) {
+                                curLine.setLength(0);
+                                break;
+                            }
+                            activePrefix = getBedrockSignFormattingPrefix(lineToAdd, activePrefix);
+                            curLine.setLength(0);
+                        }
+                    }
+                } else {
+                    if(curLine.length() == 0) {
+                        String candidate = activePrefix.isEmpty() ? token : (activePrefix + token);
+                        if(measureBedrockSignTextWidth(candidate, font) <= widthLimit + 0.000001f) {
+                            curLine.append(candidate);
+                            activePrefix = "";
+                        } else {
+                            activePrefix = appendBedrockWordOrBreak(candidate, curLine, result, font, widthLimit, activePrefix);
+                            if(curLine.length() > 0) activePrefix = "";
+                            if(result.size() >= 4) {
+                                curLine.setLength(0);
+                                break;
+                            }
+                        }
+                    } else {
+                        String test = curLine.toString() + token;
+                        if(measureBedrockSignTextWidth(test, font) <= widthLimit + 0.000001f) {
+                            curLine.append(token);
+                        } else {
+                            String lineToAdd = curLine.toString();
+                            while(lineToAdd.endsWith(" ")) lineToAdd = lineToAdd.substring(0, lineToAdd.length() - 1);
+                            result.add(lineToAdd);
+                            if(result.size() >= 4) {
+                                curLine.setLength(0);
+                                break;
+                            }
+                            activePrefix = getBedrockSignFormattingPrefix(lineToAdd, activePrefix);
+                            curLine.setLength(0);
+                            String candidate = activePrefix.isEmpty() ? token : (activePrefix + token);
+                            if(measureBedrockSignTextWidth(candidate, font) <= widthLimit + 0.000001f) {
+                                curLine.append(candidate);
+                                activePrefix = "";
+                            } else {
+                                activePrefix = appendBedrockWordOrBreak(candidate, curLine, result, font, widthLimit, activePrefix);
+                                if(curLine.length() > 0) activePrefix = "";
+                                if(result.size() >= 4) {
+                                    curLine.setLength(0);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if(curLine.length() > 0 && result.size() < 4) {
+                String lineToAdd = curLine.toString();
+                while(lineToAdd.endsWith(" ")) lineToAdd = lineToAdd.substring(0, lineToAdd.length() - 1);
+                result.add(lineToAdd);
+            }
+        }
+        return result;
     }
 
     private static void fitBedrockSignSide(NbtTagCompound tag,
@@ -97,21 +324,25 @@ NORMALIZE_BANNER = '''
         NbtTag text = tag.get("Text");
         if(text == null || !(text instanceof NbtTagString)) return;
         String original = text.asString();
-        String[] lines = original.split("\\n", -1);
-        StringBuilder clipped = new StringBuilder(original.length());
-        for(int i = 0; i < lines.length; i++) {
-            if(i > 0) clipped.append('\\n');
-            clipped.append(fitBedrockSignLine(lines[i], font, widthLimit));
+        if(original.isEmpty()) return;
+        List<String> wrapped = wrapBedrockSignLines(original, font, widthLimit);
+        if(wrapped.isEmpty()) return;
+        if(wrapped.size() == 1 && original.equals(wrapped.get(0))) return;
+        StringBuilder formatted = new StringBuilder(original.length() + 8);
+        for(int i = 0; i < wrapped.size(); i++) {
+            if(i > 0) formatted.append('\\n');
+            formatted.append(wrapped.get(i));
         }
-        if(!original.contentEquals(clipped))
-            tag.addElement(NbtTagString.newInstance("Text", clipped.toString()));
+        if(!original.contentEquals(formatted))
+            tag.addElement(NbtTagString.newInstance("Text", formatted.toString()));
     }
 
     private static void normalizeBedrockSign(String name, NbtTagCompound tag) {
-        if(!name.contains("sign")) return;
+        if(!name.contains("sign") && !name.contains("Sign")) return;
+        if(tag.get("FrontText") == null && tag.get("BackText") == null && tag.get("Text") == null) return;
         if(tag.get("FrontText") == null && tag.get("Text") != null) {
             NbtTagCompound front = NbtTagCompound.newInstance("FrontText");
-            for(String field : new String[]{"Text", "SignTextColor", "IgnoreLighting", "HideGlowOutline"}) {
+            for(String field : BEDROCK_SIGN_LEGACY_FIELDS) {
                 NbtTag value = tag.get(field);
                 if(value != null) front.addElement(value.copy());
             }
@@ -119,13 +350,14 @@ NORMALIZE_BANNER = '''
         }
         nl.bramstout.mcworldexporter.resourcepack.Font font =
             nl.bramstout.mcworldexporter.resourcepack.ResourcePacks.getFont("minecraft:default");
-        if(font == null) return;
-        float limit = name.contains("hanging_sign") ? 60f / 8f : 90f / 8f;
-        for(String side : new String[]{"FrontText", "BackText"}) {
+        float limit = (name.contains("hanging_sign") || name.contains("hangingsign") || name.contains("HangingSign")) ? 60f / 8f : 90f / 8f;
+        for(String side : BEDROCK_SIGN_SIDES) {
             NbtTag value = tag.get(side);
             if(value instanceof NbtTagCompound)
                 fitBedrockSignSide((NbtTagCompound) value, font, limit);
         }
+        if(tag.get("Text") instanceof NbtTagString)
+            fitBedrockSignSide(tag, font, limit);
     }
 
 '''
@@ -134,6 +366,11 @@ NORMALIZE_DETAILS = '''
     // Palette blocks have already been translated to Java state names. Running
     // the Bedrock translator again turns undyed shulkers white and wall bells
     // into floor bells. Beds need their block-entity dye before choosing an ID.
+    private static final String[] BEDROCK_SKULL_HEADS = {"skeleton_skull", "wither_skeleton_skull", "zombie_head", "player_head", "creeper_head", "dragon_head", "piglin_head"};
+    private static final String BEDROCK_ALLOWED_PLANTS = "|oak_sapling|spruce_sapling|birch_sapling|jungle_sapling|acacia_sapling|dark_oak_sapling|cherry_sapling|pale_oak_sapling|mangrove_propagule|fern|dandelion|poppy|blue_orchid|allium|azure_bluet|red_tulip|orange_tulip|white_tulip|pink_tulip|oxeye_daisy|cornflower|lily_of_the_valley|wither_rose|red_mushroom|brown_mushroom|dead_bush|cactus|bamboo|azalea_bush|flowering_azalea_bush|crimson_fungus|warped_fungus|crimson_roots|warped_roots|torchflower|open_eyeblossom|closed_eyeblossom|golden_dandelion|poplar_sapling|";
+    private static final String[] BEDROCK_ARMOR_STAND_LISTS = {"Armor", "Mainhand", "Offhand"};
+    private static final String[][] BEDROCK_ARMOR_STAND_SLOTS = {{"head", "chest", "legs", "feet", "body"}, {"mainhand"}, {"offhand"}};
+
     private static String translateBedrockPalette(String name, NbtTagCompound tag, BlockTranslatorManager translator) {
         String mapped = translator.map(name, tag);
         if(mapped.equals("minecraft:chain") &&
@@ -147,6 +384,7 @@ NORMALIZE_DETAILS = '''
     }
 
     private static boolean isCopperChest(String name) {
+        if(!name.contains("copper_chest")) return false;
         if(name.startsWith("minecraft:waxed_")) name = "minecraft:" + name.substring(16);
         return name.equals("minecraft:copper_chest") || name.equals("minecraft:exposed_copper_chest") ||
                name.equals("minecraft:weathered_copper_chest") || name.equals("minecraft:oxidized_copper_chest");
@@ -182,8 +420,7 @@ NORMALIZE_DETAILS = '''
             NbtTag dye = tag.get("color");
             if(dye == null) dye = tag.get("Color");
             if(dye != null && dye.asInt() >= 0 && dye.asInt() < 16) {
-                String[] colors = {"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"};
-                name = "minecraft:" + colors[dye.asInt()] + "_bed";
+                name = "minecraft:" + BEDROCK_DYE_COLORS[dye.asInt()] + "_bed";
             }
         }
         if(name.equals("minecraft:piston") || name.equals("minecraft:sticky_piston")) {
@@ -203,17 +440,15 @@ NORMALIZE_DETAILS = '''
             String mapped = plantName == null ? "minecraft:air" : translator.map(plantName.asString(), states);
             states.free();
             String shortName = mapped.startsWith("minecraft:") ? mapped.substring(10) : "";
-            String allowed = "|oak_sapling|spruce_sapling|birch_sapling|jungle_sapling|acacia_sapling|dark_oak_sapling|cherry_sapling|pale_oak_sapling|mangrove_propagule|fern|dandelion|poppy|blue_orchid|allium|azure_bluet|red_tulip|orange_tulip|white_tulip|pink_tulip|oxeye_daisy|cornflower|lily_of_the_valley|wither_rose|red_mushroom|brown_mushroom|dead_bush|cactus|bamboo|azalea_bush|flowering_azalea_bush|crimson_fungus|warped_fungus|crimson_roots|warped_roots|torchflower|open_eyeblossom|closed_eyeblossom|golden_dandelion|poplar_sapling|";
             if(shortName.equals("azalea")) shortName = "azalea_bush";
             if(shortName.equals("flowering_azalea")) shortName = "flowering_azalea_bush";
-            return !shortName.isEmpty() && allowed.contains("|" + shortName + "|") ?
+            return !shortName.isEmpty() && BEDROCK_ALLOWED_PLANTS.contains("|" + shortName + "|") ?
                 "minecraft:potted_" + shortName : "minecraft:flower_pot";
         }
         if(name.endsWith("_head") || name.endsWith("_skull")) {
             NbtTag type = tag.get("SkullType");
             if(tag.get("miex_legacy_skull") != null && type != null && type.asInt() >= 0 && type.asInt() <= 6) {
-                String[] heads = {"skeleton_skull", "wither_skeleton_skull", "zombie_head", "player_head", "creeper_head", "dragon_head", "piglin_head"};
-                String head = heads[type.asInt()];
+                String head = BEDROCK_SKULL_HEADS[type.asInt()];
                 if(name.contains("_wall_")) head = head.replace("_skull", "_wall_skull").replace("_head", "_wall_head");
                 name = "minecraft:" + head;
             }
@@ -245,14 +480,12 @@ NORMALIZE_DETAILS = '''
         if(!id.equals("minecraft:armor_stand")) return;
         NbtTag old = tag.get("equipment");
         NbtTagCompound equipment = old instanceof NbtTagCompound ? (NbtTagCompound) old.copy() : NbtTagCompound.newInstance("equipment");
-        String[] lists = {"Armor", "Mainhand", "Offhand"};
-        String[][] slots = {{"head", "chest", "legs", "feet", "body"}, {"mainhand"}, {"offhand"}};
-        for(int i = 0; i < lists.length; ++i) {
-            NbtTag list = tag.get(lists[i]);
+        for(int i = 0; i < BEDROCK_ARMOR_STAND_LISTS.length; ++i) {
+            NbtTag list = tag.get(BEDROCK_ARMOR_STAND_LISTS[i]);
             if(!(list instanceof NbtTagList)) continue;
             NbtTagList values = (NbtTagList) list;
-            for(int j = 0; j < Math.min(values.getSize(), slots[i].length); ++j)
-                if(values.get(j) instanceof NbtTagCompound) copyBedrockEquipment((NbtTagCompound) values.get(j), equipment, slots[i][j]);
+            for(int j = 0; j < Math.min(values.getSize(), BEDROCK_ARMOR_STAND_SLOTS[i].length); ++j)
+                if(values.get(j) instanceof NbtTagCompound) copyBedrockEquipment((NbtTagCompound) values.get(j), equipment, BEDROCK_ARMOR_STAND_SLOTS[i][j]);
         }
         tag.addElement(equipment);
     }

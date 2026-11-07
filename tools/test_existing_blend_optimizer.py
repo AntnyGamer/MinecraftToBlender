@@ -129,4 +129,45 @@ with tempfile.TemporaryDirectory() as folder:
 
 assert source.count("def optimize_existing_blend(") == 1
 assert "'--optimize-blend' in arguments" in source
+
+# Verify main() CLI argument extraction handles both with and without '--' delimiter
+main_node = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+called_optimize = []
+scope_main = {
+    "sys": NS(argv=["blender.exe", "--background", "--python", "importer.py", "--", "target.blend", "--optimize-blend"]),
+    "Path": Path,
+    "optimize_existing_blend": lambda target, **kw: called_optimize.append((target, kw)),
+}
+exec(compile(ast.Module(body=[main_node], type_ignores=[]), "<main>", "exec"), scope_main)
+scope_main["main"]()
+assert len(called_optimize) == 1
+assert called_optimize[0][0].name == "target.blend"
+
+# Direct invocation without '--'
+called_optimize.clear()
+scope_main["sys"].argv = ["importer.py", "target.blend", "--optimize-blend"]
+scope_main["main"]()
+assert len(called_optimize) == 1
+assert called_optimize[0][0].name == "target.blend"
+
+# Help invocations print usage and return cleanly
+logged = []
+scope_main["log"] = lambda *parts: logged.append(" ".join(str(p) for p in parts))
+for help_arg in ["--help", "-h"]:
+    logged.clear()
+    called_optimize.clear()
+    scope_main["sys"].argv = ["importer.py", help_arg]
+    scope_main["main"]()
+    assert len(called_optimize) == 0
+    assert any("Usage:" in msg for msg in logged)
+
+# Empty arguments prints usage and returns cleanly
+logged.clear()
+called_optimize.clear()
+scope_main["sys"].argv = ["importer.py"]
+scope_main["main"]()
+assert len(called_optimize) == 0
+assert any("Usage:" in msg for msg in logged)
+
 print("Existing Blender optimization saves a separate copy and preserves the original.")
+

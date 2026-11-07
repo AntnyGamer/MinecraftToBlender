@@ -415,7 +415,88 @@ public final class MiExBedrockRegression {
         longText.addElement(NbtTagString.newNonPooledInstance("Text",
             "ABCDEFGHIJKLMNOP\n12345678901234567"));
         fitSide.invoke(null,longText,testFont,11.25f);
-        expect(longText.get("Text").asString(),"ABCDEFGHIJKLMNO\n123456789012345");
+        expect(longText.get("Text").asString(),"ABCDEFGHIJKLMNO\nP\n123456789012345\n67");
+        NbtTagCompound cookingSign=props();
+        cookingSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE COOKING SERVICES PROVIDED"));
+        fitSide.invoke(null,cookingSign,testFont,11.25f);
+        expect(cookingSign.get("Text").asString(),"FREE COOKING\nSERVICES\nPROVIDED");
+        NbtTagCompound formattedSign=props();
+        formattedSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "§aFREE COOKING SERVICES PROVIDED"));
+        fitSide.invoke(null,formattedSign,testFont,11.25f);
+        expect(formattedSign.get("Text").asString(),"§aFREE COOKING\n§aSERVICES\n§aPROVIDED");
+        NbtTagCompound hangingCookingSign=props();
+        hangingCookingSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE COOKING SERVICES PROVIDED"));
+        fitSide.invoke(null,hangingCookingSign,testFont,7.5f);
+        expect(hangingCookingSign.get("Text").asString(),"FREE\nCOOKING\nSERVICES\nPROVIDED");
+        NbtTagCompound fourLineSign=props();
+        fourLineSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE COOKING SERVICES PROVIDED FOR EVERYONE"));
+        fitSide.invoke(null,fourLineSign,testFont,11.25f);
+        expect(fourLineSign.get("Text").asString(),"FREE COOKING\nSERVICES\nPROVIDED FOR\nEVERYONE");
+        NbtTagCompound fiveLineOverflow=props();
+        fiveLineOverflow.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE COOKING SERVICES PROVIDED FOR EVERYONE IN THE VILLAGE"));
+        fitSide.invoke(null,fiveLineOverflow,testFont,11.25f);
+        expect(fiveLineOverflow.get("Text").asString(),"FREE COOKING\nSERVICES\nPROVIDED FOR\nEVERYONE IN THE");
+        NbtTagCompound unbrokenSign=props();
+        unbrokenSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE_COOKING_SERVICES_PROVIDED"));
+        fitSide.invoke(null,unbrokenSign,testFont,11.25f);
+        expect(unbrokenSign.get("Text").asString(),"FREE_COOKING_SE\nRVICES_PROVIDED");
+        NbtTagCompound longWordWrap=props();
+        longWordWrap.addElement(NbtTagString.newNonPooledInstance("Text",
+            "Notice: SUPERCALIFRAGILISTICEXPIALIDOCIOUS"));
+        fitSide.invoke(null,longWordWrap,testFont,11.25f);
+        expect(longWordWrap.get("Text").asString(),"Notice:\nSUPERCALIFRAGIL\nISTICEXPIALIDOC\nIOUS");
+        NbtTagCompound crlfSign=props();
+        crlfSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "Line 1\r\nLine 2\r\nLine 3"));
+        fitSide.invoke(null,crlfSign,testFont,11.25f);
+        expect(crlfSign.get("Text").asString(),"Line 1\nLine 2\nLine 3");
+        NbtTagCompound indentSign=props();
+        indentSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "  Indented"));
+        fitSide.invoke(null,indentSign,testFont,11.25f);
+        expect(indentSign.get("Text").asString(),"  Indented");
+        NbtTagCompound spacesSign=props();
+        spacesSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE  COOKING  SERVICES"));
+        fitSide.invoke(null,spacesSign,testFont,11.25f);
+        expect(spacesSign.get("Text").asString(),"FREE  COOKING\nSERVICES");
+        NbtTagCompound indentedWrapped=props();
+        indentedWrapped.addElement(NbtTagString.newNonPooledInstance("Text",
+            "§a  FREE COOKING SERVICES PROVIDED"));
+        fitSide.invoke(null,indentedWrapped,testFont,11.25f);
+        expect(indentedWrapped.get("Text").asString(),"§a  FREE COOKING\n§aSERVICES\n§aPROVIDED");
+        NbtTagCompound magicBoldSign=props();
+        magicBoldSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "§k§lABCDEFGHIJKLMN"));
+        fitSide.invoke(null,magicBoldSign,testFont,11.25f);
+        expect(magicBoldSign.get("Text").asString(),"§k§lABCDEFGHIJKLM\n§l§kN");
+        NbtTagCompound brokenTrailingSign=props();
+        brokenTrailingSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE_COOKING_SERVICES_PROVIDED for all"));
+        fitSide.invoke(null,brokenTrailingSign,testFont,11.25f);
+        expect(brokenTrailingSign.get("Text").asString(),"FREE_COOKING_SE\nRVICES_PROVIDED\nfor all");
+        NbtTagCompound fullSignNormal=props();
+        fullSignNormal.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE COOKING SERVICES PROVIDED"));
+        normalizeSign.invoke(null,"minecraft:oak_sign",fullSignNormal);
+        expect(((NbtTagCompound)fullSignNormal.get("FrontText")).get("Text").asString(),"FREE COOKING\nSERVICES\nPROVIDED");
+        expect(fullSignNormal.get("Text").asString(),"FREE COOKING\nSERVICES\nPROVIDED");
+        NbtTagCompound fullHangingNormal=props();
+        fullHangingNormal.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE COOKING SERVICES PROVIDED"));
+        normalizeSign.invoke(null,"minecraft:oak_hanging_sign",fullHangingNormal);
+        expect(((NbtTagCompound)fullHangingNormal.get("FrontText")).get("Text").asString(),"FREE\nCOOKING\nSERVICES\nPROVIDED");
+        NbtTagCompound fullUnbrokenNormal=props();
+        fullUnbrokenNormal.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE_COOKING_SERVICES_PROVIDED"));
+        normalizeSign.invoke(null,"minecraft:oak_sign",fullUnbrokenNormal);
+        expect(((NbtTagCompound)fullUnbrokenNormal.get("FrontText")).get("Text").asString(),"FREE_COOKING_SE\nRVICES_PROVIDED");
         ExprContext ctx=evaluate("Bedrock_Beds.json","minecraft:bed",frame);
         expect(ExprParser.parseMultiExpression("thisEntity.state.x != null ? (0.5 + thisEntity.state.x) : 0.0").eval(ctx).asFloat(),-6.5f);
         expect(ExprParser.parseMultiExpression("thisEntity.state.z != null ? (0.5 + thisEntity.state.z) : 0.0").eval(ctx).asFloat(),0f);

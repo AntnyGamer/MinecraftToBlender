@@ -97,7 +97,6 @@ jobs:
           $rebuilt = Join-Path $env:RUNNER_TEMP 'Bedrock_ChunkReader.class'
           python tools/build_bedrock_reader_patch.py --jar $jar --output $rebuilt
           if ($LASTEXITCODE -ne 0) { throw 'Could not rebuild pinned Bedrock reader' }
-          Write-Host ('REBUILT_BEDROCK_CLASS_BASE64=' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($rebuilt)))
           if ((Get-FileHash $rebuilt).Hash -ne (Get-FileHash assets/Bedrock_ChunkReader.class).Hash) {
             throw 'Bundled Bedrock reader differs from reproducible source patch'
           }

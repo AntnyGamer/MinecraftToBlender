@@ -27,6 +27,16 @@ if($coarse.Count -ne 9216 -or $coarse[0].chunkZ -le -80 -or
    $coarse[$coarse.Count - 1].chunkZ -ne -80) {
     throw 'Coarse preview did not keep the northern sampled edge last'
 }
+# Coarse rows reuse the exact same 96 X samples in their original order.
+$expectedX = @(for($col = 0; $col -lt 96; $col++) {
+    [int][math]::Floor(-80 + 159 * ($col / [double]95))
+})
+foreach($row in @(0, 1, 47, 95)) {
+    $actualX = @($coarse[($row * 96)..($row * 96 + 95)] | ForEach-Object { $_.chunkX })
+    if(($actualX -join ',') -ne ($expectedX -join ',')) {
+        throw "Coarse preview X samples changed in row $row"
+    }
+}
 $commands = @(New-PreviewChunkCommands $chunks 64)
 if($chunks.Count -ne 4096 -or $commands.Count -ne 65) {
     throw 'Expected 4096 positions, 64 regular batches and one cold-start replay'

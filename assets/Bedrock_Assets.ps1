@@ -266,23 +266,33 @@ function Set-BedrockStateCorrections([string]$miexDir,[string]$assetDir,[string]
             $model = @{ambientocclusion=$false; textures=@{particle='block/redstone_dust_dot'; line=$line; overlay='block/redstone_dust_overlay'}; elements=@($elements)} |
                 ConvertTo-Json -Depth 20 | ConvertFrom-Json
         }
+        # Several dust pieces share the same base plane at corners. Their
+        # transparent quads z-fight with each other, independently of the
+        # overlay-vs-line conflict. Give those overlapping variants distinct
+        # tiny depth layers (model coordinates, 16 units per block) and keep
+        # the untinted overlay above its own tinted wire.
+        $planeBase = switch($name) {
+            'redstone_dust_side' { 0.0625 }
+            'redstone_dust_side_alt' { 0.125 }
+            default { 0.0 }
+        }
         foreach($element in $model.elements) {
             $faces = @($element.faces.PSObject.Properties)
-            if($faces.Count -eq 0 -or @($faces | Where-Object { $_.Value.texture -ne '#overlay' }).Count -gt 0) { continue }
-            # Vanilla's coplanar line/overlay draw order is not encoded in USD.
-            # Separate the coincident planes
-            # by 1/16000 of a block to avoid a flickering dark second wire.
+            if($faces.Count -eq 0) { continue }
+            $overlay = @($faces | Where-Object { $_.Value.texture -eq '#overlay' }).Count -eq $faces.Count
+            $offset = $planeBase + $(if($overlay) { 0.03125 } else { 0.0 })
+            if($offset -eq 0.0) { continue }
             for($axis = 0; $axis -lt 3; $axis++) {
                 if($element.from[$axis] -eq $element.to[$axis]) {
-                    $element.from[$axis] = [double]$element.from[$axis] + 0.001
-                    $element.to[$axis] = [double]$element.to[$axis] + 0.001
+                    $element.from[$axis] = [double]$element.from[$axis] + $offset
+                    $element.to[$axis] = [double]$element.to[$axis] + $offset
                     break
                 }
             }
         }
         [IO.File]::WriteAllText($target, ($model | ConvertTo-Json -Depth 40), [Text.UTF8Encoding]::new($false))
     }
-    Write-Host 'Bedrock state corrections: directional redstone connections and separated dust overlay planes.'
+    Write-Host 'Bedrock state corrections: directional redstone connections and separated corner/overlay planes.'
 }
 
 function Install-BedrockReaderClass([string]$sourceJar, [string]$classPath) {

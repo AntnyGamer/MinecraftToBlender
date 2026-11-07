@@ -93,6 +93,7 @@ mock_bpy.context.scene.objects = [
 assert avoid_pointclouds() == 1
 assert empty_with_mod.hide_viewport is True
 assert empty_with_mod.hide_render is False, "Render visibility must remain untouched"
+assert empty_with_mod.modifiers[0].show_viewport is False, "Modifier viewport evaluation must be disabled"
 assert has_points_with_mod.hide_viewport is False, "Point clouds with points must stay visible"
 assert empty_no_mod.hide_viewport is False, "Point clouds without modifiers must stay visible"
 assert empty_with_children.hide_viewport is False, "Point clouds with children must not be hidden"
@@ -103,12 +104,14 @@ assert empty_obj.hide_viewport is False, "Non-pointcloud objects must stay visib
 assert avoid_pointclouds() == 0
 
 
-# Test 3: main() must call both optimizations
+# Test 3: main() and optimize_existing_blend() must call both optimizations
 calls = lambda name, target: [n for n in ast.walk(funcs[name])
                               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                               and n.func.id == target]
 
 assert len(calls("main", "avoid_drawing_chunk_outlines")) == 1
 assert len(calls("main", "avoid_evaluating_empty_pointclouds")) == 1
+assert len(calls("optimize_existing_blend", "avoid_drawing_chunk_outlines")) == 1
+assert len(calls("optimize_existing_blend", "avoid_evaluating_empty_pointclouds")) == 1
 
 print("Viewport FPS optimizations (outline suppression and empty pointcloud modifier skipping) verified.")

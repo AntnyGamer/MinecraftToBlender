@@ -18,6 +18,7 @@ def obj(typ="MESH", instance="NONE", modifiers=(), points=()):
 
 assert not need(obj()), "static terrain meshes should skip the extra dependency graph walk"
 assert not need(obj(typ="POINTCLOUD")), "empty point cloud should not force evaluation"
+assert not need(obj(typ="POINTCLOUD", modifiers=["geometry nodes"])), "empty point cloud with modifier should not force evaluation"
 assert need(obj(modifiers=["geometry nodes"])), "modified terrain requires evaluated bounds"
 assert need(obj(instance="COLLECTION")), "collection instance bounds require evaluated instances"
 assert need(obj(typ="POINTCLOUD", points=[1])), "nonempty point cloud must retain evaluation"

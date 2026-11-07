@@ -411,9 +411,11 @@ def needs_evaluated_bounds(ob):
     """Whether an object's visible extents can differ from its stored bounds."""
     if getattr(ob, 'instance_type', 'NONE') != 'NONE':
         return True
+    if getattr(ob, 'type', None) == 'POINTCLOUD':
+        return len(getattr(getattr(ob, 'data', None), 'points', ())) > 0
     if len(getattr(ob, 'modifiers', ())):
         return True
-    return ob.type == 'POINTCLOUD' and len(ob.data.points) > 0
+    return False
 
 
 def scene_report():
@@ -1163,14 +1165,14 @@ def avoid_drawing_chunk_outlines(min_meshes=128):
     every frame. This hurts viewport FPS and causes dark seams along chunk
     borders. Reversible via Viewport Shading > Outline.
     """
-    meshes = sum(1 for ob in bpy.context.scene.objects if ob.type == 'MESH')
+    meshes = sum(1 for ob in getattr(bpy.context.scene, 'objects', ()) if getattr(ob, 'type', None) == 'MESH')
     if meshes < min_meshes:
         return 0
     changed = 0
-    for screen in bpy.data.screens:
-        for area in screen.areas:
-            for space in area.spaces:
-                if (space.type == 'VIEW_3D'
+    for screen in getattr(bpy.data, 'screens', ()):
+        for area in getattr(screen, 'areas', ()):
+            for space in getattr(area, 'spaces', ()):
+                if (getattr(space, 'type', None) == 'VIEW_3D'
                         and hasattr(space, 'shading')
                         and getattr(space.shading, 'show_object_outline', False)):
                     space.shading.show_object_outline = False
@@ -1191,15 +1193,20 @@ def avoid_evaluating_empty_pointclouds():
     every frame without affecting renders or any visible geometry.
     """
     count = 0
-    for ob in bpy.context.scene.objects:
-        if (ob.type == 'POINTCLOUD'
-                and hasattr(ob, 'data')
+    for ob in getattr(bpy.context.scene, 'objects', ()):
+        if (getattr(ob, 'type', None) == 'POINTCLOUD'
+                and getattr(ob, 'data', None) is not None
                 and hasattr(ob.data, 'points')
                 and len(ob.data.points) == 0
                 and len(getattr(ob, 'modifiers', ())) > 0
                 and len(getattr(ob, 'children', ())) == 0
                 and not getattr(ob, 'hide_viewport', False)):
             ob.hide_viewport = True
+            for mod in getattr(ob, 'modifiers', ()):
+                try:
+                    setattr(mod, 'show_viewport', False)
+                except Exception:
+                    pass
             count += 1
     if count:
         log('VIEWPORT: skipped modifier evaluation for', count,
@@ -1232,7 +1239,9 @@ def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
     # material datablocks and parent relationships remain unchanged.
     if len(meshes) >= 128:
         hide_relationship_lines()
+        avoid_drawing_chunk_outlines()
     hide_imported_transform_markers()
+    avoid_evaluating_empty_pointclouds()
     if batch_meshes:
         compact_redundant_usd_normals()
         remove_unused_usd_display_colors()

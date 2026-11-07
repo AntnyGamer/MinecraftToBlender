@@ -1002,6 +1002,25 @@ def hide_relationship_lines():
                     space.overlay.show_relationship_lines = False
 
 
+def hide_imported_transform_markers():
+    """Hide MiEx/USD plain-axis transform markers without hiding their objects.
+
+    USD parent transforms can appear as black crosshairs inside doors, windows,
+    and other geometry. Plain-axis Empties are not rendered. Zeroing only their
+    display size retains parent-child transforms, object visibility, and actual
+    image/display helper Empties.
+    """
+    count = 0
+    for ob in bpy.context.scene.objects:
+        if ob.type == 'EMPTY' and ob.empty_display_type == 'PLAIN_AXES' and ob.empty_display_size != 0:
+            ob.empty_display_size = 0.0
+            count += 1
+    if count:
+        log('VIEWPORT: hidden', count, 'USD transform-axis markers; '
+            'object parenting and render geometry are unchanged.')
+    return count
+
+
 
 
 def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
@@ -1126,6 +1145,7 @@ def main():
     bounds = frame_actual_scene(scene['evaluate_bounds'])
     log('[PERF] Scene framing:', round(time.monotonic() - phase_start, 2), 'seconds')
     hide_relationship_lines()
+    hide_imported_transform_markers()
     clear_bulk_import_selection()
     if batch_meshes:
         phase_start = time.monotonic()

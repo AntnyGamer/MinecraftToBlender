@@ -396,8 +396,8 @@ public final class MiExBedrockRegression {
         // The actual MiEx glyph advances (including formatting and bold
         // spacing), not character counts, limit the visible sign line width.
         Class<?> fontType=nl.bramstout.mcworldexporter.resourcepack.Font.class;
-        Method fitLine=reader.getDeclaredMethod("fitBedrockSignLine",String.class,fontType,float.class);
-        Method fitSide=reader.getDeclaredMethod("fitBedrockSignSide",NbtTagCompound.class,fontType,float.class);
+        Method fitLine=normalize.getDeclaringClass().getDeclaredMethod("fitBedrockSignLine",String.class,fontType,float.class);
+        Method fitSide=normalize.getDeclaringClass().getDeclaredMethod("fitBedrockSignSide",NbtTagCompound.class,fontType,float.class);
         fitLine.setAccessible(true);
         fitSide.setAccessible(true);
         nl.bramstout.mcworldexporter.resourcepack.Font testFont =

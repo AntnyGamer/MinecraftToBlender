@@ -165,6 +165,28 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('Pinned MiEx material node lookup changed; cannot apply verified optimization.')
     contents = contents.replace(original, faster, 1)
+    # Shader input socket names are usually words like "Base Color", not
+    # integers. Avoid throwing ValueError for every ordinary named socket.
+    # Keep the int() fallback for signed, spaced or underscored numeric names.
+    original = '''    def is_number(self, inputString:str):
+        try:
+            int(inputString)
+            return True
+        except ValueError:
+            return False'''
+    faster = '''    def is_number(self, inputString:str):
+        if inputString.isdecimal():
+            return True
+        if not any(char.isdecimal() for char in inputString):
+            return False
+        try:
+            int(inputString)
+            return True
+        except ValueError:
+            return False'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx socket index parsing changed; refusing unverified optimization.')
+    contents = contents.replace(original, faster, 1)
     # NodeGrid's temporary Node wrapper never reads its outputs list. Keep
     # the real Blender node sockets intact and avoid an empty Python list
     # allocation for every shader-layout wrapper.
@@ -342,13 +364,33 @@ def needs_evaluated_bounds(ob):
 
 
 def scene_report():
+    # Thousands of imported mesh objects can share a MiEx chunk/prototype
+    # parent. Resolve each ancestor chain once instead of walking it again
+    # for every child mesh. No object state or hierarchy is modified.
+    ancestor_prototype = {}
+
     def is_prototype(o):
-        while o:
-            name = o.name.partition('.')[0].lower()
-            if name in ('prototypes', 'individualblocksbasemeshes'):
-                return True
-            o = o.parent
-        return False
+        if o.name.partition('.')[0].lower() in ('prototypes', 'individualblocksbasemeshes'):
+            return True
+        parent = o.parent
+        if parent is None:
+            return False
+        pending = []
+        found = False
+        while parent is not None:
+            key = parent.as_pointer()
+            cached = ancestor_prototype.get(key)
+            if cached is not None:
+                found = cached
+                break
+            pending.append(key)
+            if parent.name.partition('.')[0].lower() in ('prototypes', 'individualblocksbasemeshes'):
+                found = True
+                break
+            parent = parent.parent
+        for key in pending:
+            ancestor_prototype[key] = found
+        return found
 
     counts = Counter()
     mesh_count = faces = terrain_faces = verts = cloud_count = points = geonodes = 0

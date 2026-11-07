@@ -66,6 +66,50 @@ def test_material_lookup():
         raise AssertionError("missing shader node did not report original error")
 
 
+def test_shader_input_number_fast_path():
+    # Only numeric socket names need Python's int parser. Ordinary material
+    # sockets are words; avoid raising/catching ValueError for each of them.
+    tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
+    fn = next(x for x in tree.body if isinstance(x, ast.FunctionDef)
+              and x.name == "load_patched_importer")
+    pairs = []
+    preceding = None
+    for statement in fn.body:
+        if not isinstance(statement, ast.Assign) or not isinstance(statement.value, ast.Constant):
+            continue
+        if not isinstance(statement.value.value, str):
+            continue
+        if any(isinstance(x, ast.Name) and x.id == "original" for x in statement.targets):
+            preceding = statement.value.value
+        elif (preceding and
+              any(isinstance(x, ast.Name) and x.id == "faster" for x in statement.targets)
+              and "def is_number(self" in preceding):
+            pairs.append((preceding, statement.value.value))
+    assert len(pairs) == 1
+    old, new = pairs[0]
+    assert "isdecimal()" in new and "any(char.isdecimal()" in new
+    def load_method(source, optional_scope=None):
+        scope = dict(optional_scope or {})
+        exec("class Parser:\n" + source, scope)
+        return scope["Parser"]().is_number
+    original = load_method(old)
+    optimized = load_method(new)
+    names = ["Base Color", "Normal", "Roughness", "Alpha", "Shader", "",
+             "0", "12", "-2", "+7", " 8 ", "1_234", "1.0",
+             "Texture2", "12a", " \\t ", "٠٣", "²", "١_٢", "+_2"]
+    assert [optimized(s) for s in names] == [original(s) for s in names]
+    parsed = []
+    def track_int(value):
+        parsed.append(value)
+        return int(value)
+    fast = load_method(new, {"int":track_int})
+    for name in ("Base Color", "Normal", "Shader", "Alpha", "Roughness"):
+        assert not fast(name)
+    assert not parsed, "Non-numeric shader sockets must not invoke int()"
+    assert fast("12") and not parsed, "Plain decimal sockets need no int()"
+    assert fast("1_234") and parsed == ["1_234"], "Preserve Python's full integer syntax"
+
+
 def test_redundant_preview_shaders_are_skipped():
     tree = ast.parse(Path("assets/Import_Existing_USD.py").read_text(encoding="utf-8"))
     fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
@@ -238,6 +282,7 @@ def test_flat_shading_buffer_preserves_every_flag():
 
 if __name__ == "__main__":
     test_material_lookup()
+    test_shader_input_number_fast_path()
     test_redundant_preview_shaders_are_skipped()
     test_minecraft_shader_graph_starts_clean()
     test_shared_image_color_and_alpha_are_isolated()

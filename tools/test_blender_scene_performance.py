@@ -97,7 +97,7 @@ def imported_functions(bpy, messages):
 
 
 def test_scene_report():
-    ancestor = NS(name="prototypes", parent=None)
+    ancestor = NS(name="prototypes", parent=None, as_pointer=lambda: 111)
     solid = Mesh("terrain", 10, 23)
     prototype = Mesh("tree", 4, 8, ancestor)
     cloud = NS(type="POINTCLOUD", name="cloud", data=NS(points=range(17)),
@@ -110,6 +110,41 @@ def test_scene_report():
     assert scene_objects.iterations == 1
     assert any("BLENDER geometry-node modifiers on point clouds:" in x and 2 in x
                for x in messages)
+
+
+def test_shared_prototype_ancestry_is_cached():
+    class Parent:
+        def __init__(self, name, parent=None):
+            self._name, self._parent = name, parent
+            self.name_reads = 0
+
+        @property
+        def name(self):
+            self.name_reads += 1
+            return self._name
+
+        @property
+        def parent(self):
+            return self._parent
+
+        def as_pointer(self):
+            return id(self)
+
+    root = Parent("Minecraft_World")
+    region = Parent("region_1_chunk_0_0", root)
+    prototypes = Parent("prototypes", root)
+    terrain = [Mesh(f"stone_{i}", 11, 22, region) for i in range(100)]
+    samples = [Mesh(f"prototype_{i}", 3, 8, prototypes) for i in range(80)]
+    scene = NS(context=NS(scene=NS(objects=SceneObjects(terrain+samples))),
+               data=NS(images={}))
+    result = imported_functions(scene, [])["scene_report"]()
+    assert result["meshes"] == 180
+    assert result["terrain_faces"] == 1100
+    assert result["faces"] == 1340
+    assert region.name_reads == 1
+    assert root.name_reads == 1
+    assert prototypes.name_reads == 1
+    # The cache is only per-report: no persistent Blender or mesh state changes.
 
 
 def test_repeated_instance_bounds():
@@ -269,6 +304,7 @@ def test_bounds_extrema_and_nonfinite_coordinates():
 
 if __name__ == "__main__":
     test_scene_report()
+    test_shared_prototype_ancestry_is_cached()
     test_repeated_instance_bounds()
     test_initial_view_starts_close_to_large_terrain()
     test_static_scene_avoids_depsgraph()

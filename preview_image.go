@@ -34,7 +34,8 @@ func previewBatchCount(centerX, centerZ, size int) int {
 	// Matches Get-PreviewChunkCoordinates in Export_World.ps1.
 	chunks := spanX*spanZ
 	if chunks>9216 { chunks=min(96,spanX)*min(96,spanZ) }
-	return (chunks+63)/64
+	// The exporter retries the very first (possibly cold) MiEx response last.
+	return (chunks+63)/64 + 1
 }
 
 func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size, expectedBatches int) (int, error) {

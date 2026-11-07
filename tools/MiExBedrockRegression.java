@@ -393,6 +393,30 @@ public final class MiExBedrockRegression {
         expect(((NbtTagCompound)sign.get("FrontText")).get("IgnoreLighting"),null);
         NbtTagCompound frame=props();
         frame.addElement(NbtTagInt.newNonPooledInstance("x",-7));
+        // The actual MiEx glyph advances (including formatting and bold
+        // spacing), not character counts, limit the visible sign line width.
+        Class<?> reader=normalize.getDeclaringClass();
+        Class<?> fontType=nl.bramstout.mcworldexporter.resourcepack.Font.class;
+        Method fitLine=reader.getDeclaredMethod("fitBedrockSignLine",String.class,fontType,float.class);
+        Method fitSide=reader.getDeclaredMethod("fitBedrockSignSide",NbtTagCompound.class,fontType,float.class);
+        fitLine.setAccessible(true);
+        fitSide.setAccessible(true);
+        nl.bramstout.mcworldexporter.resourcepack.Font testFont =
+            new nl.bramstout.mcworldexporter.resourcepack.Font() {
+                @Override public Character getCharacterInfo(int codepoint) {
+                    return new Character("minecraft:font/default",0.625f,1.0f,1.0f,0,0,1,1);
+                }
+            };
+        expect(fitLine.invoke(null,"ABCDEFGHIJKLMNO",testFont,11.25f),"ABCDEFGHIJKLMNO");
+        expect(fitLine.invoke(null,"ABCDEFGHIJKLMNOP",testFont,11.25f),"ABCDEFGHIJKLMNO");
+        expect(fitLine.invoke(null,"ABCDEFGHIJK",testFont,7.5f),"ABCDEFGHIJ");
+        expect(fitLine.invoke(null,"§aABCDEFGHIJKLMNO§r",testFont,11.25f),"§aABCDEFGHIJKLMNO§r");
+        expect(fitLine.invoke(null,"§lABCDEFGHIJKLMN",testFont,11.25f),"§lABCDEFGHIJKLM");
+        NbtTagCompound longText=props();
+        longText.addElement(NbtTagString.newNonPooledInstance("Text",
+            "ABCDEFGHIJKLMNOP\\n12345678901234567"));
+        fitSide.invoke(null,longText,testFont,11.25f);
+        expect(longText.get("Text").asString(),"ABCDEFGHIJKLMNO\\n123456789012345");
         ExprContext ctx=evaluate("Bedrock_Beds.json","minecraft:bed",frame);
         expect(ExprParser.parseMultiExpression("thisEntity.state.x != null ? (0.5 + thisEntity.state.x) : 0.0").eval(ctx).asFloat(),-6.5f);
         expect(ExprParser.parseMultiExpression("thisEntity.state.z != null ? (0.5 + thisEntity.state.z) : 0.0").eval(ctx).asFloat(),0f);

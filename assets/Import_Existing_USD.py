@@ -187,6 +187,33 @@ def load_patched_importer(src):
     if contents.count(original) != 1:
         raise RuntimeError('Pinned MiEx socket index parsing changed; refusing unverified optimization.')
     contents = contents.replace(original, faster, 1)
+    # The same Minecraft material is often used by thousands of exported
+    # mesh pieces with the same USD displayColor. Avoid repeatedly updating
+    # the Blender material when its last assigned source RGB is identical;
+    # preserve the original gamma formula and changes between different tints.
+    original = '''        # Filter meshes based on import type
+        for mesh in meshes:        '''
+    faster = '''        # Filter meshes based on import type
+        last_display_colors = {}
+        for mesh in meshes:        '''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx imported-mesh loop changed; refusing unverified optimization.')
+    contents = contents.replace(original, faster, 1)
+    original = '''                    displayColorSRGB = [ pow(displayColor[0], 1.0/2.2), 
+                                            pow(displayColor[1], 1.0/2.2), 
+                                            pow(displayColor[2], 1.0/2.2), 1.0 ]
+                    mat.diffuse_color = displayColorSRGB'''
+    faster = '''                    rgb = (displayColor[0], displayColor[1], displayColor[2])
+                    mat_key = mat.as_pointer()
+                    if last_display_colors.get(mat_key) != rgb:
+                        displayColorSRGB = [pow(rgb[0], 1.0/2.2),
+                                            pow(rgb[1], 1.0/2.2),
+                                            pow(rgb[2], 1.0/2.2), 1.0]
+                        mat.diffuse_color = displayColorSRGB
+                        last_display_colors[mat_key] = rgb'''
+    if contents.count(original) != 1:
+        raise RuntimeError('Pinned MiEx displayColor conversion changed; refusing unverified speedup.')
+    contents = contents.replace(original, faster, 1)
     # NodeGrid's temporary Node wrapper never reads its outputs list. Keep
     # the real Blender node sockets intact and avoid an empty Python list
     # allocation for every shader-layout wrapper.

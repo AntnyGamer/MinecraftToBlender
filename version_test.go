@@ -63,4 +63,11 @@ func TestWindowsExeVersionMetadata(t *testing.T) {
 		win.Info["0409"]["FileVersion"] != want || win.Info["0409"]["ProductVersion"] != want {
 		t.Fatalf("Windows file/product version disagrees with VERSION %s: %+v", want, win)
 	}
+	manifestData, err := os.ReadFile("winres/app.manifest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(manifestData), `version="`+want+`"`) {
+		t.Fatalf("winres/app.manifest version does not match VERSION %s: %s", want, string(manifestData))
+	}
 }

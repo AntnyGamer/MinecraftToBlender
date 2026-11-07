@@ -150,4 +150,24 @@ scope_main["main"]()
 assert len(called_optimize) == 1
 assert called_optimize[0][0].name == "target.blend"
 
+# Help invocations print usage and return cleanly
+logged = []
+scope_main["log"] = lambda *parts: logged.append(" ".join(str(p) for p in parts))
+for help_arg in ["--help", "-h"]:
+    logged.clear()
+    called_optimize.clear()
+    scope_main["sys"].argv = ["importer.py", help_arg]
+    scope_main["main"]()
+    assert len(called_optimize) == 0
+    assert any("Usage:" in msg for msg in logged)
+
+# Empty arguments prints usage and returns cleanly
+logged.clear()
+called_optimize.clear()
+scope_main["sys"].argv = ["importer.py"]
+scope_main["main"]()
+assert len(called_optimize) == 0
+assert any("Usage:" in msg for msg in logged)
+
 print("Existing Blender optimization saves a separate copy and preserves the original.")
+

@@ -94,11 +94,7 @@ func pickerLoadImages() {
 	}
 }
 func pickerRelease() {
-	for _, v := range picker.images {
-		if v != 0 {
-			pGdipDisposeImage.Call(v)
-		}
-	}
+	pickerReleaseImages()
 	if picker.gdipToken != 0 {
 		pGdiplusShutdown.Call(picker.gdipToken)
 		picker.gdipToken = 0
@@ -112,7 +108,6 @@ func pickerRelease() {
 	picker.fontSecondary = 0
 	picker.fontSmall = 0
 	picker.hwnd = 0
-	picker.images = nil
 }
 func pickerListHeight() int { return max(1, picker.h-pickerListTop-pickerFooterH) }
 func pickerMaxScroll() int {

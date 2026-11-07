@@ -1338,6 +1338,10 @@ def optimize_existing_blend(target, batch_meshes=False, minecraft_view=False):
 
 def main():
     arguments = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else sys.argv[1:]
+    if not arguments or any(h in arguments for h in ('-h', '--help')):
+        log('Usage: blender --background --python Import_Existing_USD.py -- <source.usd> <MiExImport.py> <output.blend> [--minecraft-water] [--batch-static-meshes] [--minecraft-view]')
+        log('   or: blender --background --python Import_Existing_USD.py -- <target.blend> --optimize-blend [--batch-static-meshes] [--minecraft-view]')
+        return
     if '--optimize-blend' in arguments:
         flags = arguments[1:]
         allowed = {'--optimize-blend', '--batch-static-meshes', '--minecraft-view'}

@@ -461,6 +461,26 @@ public final class MiExBedrockRegression {
             "  Indented"));
         fitSide.invoke(null,indentSign,testFont,11.25f);
         expect(indentSign.get("Text").asString(),"  Indented");
+        NbtTagCompound spacesSign=props();
+        spacesSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE  COOKING  SERVICES"));
+        fitSide.invoke(null,spacesSign,testFont,11.25f);
+        expect(spacesSign.get("Text").asString(),"FREE  COOKING\nSERVICES");
+        NbtTagCompound indentedWrapped=props();
+        indentedWrapped.addElement(NbtTagString.newNonPooledInstance("Text",
+            "§a  FREE COOKING SERVICES PROVIDED"));
+        fitSide.invoke(null,indentedWrapped,testFont,11.25f);
+        expect(indentedWrapped.get("Text").asString(),"§a  FREE COOKING\n§aSERVICES\n§aPROVIDED");
+        NbtTagCompound magicBoldSign=props();
+        magicBoldSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "§k§lABCDEFGHIJKLMN"));
+        fitSide.invoke(null,magicBoldSign,testFont,11.25f);
+        expect(magicBoldSign.get("Text").asString(),"§k§lABCDEFGHIJKLM\n§l§kN");
+        NbtTagCompound brokenTrailingSign=props();
+        brokenTrailingSign.addElement(NbtTagString.newNonPooledInstance("Text",
+            "FREE_COOKING_SERVICES_PROVIDED for all"));
+        fitSide.invoke(null,brokenTrailingSign,testFont,11.25f);
+        expect(brokenTrailingSign.get("Text").asString(),"FREE_COOKING_SE\nRVICES_PROVIDED\nfor all");
         NbtTagCompound fullSignNormal=props();
         fullSignNormal.addElement(NbtTagString.newNonPooledInstance("Text",
             "FREE COOKING SERVICES PROVIDED"));

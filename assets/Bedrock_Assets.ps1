@@ -296,7 +296,7 @@ function Set-BedrockStateCorrections([string]$miexDir,[string]$assetDir,[string]
 }
 
 function Install-BedrockReaderClass([string]$sourceJar, [string]$classPath) {
-    $expectedClass = '1f2e537cfd89b8b75980b25608d29c134481c2aeac56cb42fad2cb9bc053a3bc'
+    $expectedClass = '3df2a9e27c6fb18bcac3f606ad15646df4db60aea4b3843a658248a2b29f2fb4'
     if((Get-FileHash -LiteralPath $sourceJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne
        'e4951d44116fd2d90c14f52643b7cd66ddd7f64ac108b8a16705b379672de707' -or
        (Get-FileHash -LiteralPath $classPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedClass) {

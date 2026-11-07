@@ -89,7 +89,7 @@ NORMALIZE_BANNER = '''
                 if(undo && codeIndex + 1 < line.length()) codeIndex++;
                 char code = Character.toLowerCase(line.charAt(codeIndex));
                 if(code == 'l') bold = !undo;
-                else if(code != 'm' && code != 'n' && code != 'o') bold = false;
+                else if(code != 'm' && code != 'n' && code != 'o' && code != 'k') bold = false;
                 kept.append(line, offset, codeIndex + 1);
                 offset = codeIndex + 1;
                 continue;
@@ -128,7 +128,7 @@ NORMALIZE_BANNER = '''
                 if(undo && codeIndex + 1 < text.length()) codeIndex++;
                 char code = Character.toLowerCase(text.charAt(codeIndex));
                 if(code == 'l') bold = !undo;
-                else if(code != 'm' && code != 'n' && code != 'o') bold = false;
+                else if(code != 'm' && code != 'n' && code != 'o' && code != 'k') bold = false;
                 offset = codeIndex + 1;
                 continue;
             }
@@ -227,49 +227,85 @@ NORMALIZE_BANNER = '''
                 result.add(para);
                 continue;
             }
-            String[] words = para.split(" ", -1);
             StringBuilder curLine = new StringBuilder();
             String activePrefix = "";
-            for(int i = 0; i < words.length; i++) {
-                String word = words[i];
-                if(word.isEmpty()) {
-                    String test = curLine.toString() + " ";
-                    if(measureBedrockSignTextWidth(test, font) <= widthLimit + 0.000001f) {
-                        curLine.append(' ');
-                    }
-                    continue;
-                }
-                if(curLine.length() == 0 || (curLine.length() > 0 && curLine.charAt(curLine.length() - 1) == ' ' && curLine.toString().trim().isEmpty())) {
-                    String candidate = curLine.length() == 0 ? (activePrefix.isEmpty() ? word : (activePrefix + word)) : (curLine.toString() + word);
-                    if(curLine.length() > 0 && curLine.toString().trim().isEmpty()) {
-                        curLine.setLength(0);
-                    }
-                    if(measureBedrockSignTextWidth(candidate, font) <= widthLimit + 0.000001f) {
-                        curLine.append(candidate);
-                    } else {
-                        activePrefix = appendBedrockWordOrBreak(candidate, curLine, result, font, widthLimit, activePrefix);
-                    }
-                } else {
-                    boolean endsWithSpace = curLine.charAt(curLine.length() - 1) == ' ';
-                    String test = endsWithSpace ? (curLine.toString() + word) : (curLine.toString() + " " + word);
-                    if(measureBedrockSignTextWidth(test, font) <= widthLimit + 0.000001f) {
-                        if(!endsWithSpace) curLine.append(' ');
-                        curLine.append(word);
-                    } else {
-                        String lineToAdd = curLine.toString();
-                        while(lineToAdd.endsWith(" ")) lineToAdd = lineToAdd.substring(0, lineToAdd.length() - 1);
-                        result.add(lineToAdd);
-                        if(result.size() >= 4) {
-                            curLine.setLength(0);
-                            break;
-                        }
-                        activePrefix = getBedrockSignFormattingPrefix(lineToAdd, activePrefix);
-                        curLine.setLength(0);
-                        String candidate = activePrefix.isEmpty() ? word : (activePrefix + word);
+            for(int i = 0; i < para.length();) {
+                if(result.size() >= 4) break;
+                int start = i;
+                char ch = para.charAt(i);
+                boolean isSpace = ch == ' ';
+                while(i < para.length() && (para.charAt(i) == ' ') == isSpace) i++;
+                String token = para.substring(start, i);
+
+                if(isSpace) {
+                    if(curLine.length() == 0) {
+                        String candidate = activePrefix.isEmpty() ? token : (activePrefix + token);
                         if(measureBedrockSignTextWidth(candidate, font) <= widthLimit + 0.000001f) {
                             curLine.append(candidate);
+                            activePrefix = "";
+                        } else {
+                            String fitted = fitBedrockSignLine(candidate, font, widthLimit);
+                            if(!fitted.isEmpty()) {
+                                curLine.append(fitted);
+                                activePrefix = "";
+                            }
+                        }
+                    } else {
+                        String test = curLine.toString() + token;
+                        if(measureBedrockSignTextWidth(test, font) <= widthLimit + 0.000001f) {
+                            curLine.append(token);
+                        } else {
+                            String lineToAdd = curLine.toString();
+                            while(lineToAdd.endsWith(" ")) lineToAdd = lineToAdd.substring(0, lineToAdd.length() - 1);
+                            result.add(lineToAdd);
+                            if(result.size() >= 4) {
+                                curLine.setLength(0);
+                                break;
+                            }
+                            activePrefix = getBedrockSignFormattingPrefix(lineToAdd, activePrefix);
+                            curLine.setLength(0);
+                        }
+                    }
+                } else {
+                    if(curLine.length() == 0) {
+                        String candidate = activePrefix.isEmpty() ? token : (activePrefix + token);
+                        if(measureBedrockSignTextWidth(candidate, font) <= widthLimit + 0.000001f) {
+                            curLine.append(candidate);
+                            activePrefix = "";
                         } else {
                             activePrefix = appendBedrockWordOrBreak(candidate, curLine, result, font, widthLimit, activePrefix);
+                            if(curLine.length() > 0) activePrefix = "";
+                            if(result.size() >= 4) {
+                                curLine.setLength(0);
+                                break;
+                            }
+                        }
+                    } else {
+                        String test = curLine.toString() + token;
+                        if(measureBedrockSignTextWidth(test, font) <= widthLimit + 0.000001f) {
+                            curLine.append(token);
+                        } else {
+                            String lineToAdd = curLine.toString();
+                            while(lineToAdd.endsWith(" ")) lineToAdd = lineToAdd.substring(0, lineToAdd.length() - 1);
+                            result.add(lineToAdd);
+                            if(result.size() >= 4) {
+                                curLine.setLength(0);
+                                break;
+                            }
+                            activePrefix = getBedrockSignFormattingPrefix(lineToAdd, activePrefix);
+                            curLine.setLength(0);
+                            String candidate = activePrefix.isEmpty() ? token : (activePrefix + token);
+                            if(measureBedrockSignTextWidth(candidate, font) <= widthLimit + 0.000001f) {
+                                curLine.append(candidate);
+                                activePrefix = "";
+                            } else {
+                                activePrefix = appendBedrockWordOrBreak(candidate, curLine, result, font, widthLimit, activePrefix);
+                                if(curLine.length() > 0) activePrefix = "";
+                                if(result.size() >= 4) {
+                                    curLine.setLength(0);
+                                    break;
+                                }
+                            }
                         }
                     }
                 }

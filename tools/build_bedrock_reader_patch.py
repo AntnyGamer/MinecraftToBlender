@@ -100,7 +100,7 @@ NORMALIZE_BANNER = '''
         String[] lines = original.split("\\n", -1);
         StringBuilder clipped = new StringBuilder(original.length());
         for(int i = 0; i < lines.length; i++) {
-            if(i > 0) clipped.append('\n');
+            if(i > 0) clipped.append('\\n');
             clipped.append(fitBedrockSignLine(lines[i], font, widthLimit));
         }
         if(!original.contentEquals(clipped))

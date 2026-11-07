@@ -320,8 +320,8 @@ def test_chunk_name_patterns_preserve_matching():
         "region_1_chunk__32__1", "REGION_23_CHUNK_11_24.003",
         "region_1_chunk_1_2suffix",
     )
-    legacy_mesh = r"mesh_chunk_(_?-?\\d+)_(_?-?\\d+)(?:_|$)"
-    legacy_parent = r"region_\\d+_chunk_(_?-?\\d+)_(_?-?\\d+)(?:\\.\\d+)?"
+    legacy_mesh = r"mesh_chunk_(_?-?\d+)_(_?-?\d+)(?:_|$)"
+    legacy_parent = r"region_\d+_chunk_(_?-?\d+)_(_?-?\d+)(?:\.\d+)?"
     for name in cases:
         for original, replacement in (
             (re.search(legacy_mesh, name, re.I), scope["CHUNK_MESH_PATTERN"].search(name)),

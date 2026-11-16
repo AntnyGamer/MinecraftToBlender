@@ -10,7 +10,7 @@ permissions:
 
 # Pin a supported release compiler without raising the go.mod minimum.
 env:
-  BUILD_GO_VERSION: '1.27.3'
+  BUILD_GO_VERSION: '1.27.4'
 
 # The same branch is built on both push and pull_request. Cancel superseded
 # builds instead of queueing duplicate Windows jobs on every review fix.

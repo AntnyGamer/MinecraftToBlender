@@ -1,6 +1,14 @@
 # Windows integration checks formerly embedded in GitHub Actions.
 # Run from the repo root with Windows PowerShell 5.1.
 $ErrorActionPreference = 'Stop'
+# GitHub Actions defines RUNNER_TEMP; use a private scratch directory locally.
+$createdRunnerTemp = $false
+if (-not $env:RUNNER_TEMP) {
+  $env:RUNNER_TEMP = Join-Path ([IO.Path]::GetTempPath()) ('MinecraftToBlender-ci-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $env:RUNNER_TEMP -Force | Out-Null
+  $createdRunnerTemp = $true
+}
+try {
 & ./tools/test_miex_launch_args.ps1
 & ./tools/test_preview_batches.ps1
 $tokens = $null
@@ -408,4 +416,10 @@ try { Publish-Export (Join-Path $dir 'missing_stage') $original; throw 'Expected
 catch { if ($_.Exception.Message -eq 'Expected promotion failure') { throw } }
 foreach ($name in @('Saved.blend', 'Saved.blend1', 'notes.txt', 'World.usd')) {
   if (-not (Test-Path -LiteralPath (Join-Path $original $name))) { throw "Failed publication lost $name" }
+}
+} finally {
+  if ($createdRunnerTemp) {
+    Remove-Item -LiteralPath $env:RUNNER_TEMP -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item Env:RUNNER_TEMP -ErrorAction SilentlyContinue
+  }
 }

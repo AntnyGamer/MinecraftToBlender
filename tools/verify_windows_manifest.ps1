@@ -44,11 +44,11 @@ try {
         throw 'Application must request normal user privileges without UI access'
     }
     $identity = $xml.SelectSingleNode('/asm:assembly/asm:assemblyIdentity', $ns)
-    $version = (Get-Content (Join-Path $PSScriptRoot '../VERSION') -Raw).Trim() + '.0'
+    $version = '1.0.0.0'
     if ($identity.name -cne 'MinecraftToBlender' -or $identity.version -cne $version) {
-        throw 'Application manifest identity does not match VERSION'
+        throw 'Application manifest identity must remain 1.0.0.0'
     }
-    Write-Host "Verified built EXE manifest: asInvoker, uiAccess=false, version=$version"
+    Write-Host "Verified built EXE manifest: asInvoker, uiAccess=false, assemblyIdentity=$version"
 } finally {
     [void][MinecraftResourceReader]::FreeLibrary($module)
 }

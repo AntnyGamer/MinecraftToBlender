@@ -27,8 +27,8 @@ func renderSampledPreview(logPath, output string, centerX, centerZ, size int) (i
 
 func previewBatchCount(centerX, centerZ, size int) int {
 	minX, minZ := centerX-size/2, centerZ-size/2
-	firstX, firstZ := int(math.Floor(float64(minX)/16)), int(math.Floor(float64(minZ)/16))
-	lastX, lastZ := int(math.Floor(float64(minX+size-1)/16)), int(math.Floor(float64(minZ+size-1)/16))
+	firstX, firstZ := floorBlockDiv(minX,16), floorBlockDiv(minZ,16)
+	lastX, lastZ := floorBlockDiv(minX+size-1,16), floorBlockDiv(minZ+size-1,16)
 	spanX, spanZ := lastX-firstX+1, lastZ-firstZ+1
 	if spanX<=0 || spanZ<=0 { return 0 }
 	// Matches Get-PreviewChunkCoordinates in Export_World.ps1.
@@ -49,8 +49,8 @@ func renderSampledPreviewExpected(logPath, output string, centerX, centerZ, size
 	// Huge regions use one averaged color per sampled chunk. Retaining every
 	// 1,024-byte BGRA tile would waste several MiB only to average it later.
 	minX, minZ := centerX-size/2, centerZ-size/2
-	firstChunkX, firstChunkZ := int(math.Floor(float64(minX)/16)), int(math.Floor(float64(minZ)/16))
-	lastChunkX, lastChunkZ := int(math.Floor(float64(minX+size-1)/16)), int(math.Floor(float64(minZ+size-1)/16))
+	firstChunkX, firstChunkZ := floorBlockDiv(minX,16), floorBlockDiv(minZ,16)
+	lastChunkX, lastChunkZ := floorBlockDiv(minX+size-1,16), floorBlockDiv(minZ+size-1,16)
 	spanX, spanZ := lastChunkX-firstChunkX+1, lastChunkZ-firstChunkZ+1
 	exact := spanX*spanZ <= 9216
 	var tiles map[[2]int][]byte

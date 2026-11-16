@@ -67,7 +67,7 @@ func TestWindowsExeVersionMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(manifestData), `version="`+want+`"`) {
-		t.Fatalf("winres/app.manifest version does not match VERSION %s: %s", want, string(manifestData))
+	if !strings.Contains(string(manifestData), `<assemblyIdentity name="MinecraftToBlender" version="1.0.0.0" type="win32"/>`) {
+		t.Fatalf("Windows assembly identity must remain 1.0.0.0: %s", string(manifestData))
 	}
 }
